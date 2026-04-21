@@ -1,7 +1,9 @@
 {
-  "_comment": "MongoDB inspection 資料庫 — Collection Schema 範例文件。Copilot 開發時參考此結構連接現有資料庫。",
+  "_comment": "MongoDB inspection 資料庫 — Collection Schema 範例文件。",
+  "_WARNING_STALE": "本檔停在 v3.4.2 時代！v3.11.2 新增約 10 個 collection 未列出（audit_accounts/filter_rules/feature_flags/twgcb_scans/twgcb_daily_stats/security_audit/nmon_timeseries/packages/patch_queue/action_logs 等）。實際 schema 以 AI/webapp/models/*.py 與運行中 MongoDB 為準。",
+  "_SEE_ALSO": "DEVELOPER.md §8 有 v3.11.2 最新 collection 列表。",
   "database": "inspection",
-  "connection": "mongodb://localhost:27017/inspection",
+  "connection": "mongodb://127.0.0.1:27017/inspection",
 
   "collections": {
 
@@ -261,8 +263,8 @@
         "hostname": "SECSVR019",
         "timestamp": "20260417_140000",
         "type": "full",
-        "local_path": "/seclog/backup/twgcb/SECSVR019/20260417_140000_full/",
-        "mgmt_path": "/seclog/backup/twgcb/20260417_140000_full/SECSVR019/",
+        "local_path": "/var/backups/inspection/twgcb/SECSVR019/20260417_140000_full/",
+        "mgmt_path": "/var/backups/inspection/twgcb/20260417_140000_full/SECSVR019/",
         "local_ok": true,
         "mgmt_ok": true,
         "created_at": "2026-04-17T14:00:00"

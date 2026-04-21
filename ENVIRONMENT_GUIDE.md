@@ -1,11 +1,31 @@
 # 環境準備指南 — 巡檢系統 Linux 部署前置作業
 
 > 本文件說明在 Linux 主機上部署巡檢系統前，需要安裝哪些套件、建立哪些目錄、
-> 開什麼帳號、設什麼權限。搭配 `setup_environment.sh` 一鍵完成。
+> 開什麼帳號、設什麼權限。
+>
+> **⚠️ 最新做法（v3.11.2+）**：直接用 [`setup_testenv.sh`](./setup_testenv.sh)
+> 一鍵完成所有步驟（含離線 RPM/pip 安裝 + 服務建立 + DB 初始化）。
+>
+> **最快部署方式**：讀 [`README.md`](./README.md)，3 行指令搞定。
 
 ---
 
-## 快速執行
+## 推薦：setup_testenv.sh（11 步離線一鍵）
+
+```bash
+cd /AI                      # 或你解壓 repo 的目錄
+sudo ./setup_testenv.sh
+```
+
+自動完成：環境檢查 → 引導設定 → 下載/解壓 deps → MongoDB RPM →
+python3-ldap → 離線 pip → 部署程式碼 → 寫 config/env/vault → 產 SSH key →
+MongoDB 初始化 → systemd → 防火牆 → HTTP 驗證。
+
+詳見 [`README.md`](./README.md)、[`DEVELOPER.md`](./DEVELOPER.md)。
+
+---
+
+## 下方為手動步驟（`setup_environment.sh` 時代，保留作為除錯/參考）
 
 ```bash
 # 上傳腳本到目標主機後
@@ -132,7 +152,7 @@ pip3 install pywinrm pysnmp
 ## 4. 需建立的目錄
 
 ```
-/seclog/                                    # 根目錄
+/var/log/inspection/                                    # 根目錄
 ├── AI/
 │   └── inspection/                         # 主安裝目錄
 │       ├── webapp/                         # Flask Web 應用程式
@@ -196,7 +216,7 @@ useradd -r -m -s /bin/bash -c "Ansible Service Account" ansible_svc
 usermod -aG systemd-journal ansible_svc
 
 # 產生金鑰
-ssh-keygen -t ed25519 -f /seclog/AI/inspection/.ssh/ansible_svc_key -N ""
+ssh-keygen -t ed25519 -f /opt/inspection/.ssh/ansible_svc_key -N ""
 ```
 
 ### 5.2 Web 應用帳號（MongoDB 內）
@@ -228,16 +248,16 @@ ssh-keygen -t ed25519 -f /seclog/AI/inspection/.ssh/ansible_svc_key -N ""
 
 | 檔案/目錄 | 權限 | 說明 |
 |-----------|------|------|
-| `/seclog/AI/inspection/.vault_pass` | 600 | Ansible Vault 密碼，僅 root 可讀 |
-| `/seclog/AI/inspection/.ssh/ansible_svc_key` | 600 | SSH 私鑰，僅 root 可讀 |
-| `/seclog/AI/inspection/.ssh/` | 700 | SSH 目錄 |
-| `/seclog/AI/inspection/webapp/config.py` | 600 | 含 SECRET_KEY，僅 root 可讀 |
-| `/seclog/AI/inspection/webapp/.env` | 600 | 含 SMTP/LDAP 密碼 |
-| `/seclog/AI/inspection/data/settings.json` | 600 | 系統設定（含 Email 憑證路徑）|
-| `/seclog/AI/inspection/run_inspection.sh` | 755 | 執行腳本 |
-| `/seclog/AI/inspection/scripts/*.sh` | 755 | 所有 Shell 腳本 |
-| `/seclog/AI/inspection/container/mongodb_data/` | 777 | MongoDB 容器寫入用 |
-| `/seclog/AI/inspection/logs/` | 755 | 日誌目錄 |
+| `/opt/inspection/.vault_pass` | 600 | Ansible Vault 密碼，僅 root 可讀 |
+| `/opt/inspection/.ssh/ansible_svc_key` | 600 | SSH 私鑰，僅 root 可讀 |
+| `/opt/inspection/.ssh/` | 700 | SSH 目錄 |
+| `/opt/inspection/webapp/config.py` | 600 | 含 SECRET_KEY，僅 root 可讀 |
+| `/opt/inspection/webapp/.env` | 600 | 含 SMTP/LDAP 密碼 |
+| `/opt/inspection/data/settings.json` | 600 | 系統設定（含 Email 憑證路徑）|
+| `/opt/inspection/run_inspection.sh` | 755 | 執行腳本 |
+| `/opt/inspection/scripts/*.sh` | 755 | 所有 Shell 腳本 |
+| `/opt/inspection/container/mongodb_data/` | 777 | MongoDB 容器寫入用 |
+| `/opt/inspection/logs/` | 755 | 日誌目錄 |
 
 ---
 
@@ -254,7 +274,7 @@ podman load -i mongodb6.tar
 podman run -d \
   --name mongodb \
   -p 127.0.0.1:27017:27017 \               # 僅監聽本機，不對外
-  -v /seclog/AI/inspection/container/mongodb_data:/data/db:Z \  # SELinux :Z
+  -v /opt/inspection/container/mongodb_data:/data/db:Z \  # SELinux :Z
   --restart=always \
   docker.io/library/mongo:6
 ```
@@ -314,7 +334,7 @@ Requires=itagent-db.service
 
 [Service]
 Type=simple
-WorkingDirectory=/seclog/AI/inspection/webapp
+WorkingDirectory=/opt/inspection/webapp
 ExecStart=/usr/bin/gunicorn --workers=4 --bind=0.0.0.0:5000 --timeout=120 app:app
 Restart=on-failure
 Environment=PYTHONUNBUFFERED=1
@@ -369,9 +389,9 @@ ufw allow 5000/tcp
 
 ```bash
 # 每日三次巡檢（預設時間）
-30 06 * * * /seclog/AI/inspection/run_inspection.sh >> /seclog/AI/inspection/logs/cron.log 2>&1
-30 13 * * * /seclog/AI/inspection/run_inspection.sh >> /seclog/AI/inspection/logs/cron.log 2>&1
-30 17 * * * /seclog/AI/inspection/run_inspection.sh >> /seclog/AI/inspection/logs/cron.log 2>&1
+30 06 * * * /opt/inspection/run_inspection.sh >> /opt/inspection/logs/cron.log 2>&1
+30 13 * * * /opt/inspection/run_inspection.sh >> /opt/inspection/logs/cron.log 2>&1
+30 17 * * * /opt/inspection/run_inspection.sh >> /opt/inspection/logs/cron.log 2>&1
 ```
 
 可在管理後台的「排程」Tab 動態調整時間。
@@ -403,9 +423,9 @@ setsebool -P container_manage_cgroup on
 | 5 | Systemd 服務 | `systemctl is-enabled itagent-db itagent-web` | enabled |
 | 6 | 防火牆 | `firewall-cmd --list-ports` | 5000/tcp |
 | 7 | Cron 排程 | `crontab -l \| grep inspection` | 3 筆排程 |
-| 8 | SSH 金鑰 | `ls -la /seclog/AI/inspection/.ssh/` | ansible_svc_key (600) |
-| 9 | config.py | `ls -la /seclog/AI/inspection/webapp/config.py` | 600 權限 |
-| 10 | 目錄結構 | `ls /seclog/AI/inspection/` | webapp/ ansible/ data/ logs/ scripts/ |
+| 8 | SSH 金鑰 | `ls -la /opt/inspection/.ssh/` | ansible_svc_key (600) |
+| 9 | config.py | `ls -la /opt/inspection/webapp/config.py` | 600 權限 |
+| 10 | 目錄結構 | `ls /opt/inspection/` | webapp/ ansible/ data/ logs/ scripts/ |
 
 ---
 
@@ -433,7 +453,7 @@ Error: error creating container storage
 **解法**：
 ```bash
 # 檢查磁碟空間
-df -h /seclog
+df -h /var/log/inspection
 
 # SELinux 暫時設為 Permissive 測試
 setenforce 0
@@ -456,7 +476,7 @@ journalctl -u itagent-web --no-pager -n 50
 **解法**：
 ```bash
 # 測試 SSH 連線
-ssh -i /seclog/AI/inspection/.ssh/ansible_svc_key ansible_svc@<target_ip>
+ssh -i /opt/inspection/.ssh/ansible_svc_key ansible_svc@<target_ip>
 
 # 測試 Ansible ping
 ansible -i inventory/hosts.yml all -m ping
@@ -469,8 +489,8 @@ ansible -i inventory/hosts.yml all -m ping
 `setup_environment.sh` 頂部的可調參數：
 
 ```bash
-INSTALL_DIR="/seclog/AI/inspection"        # 修改安裝路徑
-BACKUP_DIR="/seclog/backup"                # 修改備份路徑
+INSTALL_DIR="/opt/inspection"        # 修改安裝路徑
+BACKUP_DIR="/var/backups/inspection"                # 修改備份路徑
 FLASK_PORT=5000                            # 修改 Web 埠
 MONGO_PORT=27017                           # 修改 MongoDB 埠
 ADMIN_USER="admin"                         # 修改預設管理員帳號
