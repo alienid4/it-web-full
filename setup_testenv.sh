@@ -1,25 +1,39 @@
 #!/bin/bash
 ###############################################
-#  IT Inspection System - 測試區首次設定
+#  IT Inspection System - 一鍵離線安裝
 #  版本: v3.11.2.0-testenv
 #
-#  用途：部署 AI/ 到目標目錄、產生 config/env/vault、初始化 MongoDB
-#
-#  前置條件：
-#    - 跑 verify_stack.py 已全綠（MongoDB + Python 套件 OK）
-#    - 已 git clone / 下載 it-web-full 到 /home/sysinfra/lab/it-web-full-main
+#  前置：
+#    - RHEL 9 / Rocky Linux 9 / CentOS 9
+#    - root 權限
+#    - 已 git clone 完整 repo（含 AI/rpms/、AI/whls/）
 #
 #  用法：
-#    cd /home/sysinfra/lab/it-web-full-main
+#    cd <repo_root>
 #    sudo ./setup_testenv.sh
+#
+#  會做什麼（全部自動）：
+#    1. 環境檢查
+#    2. 引導設定（路徑/port/密碼）
+#    3. 裝 MongoDB 8 RPM（從 AI/rpms/）
+#    4. 裝 Python 套件（從 AI/whls/ 離線）
+#    5. 裝 python3-ldap（dnf from Satellite）
+#    6. 部署 AI/ → INSTALL_DIR
+#    7. 產生 SECRET_KEY、.env、.vault_pass
+#    8. 自動 ssh-keygen ansible key
+#    9. 初始化 MongoDB（superadmin + indexes）
+#   10. 建 systemd 服務並啟動
+#   11. 驗證 HTTP 200
 ###############################################
 set -e
 
 RED="\033[0;31m"; GREEN="\033[0;32m"; YELLOW="\033[1;33m"
 CYAN="\033[0;36m"; BOLD="\033[1m"; NC="\033[0m"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERSION="3.11.2.0-testenv"
+STEP=0; TOTAL=11
 
-step() { echo -e "\n${CYAN}━━━ $1 ━━━${NC}\n"; }
+step() { STEP=$((STEP+1)); echo -e "\n${CYAN}━━━ 步驟 ${STEP}/${TOTAL}：$1 ━━━${NC}\n"; }
 ok()   { echo -e "  ${GREEN}✓${NC} $1"; }
 warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 fail() { echo -e "  ${RED}✗${NC} $1"; exit 1; }
@@ -27,40 +41,47 @@ fail() { echo -e "  ${RED}✗${NC} $1"; exit 1; }
 clear
 echo -e "${GREEN}"
 echo "  ╔══════════════════════════════════════════════════╗"
-echo "  ║   IT Inspection System - 測試區首次設定          ║"
-echo "  ║   v3.11.2.0-testenv                              ║"
+echo "  ║   IT Inspection System - 一鍵離線安裝            ║"
+echo "  ║   v${VERSION}                             ║"
 echo "  ╚══════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
 # ============================================
-# Step 1: 前置檢查
+# Step 1: 環境檢查
 # ============================================
-step "前置檢查"
+step "環境檢查"
 
 [ "$(id -u)" -ne 0 ] && fail "請用 root/sudo 執行"
 ok "root 權限"
 
-[ -d "$SCRIPT_DIR/AI" ] || fail "找不到 $SCRIPT_DIR/AI/（確認你在 it-web-full-main 目錄）"
-ok "AI/ 目錄存在"
+. /etc/os-release 2>/dev/null
+ok "系統: ${PRETTY_NAME:-Unknown}"
+if ! echo "$ID $ID_LIKE" | grep -qiE "rhel|centos|rocky|fedora|almalinux"; then
+    warn "非 RHEL 系列，RPM 安裝可能不相容"
+    read -rp "  繼續？(y/n) " a; [[ ! "$a" =~ ^[Yy]$ ]] && exit 1
+fi
 
-systemctl is-active mongod &>/dev/null || fail "mongod 沒跑，先執行 sudo systemctl start mongod"
-ok "mongod 運行中"
+[ -d "$SCRIPT_DIR/AI" ] || fail "找不到 $SCRIPT_DIR/AI/"
+[ -d "$SCRIPT_DIR/AI/rpms" ] || fail "找不到 $SCRIPT_DIR/AI/rpms/ (MongoDB RPM 目錄)"
+[ -d "$SCRIPT_DIR/AI/whls" ] || fail "找不到 $SCRIPT_DIR/AI/whls/ (Python wheel 目錄)"
+ok "AI/rpms/ ($(ls $SCRIPT_DIR/AI/rpms/*.rpm 2>/dev/null | wc -l) RPM)"
+ok "AI/whls/ ($(ls $SCRIPT_DIR/AI/whls/*.whl 2>/dev/null | wc -l) wheel)"
 
 command -v python3 &>/dev/null || fail "python3 沒裝"
-python3 -c "import flask, pymongo, bcrypt" 2>/dev/null || fail "Python 套件缺（flask/pymongo/bcrypt），先跑 verify_stack.py"
-ok "Python 套件就緒"
+ok "python3 $(python3 -V 2>&1 | awk '{print $2}')"
 
 # ============================================
-# Step 2: 引導式設定
+# Step 2: 引導設定
 # ============================================
-step "引導式設定"
+step "引導設定"
 
 echo -e "  直接按 Enter 使用預設值。\n"
 
 read -rp "  安裝目錄 [/opt/inspection]: " INSTALL_DIR
 INSTALL_DIR=${INSTALL_DIR:-/opt/inspection}
+INSTALL_DIR=${INSTALL_DIR%/}
 
-read -rp "  MongoDB host [127.0.0.1]: " MONGO_HOST
+read -rp "  MongoDB host (本機用 127.0.0.1) [127.0.0.1]: " MONGO_HOST
 MONGO_HOST=${MONGO_HOST:-127.0.0.1}
 
 read -rp "  MongoDB port [27017]: " MONGO_PORT
@@ -69,7 +90,6 @@ MONGO_PORT=${MONGO_PORT:-27017}
 read -rp "  Flask 監聽 port [5000]: " FLASK_PORT
 FLASK_PORT=${FLASK_PORT:-5000}
 
-# 管理員密碼
 while true; do
     read -rsp "  superadmin 密碼（至少 8 碼）: " ADMIN_PW; echo
     [ ${#ADMIN_PW} -lt 8 ] && { warn "太短"; continue; }
@@ -78,7 +98,7 @@ while true; do
 done
 ok "密碼已設定"
 
-read -rp "  SMTP server（直接 Enter 跳過 email 功能）: " SMTP_SERVER
+read -rp "  SMTP server（Enter 跳過 email 功能）: " SMTP_SERVER
 if [ -n "$SMTP_SERVER" ]; then
     read -rp "  SMTP port [587]: " SMTP_PORT; SMTP_PORT=${SMTP_PORT:-587}
     read -rp "  SMTP user: " SMTP_USER
@@ -86,79 +106,123 @@ if [ -n "$SMTP_SERVER" ]; then
 fi
 
 echo ""
-echo -e "  ${BOLD}═══ 確認設定 ═══${NC}"
+echo -e "  ${BOLD}═══ 確認 ═══${NC}"
 echo -e "  安裝目錄: ${CYAN}${INSTALL_DIR}${NC}"
 echo -e "  MongoDB:  ${CYAN}${MONGO_HOST}:${MONGO_PORT}${NC}"
 echo -e "  Flask:    ${CYAN}:${FLASK_PORT}${NC}"
 echo -e "  SMTP:     ${CYAN}${SMTP_SERVER:-（跳過）}${NC}"
-read -rp "  確認開始？(y/n) " ans
-[[ ! "$ans" =~ ^[Yy]$ ]] && echo "取消" && exit 0
+read -rp "  開始？(y/n) " a; [[ ! "$a" =~ ^[Yy]$ ]] && exit 0
 
 # ============================================
-# Step 3: 產生 secrets
+# Step 3: 裝 MongoDB RPM（離線）
 # ============================================
-step "產生 secrets"
+step "安裝 MongoDB RPM（離線）"
 
-SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-VAULT_PASS=$(openssl rand -base64 24 2>/dev/null || python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+if systemctl is-active mongod &>/dev/null; then
+    ok "mongod 已在跑（跳過安裝）"
+else
+    rpm -Uvh --force --nodeps "$SCRIPT_DIR/AI/rpms/"*.rpm 2>&1 | grep -iE "error|preparing|installing|warning" | head -15 || true
+    mkdir -p /var/lib/mongo /var/log/mongodb
+    chown -R mongod:mongod /var/lib/mongo /var/log/mongodb 2>/dev/null || true
+    systemctl enable --now mongod
 
-ok "Flask SECRET_KEY 已產生（64 hex）"
-ok "Ansible vault 密碼已產生"
+    sleep 3
+    if systemctl is-active mongod &>/dev/null; then
+        ok "mongod 已啟動"
+    else
+        fail "mongod 啟動失敗，檢查 journalctl -u mongod -n 30"
+    fi
+fi
 
 # ============================================
-# Step 4: 部署 AI/ 到 INSTALL_DIR
+# Step 4: 裝 python3-ldap（Satellite dnf）
+# ============================================
+step "安裝 python3-ldap"
+
+if python3 -c "import ldap" 2>/dev/null; then
+    ok "python3-ldap 已裝"
+else
+    if dnf install -y python3-ldap 2>&1 | tail -5; then
+        python3 -c "import ldap" 2>/dev/null && ok "python3-ldap 裝好"
+    else
+        warn "python3-ldap dnf 失敗（Satellite 沒此套件？），LDAP 功能將不可用"
+    fi
+fi
+
+# ============================================
+# Step 5: 裝 Python 套件（離線，從 AI/whls/）
+# ============================================
+step "安裝 Python 套件（離線）"
+
+pip3 install --no-index --find-links="$SCRIPT_DIR/AI/whls/" \
+    flask pymongo bcrypt gunicorn jinja2 werkzeug blinker click itsdangerous markupsafe \
+    pywinrm requests xmltodict requests-ntlm pyspnego cryptography cffi pycparser \
+    dnspython matplotlib numpy pillow fonttools contourpy kiwisolver cycler pyparsing \
+    python-dateutil six reportlab openpyxl et_xmlfile \
+    pysnmp pysmi ply pyasn1 \
+    charset-normalizer idna urllib3 certifi typing-extensions importlib-metadata zipp packaging \
+    2>&1 | tail -5
+
+# 驗證關鍵套件
+MISSING=""
+for pkg in flask pymongo bcrypt jinja2 werkzeug ldap winrm dns matplotlib numpy; do
+    python3 -c "import $pkg" 2>/dev/null || MISSING="$MISSING $pkg"
+done
+if [ -z "$MISSING" ]; then
+    ok "所有 Python 套件就緒"
+else
+    fail "缺少套件:$MISSING"
+fi
+
+# ============================================
+# Step 6: 部署程式碼
 # ============================================
 step "部署程式碼"
 
 if [ -d "$INSTALL_DIR" ]; then
     TS=$(date +%Y%m%d_%H%M%S)
-    BAK="${INSTALL_DIR}.bak.${TS}"
-    mv "$INSTALL_DIR" "$BAK"
-    warn "舊目錄已備份到 $BAK"
+    mv "$INSTALL_DIR" "${INSTALL_DIR}.bak.${TS}"
+    warn "舊目錄備份到 ${INSTALL_DIR}.bak.${TS}"
 fi
 
 mkdir -p "$INSTALL_DIR"
-cp -a "$SCRIPT_DIR/AI/." "$INSTALL_DIR/"
-ok "程式碼複製到 $INSTALL_DIR"
+# 複製 AI/ 內容（排除 whls 和 rpms，那些只用於安裝）
+rsync -a --exclude='whls' --exclude='rpms' "$SCRIPT_DIR/AI/." "$INSTALL_DIR/" 2>/dev/null || \
+    (cd "$SCRIPT_DIR/AI" && tar cf - --exclude=whls --exclude=rpms .) | tar xf - -C "$INSTALL_DIR/"
 
-# 建執行期目錄
+ok "程式碼部署到 $INSTALL_DIR"
+
 mkdir -p "$INSTALL_DIR"/{logs,reports,data/reports,data/uploads,data/snapshots,data/audit_progress,data/linux_init_progress,data/linux_init_reports,data/security_audit_reports,data/notes,data/nmon,data/cache,.ssh}
 chmod 700 "$INSTALL_DIR/.ssh"
 ok "執行期目錄建立"
 
 # ============================================
-# Step 5: 寫 config.py / .env / .vault_pass
+# Step 7: 寫 config.py / .env / .vault_pass
 # ============================================
 step "寫入設定檔"
 
-# config.py — 若不存在就從 .example 拷貝
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+VAULT_PASS=$(openssl rand -base64 24 2>/dev/null || python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+
 CONFIG_PY="$INSTALL_DIR/webapp/config.py"
 CONFIG_EX="$INSTALL_DIR/webapp/config.py.example"
-if [ ! -f "$CONFIG_PY" ] && [ -f "$CONFIG_EX" ]; then
-    cp "$CONFIG_EX" "$CONFIG_PY"
-    ok "config.py 從 .example 建立"
-elif [ ! -f "$CONFIG_PY" ] && [ ! -f "$CONFIG_EX" ]; then
-    fail "找不到 webapp/config.py 也沒有 config.py.example，repo 不完整"
-fi
+[ ! -f "$CONFIG_PY" ] && [ -f "$CONFIG_EX" ] && cp "$CONFIG_EX" "$CONFIG_PY"
+[ -f "$CONFIG_PY" ] || fail "config.py 不存在"
 
-python3 << PYEOF
+python3 <<PYEOF
 import re
-path = "${INSTALL_DIR}/webapp/config.py"
-with open(path, "r", encoding="utf-8") as f:
-    c = f.read()
+path = "${CONFIG_PY}"
+with open(path, "r", encoding="utf-8") as f: c = f.read()
 c = re.sub(r'INSPECTION_HOME\s*=\s*".*"', 'INSPECTION_HOME = "${INSTALL_DIR}"', c)
 c = re.sub(r'SECRET_KEY\s*=\s*".*"', 'SECRET_KEY = "${SECRET_KEY}"', c)
-c = re.sub(r'"host":\s*"[^"]*"', '"host": "${MONGO_HOST}"', c)
+c = re.sub(r'"host":\s*"[^"]*"', '"host": "${MONGO_HOST}"', c, count=1)
 c = re.sub(r'"port":\s*\d+', '"port": ${MONGO_PORT}', c, count=1)
 c = re.sub(r'FLASK_PORT\s*=\s*\d+', 'FLASK_PORT = ${FLASK_PORT}', c)
-with open(path, "w", encoding="utf-8") as f:
-    f.write(c)
-print("  config.py 已更新")
+with open(path, "w", encoding="utf-8") as f: f.write(c)
 PYEOF
-chmod 600 "$INSTALL_DIR/webapp/config.py"
+chmod 600 "$CONFIG_PY"
 ok "config.py (chmod 600)"
 
-# .env
 cat > "$INSTALL_DIR/.env" <<ENVEOF
 FLASK_SECRET_KEY=${SECRET_KEY}
 FLASK_DEBUG=False
@@ -173,83 +237,70 @@ ENVEOF
 chmod 600 "$INSTALL_DIR/.env"
 ok ".env (chmod 600)"
 
-# .vault_pass
 echo "$VAULT_PASS" > "$INSTALL_DIR/.vault_pass"
 chmod 600 "$INSTALL_DIR/.vault_pass"
 ok ".vault_pass (chmod 600)"
 
 # ============================================
-# Step 6: 產生 Ansible SSH key
+# Step 8: Ansible SSH key
 # ============================================
 step "產生 Ansible SSH key"
 
 KEY="$INSTALL_DIR/.ssh/ansible_svc_key"
 if [ -f "$KEY" ]; then
-    warn "SSH key 已存在，保留"
+    ok "SSH key 已存在（保留）"
 else
     ssh-keygen -t ed25519 -C "ansible_svc@$(hostname)" -f "$KEY" -N "" -q
     date -u +%Y-%m-%dT%H:%M:%SZ > "$INSTALL_DIR/.ssh/key_created_date"
-    chmod 600 "$KEY"
-    chmod 644 "${KEY}.pub"
-    ok "新 key 已產生 → ${KEY}.pub"
+    chmod 600 "$KEY"; chmod 644 "${KEY}.pub"
+    ok "新 key: ${KEY}.pub"
 fi
 
 # ============================================
-# Step 7: 初始化 MongoDB
+# Step 9: 初始化 MongoDB
 # ============================================
 step "初始化 MongoDB"
 
-python3 << PYEOF
+python3 <<PYEOF
 import sys, bcrypt, datetime
 from pymongo import MongoClient
-
 try:
-    client = MongoClient("${MONGO_HOST}", ${MONGO_PORT}, serverSelectionTimeoutMS=3000)
+    client = MongoClient("${MONGO_HOST}", ${MONGO_PORT}, serverSelectionTimeoutMS=5000)
     client.admin.command("ping")
     db = client["inspection"]
-
-    # 建 superadmin
     if not db.users.find_one({"username": "superadmin"}):
         hashed = bcrypt.hashpw("${ADMIN_PW}".encode(), bcrypt.gensalt()).decode()
         db.users.insert_one({
-            "username": "superadmin",
-            "password": hashed,
-            "role": "superadmin",
-            "display_name": "超級管理員",
-            "must_change_password": False,
+            "username": "superadmin", "password": hashed, "role": "superadmin",
+            "display_name": "超級管理員", "must_change_password": False,
             "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         })
-        print("  ✓ superadmin 帳號已建立")
+        print("  ✓ superadmin 建立")
     else:
-        print("  ✓ superadmin 已存在（跳過）")
-
-    # 建索引
+        print("  ✓ superadmin 已存在")
     db.hosts.create_index("hostname", unique=True)
     db.inspections.create_index([("hostname", 1), ("run_date", -1)])
     db.inspections.create_index("run_id")
     db.users.create_index("username", unique=True)
-    print("  ✓ 索引建立完成")
-
+    print("  ✓ indexes OK")
 except Exception as e:
-    print(f"  ✗ 初始化失敗: {e}")
-    sys.exit(1)
+    print(f"  ✗ {e}"); sys.exit(1)
 PYEOF
 
 # ============================================
-# Step 8: 建 systemd 服務
+# Step 10: Systemd 服務
 # ============================================
-step "建立 systemd 服務"
+step "建 systemd 服務"
 
-cat > /etc/default/itagent <<ENVEOF
+cat > /etc/default/itagent <<E
 ITAGENT_HOME=${INSTALL_DIR}
-ENVEOF
+E
 
-cat > /etc/systemd/system/itagent-web.service <<SVCEOF
+cat > /etc/systemd/system/itagent-web.service <<E
 [Unit]
 Description=ITAgent Flask Web Application
 After=mongod.service network.target
 Wants=mongod.service
-
 [Service]
 Type=simple
 User=root
@@ -261,44 +312,46 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 Environment=PYTHONUNBUFFERED=1
-
 [Install]
 WantedBy=multi-user.target
-SVCEOF
+E
 
 systemctl daemon-reload
 systemctl enable itagent-web &>/dev/null
-ok "itagent-web.service 已安裝並設為開機自啟"
+ok "itagent-web.service 已裝"
 
-# 安裝 itagent 管理工具
-if [ -f "$INSTALL_DIR/itagent.sh" ]; then
+[ -f "$INSTALL_DIR/itagent.sh" ] && {
     chmod +x "$INSTALL_DIR/itagent.sh"
     ln -sf "$INSTALL_DIR/itagent.sh" /usr/local/bin/itagent
-    ok "itagent 指令已安裝到 /usr/local/bin/"
+    ok "itagent 指令已裝"
+}
+
+# 防火牆
+if command -v firewall-cmd &>/dev/null && systemctl is-active firewalld &>/dev/null; then
+    firewall-cmd --add-port=${FLASK_PORT}/tcp --permanent &>/dev/null
+    firewall-cmd --reload &>/dev/null
+    ok "防火牆已開 ${FLASK_PORT}"
 fi
 
 # ============================================
-# Step 9: 啟動 Flask 並驗證
+# Step 11: 啟動 + 驗證
 # ============================================
-step "啟動 Flask"
+step "啟動 Flask 並驗證"
 
-systemctl start itagent-web
+systemctl restart itagent-web
 sleep 3
 
 HTTP_OK=false
-for i in $(seq 1 10); do
-    if curl -s -o /dev/null "http://127.0.0.1:${FLASK_PORT}/"; then
+for i in $(seq 1 15); do
+    code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${FLASK_PORT}/" 2>/dev/null || echo 000)
+    if [[ "$code" =~ ^(200|301|302)$ ]]; then
+        ok "HTTP $code OK (port ${FLASK_PORT})"
         HTTP_OK=true
         break
     fi
     sleep 1
 done
-
-if $HTTP_OK; then
-    ok "Flask 已起，HTTP 200 (port ${FLASK_PORT})"
-else
-    warn "HTTP 還沒回應，檢查 journalctl -u itagent-web -n 30"
-fi
+$HTTP_OK || warn "HTTP 未回應，查 journalctl -u itagent-web -n 40"
 
 # ============================================
 # 完成
@@ -306,19 +359,17 @@ fi
 IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  ✓ 首次設定完成${NC}"
+echo -e "${GREEN}  ✓ 一鍵安裝完成！v${VERSION}${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════${NC}"
 echo ""
-echo -e "  管理網址:   ${CYAN}http://${IP}:${FLASK_PORT}/${NC}"
-echo -e "  管理後台:   ${CYAN}http://${IP}:${FLASK_PORT}/admin${NC}"
-echo -e "  登入帳號:   ${BOLD}superadmin${NC} / (你剛設的密碼)"
-echo ""
-echo -e "  服務管理:   ${BOLD}itagent status | start | stop | log${NC}"
-echo -e "  安裝目錄:   ${INSTALL_DIR}"
-echo -e "  Ansible key: ${INSTALL_DIR}/.ssh/ansible_svc_key.pub"
+echo -e "  管理網址: ${CYAN}http://${IP}:${FLASK_PORT}/admin${NC}"
+echo -e "  帳號: ${BOLD}superadmin${NC} / (你剛設的密碼)"
+echo -e "  安裝目錄: ${INSTALL_DIR}"
+echo -e "  SSH 公鑰: ${INSTALL_DIR}/.ssh/ansible_svc_key.pub"
+echo -e "  服務管理: ${BOLD}itagent status | log${NC}"
 echo ""
 echo -e "  ${BOLD}下一步：${NC}"
-echo -e "  1. 登入後台 → 新增主機"
-echo -e "  2. 把 Ansible 公鑰佈到目標主機的 ansible_svc 帳號"
+echo -e "  1. 瀏覽器登入 → 新增主機"
+echo -e "  2. ssh-copy-id 分發公鑰到目標主機"
 echo -e "  3. 執行第一次巡檢"
 echo ""
