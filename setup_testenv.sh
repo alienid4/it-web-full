@@ -62,8 +62,38 @@ if ! echo "$ID $ID_LIKE" | grep -qiE "rhel|centos|rocky|fedora|almalinux"; then
 fi
 
 [ -d "$SCRIPT_DIR/AI" ] || fail "找不到 $SCRIPT_DIR/AI/"
-[ -d "$SCRIPT_DIR/AI/rpms" ] || fail "找不到 $SCRIPT_DIR/AI/rpms/ (MongoDB RPM 目錄)"
-[ -d "$SCRIPT_DIR/AI/whls" ] || fail "找不到 $SCRIPT_DIR/AI/whls/ (Python wheel 目錄)"
+
+# 依賴包從 GitHub Release 下載或手動放置
+DEPS_TARBALL="inspection_offline_deps_v${VERSION%-*}.0.tar.gz"
+DEPS_URL="https://github.com/alienid4/it-web-full/releases/download/v${VERSION%-*}.0/${DEPS_TARBALL}"
+
+if [ ! -d "$SCRIPT_DIR/AI/rpms" ] || [ ! -d "$SCRIPT_DIR/AI/whls" ]; then
+    echo ""
+    echo -e "  ${YELLOW}未發現 AI/rpms/ 和 AI/whls/ — 從 Release 取得依賴包${NC}"
+
+    if [ -f "$SCRIPT_DIR/${DEPS_TARBALL}" ]; then
+        ok "找到 ${DEPS_TARBALL}（$(du -h "$SCRIPT_DIR/${DEPS_TARBALL}" | cut -f1)）"
+    elif [ -f "/tmp/${DEPS_TARBALL}" ]; then
+        ln -sf "/tmp/${DEPS_TARBALL}" "$SCRIPT_DIR/${DEPS_TARBALL}"
+        ok "用 /tmp/${DEPS_TARBALL}"
+    else
+        echo -e "  試著從 GitHub Release 下載..."
+        if curl -fL --progress-bar -o "$SCRIPT_DIR/${DEPS_TARBALL}" "$DEPS_URL" 2>&1; then
+            ok "下載完成"
+        else
+            fail "下載失敗。請手動下載後放到 $SCRIPT_DIR/：
+    $DEPS_URL
+  或用 Win10 下載後 FTP 到測試機 $SCRIPT_DIR/${DEPS_TARBALL}"
+        fi
+    fi
+
+    echo -e "  解壓中..."
+    tar -xzf "$SCRIPT_DIR/${DEPS_TARBALL}" -C "$SCRIPT_DIR/AI/" || fail "解壓失敗"
+    ok "rpms/ + whls/ 已解到 $SCRIPT_DIR/AI/"
+fi
+
+[ -d "$SCRIPT_DIR/AI/rpms" ] || fail "AI/rpms/ 仍不存在"
+[ -d "$SCRIPT_DIR/AI/whls" ] || fail "AI/whls/ 仍不存在"
 ok "AI/rpms/ ($(ls $SCRIPT_DIR/AI/rpms/*.rpm 2>/dev/null | wc -l) RPM)"
 ok "AI/whls/ ($(ls $SCRIPT_DIR/AI/whls/*.whl 2>/dev/null | wc -l) wheel)"
 

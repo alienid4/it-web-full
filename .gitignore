@@ -64,3 +64,8 @@ deps_build/
 packages/
 
 
+
+# Offline install deps (use GitHub Releases, not repo)
+inspection_offline_deps_v*.tar.gz
+AI/rpms/
+AI/whls/
