@@ -1,0 +1,58 @@
+# check_system/tasks/windows.yml
+# Windows: Swap/Uptime/Users/FailLogin/Load via SSH + PowerShell
+
+- name: Windows - Get system info
+  raw: 'powershell -Command "$pf=Get-WmiObject Win32_PageFileUsage -EA SilentlyContinue; $pfT=if($pf){$pf.AllocatedBaseSize}else{0}; $pfU=if($pf){$pf.CurrentUsage}else{0}; $pfP=if($pfT -gt 0){[math]::Round($pfU/$pfT*100,1)}else{0}; $os=Get-CimInstance Win32_OperatingSystem; $bt=$os.LastBootUpTime.ToString(''yyyy-MM-dd HH:mm:ss''); $up=New-TimeSpan -Start $os.LastBootUpTime -End (Get-Date); $upStr=\"up $($up.Days) days, $($up.Hours) hours\"; $uc=0; try{$uc=(query user 2>$null|Select -Skip 1).Count}catch{}; $cc=(Get-WmiObject Win32_Processor).NumberOfLogicalProcessors; @{swap_total=$pfT;swap_used=$pfU;swap_pct=$pfP;boot_time=$bt;uptime=$upStr;user_count=$uc;cpu_count=$cc}|ConvertTo-Json"'
+  register: win_sys_raw
+  changed_when: false
+
+- name: Windows - Parse system info
+  set_fact:
+    _win_sys: "{{ win_sys_raw.stdout | trim | from_json }}"
+
+- name: Windows - Get failed logins
+  raw: 'powershell -Command "try{$evts=Get-WinEvent -FilterHashtable @{LogName=''Security'';Id=4625} -MaxEvents 200 -EA Stop; $c=@{}; $raw=@(); foreach($e in $evts){$u=$e.Properties[5].Value; if($u){if($c.ContainsKey($u)){$c[$u]++}else{$c[$u]=1}; if($raw.Count -lt 20){$raw+=@{user=$u;source=$e.Properties[19].Value;time=$e.TimeCreated.ToString(''yyyy-MM-dd HH:mm'')}}}}; $top=$c.GetEnumerator()|Sort Value -Desc|Select -First 10|%{@{user=$_.Key;count=$_.Value}}; @{total=($c.Values|Measure -Sum).Sum;top=@($top);raw=@($raw)}|ConvertTo-Json -Depth 3}catch{@{total=0;top=@();raw=@()}|ConvertTo-Json -Depth 3}"'
+  register: win_fl_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: Windows - Parse failed logins
+  set_fact:
+    _win_fl: "{{ (win_fl_raw.stdout | trim | from_json) if win_fl_raw is succeeded and win_fl_raw.stdout | trim != '' else {'total':0,'top':[],'raw':[]} }}"
+
+- name: Windows - Set system result
+  set_fact:
+    system_result:
+      swap:
+        total_mb: "{{ _win_sys.swap_total | default(0) }}"
+        used_mb: "{{ _win_sys.swap_used | default(0) }}"
+        percent: "{{ _win_sys.swap_pct | default(0) }}"
+        status: >-
+          {{ 'error' if (_win_sys.swap_pct | default(0) | float) >= 80
+             else 'warn' if (_win_sys.swap_pct | default(0) | float) >= 50
+             else 'ok' }}
+      io:
+        devices: []
+        max_busy: 0
+        status: "ok"
+      load:
+        load_1: "0"
+        load_5: "0"
+        load_15: "0"
+        cpu_count: "{{ _win_sys.cpu_count | default(1) }}"
+        status: "ok"
+      uptime:
+        boot_time: "{{ _win_sys.boot_time | default('unknown') }}"
+        duration: "{{ _win_sys.uptime | default('') }}"
+      users:
+        count: "{{ _win_sys.user_count | default(0) }}"
+        users: []
+      faillogin:
+        total_failures: "{{ _win_fl.total | default(0) }}"
+        top_offenders: "{{ (_win_fl.top | default([]) | selectattr('count', 'ge', 5) | list)[:3] }}"
+        raw_entries: "{{ _win_fl.raw | default([]) }}"
+        locked_accounts: []
+        status: >-
+          {{ 'warn' if (_win_fl.top | default([]) | selectattr('count', 'ge', 5) | list | length) > 0
+             else 'ok' }}
+      status: "ok"

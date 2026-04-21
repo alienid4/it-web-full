@@ -1,0 +1,44 @@
+# check_disk/tasks/windows.yml
+# Windows 磁碟巡檢 via SSH + PowerShell
+
+- name: Windows - Get disk info
+  raw: 'powershell -Command "Get-WmiObject Win32_LogicalDisk -Filter ''DriveType=3'' | Select-Object DeviceID, @{N=''Size'';E={[math]::Round($_.Size/1GB,1)}}, @{N=''Used'';E={[math]::Round(($_.Size-$_.FreeSpace)/1GB,1)}}, @{N=''Free'';E={[math]::Round($_.FreeSpace/1GB,1)}}, @{N=''Percent'';E={[math]::Round(($_.Size-$_.FreeSpace)/$_.Size*100,0)}} | ConvertTo-Json"'
+  register: win_disk_raw
+  changed_when: false
+
+- name: Windows - Parse disk
+  set_fact:
+    _win_disks_raw: "{{ win_disk_raw.stdout | trim | from_json }}"
+
+- name: Windows - Normalize to list
+  set_fact:
+    _win_disks: "{{ [_win_disks_raw] if _win_disks_raw is mapping else _win_disks_raw }}"
+
+- name: Windows - Build partitions
+  set_fact:
+    parsed_partitions: "{{ parsed_partitions | default([]) + [_part] }}"
+  vars:
+    _part:
+      mount: "{{ item.DeviceID }}"
+      size: "{{ item.Size }}G"
+      used: "{{ item.Used }}G"
+      free: "{{ item.Free }}G"
+      percent: "{{ item.Percent | int }}"
+      status: >-
+        {{ 'error' if (item.Percent | int) >= (disk_crit | int)
+           else 'warn' if (item.Percent | int) >= (disk_warn | int)
+           else 'ok' }}
+  loop: "{{ _win_disks }}"
+  loop_control:
+    label: "{{ item.DeviceID }}"
+
+- name: Windows - Set disk result
+  set_fact:
+    disk_result:
+      status: >-
+        {{ 'error' if parsed_partitions | default([]) | selectattr('status', 'eq', 'error') | list | length > 0
+           else 'warn' if parsed_partitions | default([]) | selectattr('status', 'eq', 'warn') | list | length > 0
+           else 'ok' }}
+      warn_threshold: "{{ disk_warn }}"
+      crit_threshold: "{{ disk_crit }}"
+      partitions: "{{ parsed_partitions | default([]) }}"

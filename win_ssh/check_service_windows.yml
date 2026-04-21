@@ -1,0 +1,30 @@
+# check_service/tasks/windows.yml
+# Windows 服務狀態 via SSH + PowerShell
+
+- name: Windows - Get services
+  raw: 'powershell -Command "$svcs=@(); foreach($name in @(''sshd'',''W3SVC'',''wuauserv'',''WinDefend'')){$s=Get-Service -Name $name -EA SilentlyContinue; if($s){$svcs+=@{name=$s.Name;display=$s.DisplayName;status=$s.Status.ToString()}}else{$svcs+=@{name=$name;display=$name;status=''NotFound''}}}; $svcs|ConvertTo-Json"'
+  register: win_svc_raw
+  changed_when: false
+
+- name: Windows - Parse services
+  set_fact:
+    _win_svcs_raw: "{{ win_svc_raw.stdout | trim | from_json }}"
+
+- name: Windows - Normalize to list
+  set_fact:
+    _win_svcs: "{{ [_win_svcs_raw] if _win_svcs_raw is mapping else _win_svcs_raw }}"
+
+- name: Windows - Build service list
+  set_fact:
+    _svc_list: "{{ _svc_list | default([]) + [{'name': item.name, 'status': 'active' if item.status == 'Running' else item.status}] }}"
+  loop: "{{ _win_svcs }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Windows - Set service result
+  set_fact:
+    service_result:
+      status: >-
+        {{ 'error' if _svc_list | default([]) | selectattr('status', 'ne', 'active') | selectattr('status', 'ne', 'NotFound') | list | length > 0
+           else 'ok' }}
+      services: "{{ _svc_list | default([]) }}"

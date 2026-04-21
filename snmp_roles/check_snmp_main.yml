@@ -1,0 +1,126 @@
+# check_snmp/tasks/main.yml
+# 網路設備通用 SNMP 監控
+# 支援: Cisco / Juniper / Aruba / Fortinet / 其他 SNMP 設備
+# 連線方式: 從 ansible-host (localhost) 執行 snmpget/snmpwalk 到目標 IP
+
+- name: SNMP - Get system description
+  shell: "snmpget -v {{ snmp_version }} -c {{ snmp_community }} -t {{ snmp_timeout }} {{ ansible_host }} {{ oid_sys_descr }} 2>/dev/null | sed 's/.*STRING: //'"
+  register: snmp_descr_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: SNMP - Get uptime
+  shell: "snmpget -v {{ snmp_version }} -c {{ snmp_community }} -t {{ snmp_timeout }} {{ ansible_host }} {{ oid_sys_uptime }} 2>/dev/null | sed 's/.*Timeticks: //' | sed 's/(.*//' "
+  register: snmp_uptime_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: SNMP - Get system name
+  shell: "snmpget -v {{ snmp_version }} -c {{ snmp_community }} -t {{ snmp_timeout }} {{ ansible_host }} {{ oid_sys_name }} 2>/dev/null | sed 's/.*STRING: //'"
+  register: snmp_name_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+# Interface status
+- name: SNMP - Get interface descriptions
+  shell: "snmpwalk -v {{ snmp_version }} -c {{ snmp_community }} -t {{ snmp_timeout }} {{ ansible_host }} {{ oid_if_descr }} 2>/dev/null | awk -F'STRING: ' '{print NR\"|\"$2}'"
+  register: snmp_if_descr_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: SNMP - Get interface oper status
+  shell: "snmpwalk -v {{ snmp_version }} -c {{ snmp_community }} -t {{ snmp_timeout }} {{ ansible_host }} {{ oid_if_oper_status }} 2>/dev/null | awk -F'INTEGER: ' '{print $2}'"
+  register: snmp_if_status_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: SNMP - Get interface errors (in)
+  shell: "snmpwalk -v {{ snmp_version }} -c {{ snmp_community }} -t {{ snmp_timeout }} {{ ansible_host }} {{ oid_if_in_errors }} 2>/dev/null | awk -F'Counter32: ' '{print $2}' | head -20"
+  register: snmp_if_inerr_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: SNMP - Get interface errors (out)
+  shell: "snmpwalk -v {{ snmp_version }} -c {{ snmp_community }} -t {{ snmp_timeout }} {{ ansible_host }} {{ oid_if_out_errors }} 2>/dev/null | awk -F'Counter32: ' '{print $2}' | head -20"
+  register: snmp_if_outerr_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+# Build interfaces list
+- name: SNMP - Build interface list
+  set_fact:
+    _snmp_interfaces: "{{ _snmp_interfaces | default([]) + [_if_item] }}"
+  vars:
+    _if_names: "{{ snmp_if_descr_raw.stdout_lines | default([]) }}"
+    _if_status: "{{ snmp_if_status_raw.stdout_lines | default([]) }}"
+    _if_inerr: "{{ snmp_if_inerr_raw.stdout_lines | default([]) }}"
+    _if_outerr: "{{ snmp_if_outerr_raw.stdout_lines | default([]) }}"
+    _idx: "{{ ansible_loop.index0 }}"
+    _if_item:
+      name: "{{ item.split('|')[1] | default('if' + _idx | string) | trim }}"
+      status: "{{ 'up' if (_if_status[_idx | int] | default('2') | trim) == '1' else 'down' }}"
+      in_errors: "{{ _if_inerr[_idx | int] | default('0') | trim }}"
+      out_errors: "{{ _if_outerr[_idx | int] | default('0') | trim }}"
+  loop: "{{ _if_names }}"
+  loop_control:
+    extended: yes
+    label: "{{ item.split('|')[1] | default('unknown') | trim }}"
+  when: snmp_if_descr_raw is succeeded and snmp_if_descr_raw.stdout != ""
+
+# Vendor-specific CPU/Memory (try common OIDs)
+- name: SNMP - Try Cisco CPU OID
+  shell: "snmpget -v {{ snmp_version }} -c {{ snmp_community }} -t {{ snmp_timeout }} {{ ansible_host }} 1.3.6.1.4.1.9.9.109.1.1.1.1.8.1 2>/dev/null | awk -F'INTEGER: |Gauge32: ' '{print $2}'"
+  register: snmp_cisco_cpu
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: SNMP - Try generic CPU OID (HOST-RESOURCES)
+  shell: "snmpget -v {{ snmp_version }} -c {{ snmp_community }} -t {{ snmp_timeout }} {{ ansible_host }} 1.3.6.1.2.1.25.3.3.1.2.1 2>/dev/null | awk -F'INTEGER: ' '{print $2}'"
+  register: snmp_hr_cpu
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: SNMP - Try memory OIDs (HOST-RESOURCES)
+  shell: "snmpget -v {{ snmp_version }} -c {{ snmp_community }} -t {{ snmp_timeout }} {{ ansible_host }} 1.3.6.1.2.1.25.2.2.0 2>/dev/null | awk -F'INTEGER: ' '{print $2}'"
+  register: snmp_hr_mem
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+# Determine CPU value
+- name: SNMP - Set CPU value
+  set_fact:
+    _snmp_cpu: "{{ snmp_cisco_cpu.stdout | default('') | trim if (snmp_cisco_cpu.stdout | default('') | trim) != '' else snmp_hr_cpu.stdout | default('0') | trim }}"
+
+# Count interface issues
+- name: SNMP - Count issues
+  set_fact:
+    _down_count: "{{ (_snmp_interfaces | default([]) | selectattr('status', 'eq', 'down') | list | length) }}"
+    _error_count: "{{ (_snmp_interfaces | default([]) | map(attribute='in_errors') | map('int') | sum) + (_snmp_interfaces | default([]) | map(attribute='out_errors') | map('int') | sum) }}"
+
+# Final SNMP result
+- name: Set snmp_result
+  set_fact:
+    snmp_result:
+      reachable: "{{ snmp_descr_raw is succeeded and snmp_descr_raw.stdout != '' }}"
+      description: "{{ snmp_descr_raw.stdout | default('unreachable') | trim }}"
+      sys_name: "{{ snmp_name_raw.stdout | default('') | trim }}"
+      uptime: "{{ snmp_uptime_raw.stdout | default('') | trim }}"
+      cpu_percent: "{{ _snmp_cpu | default('0') }}"
+      interfaces: "{{ _snmp_interfaces | default([]) }}"
+      interface_count: "{{ _snmp_interfaces | default([]) | length }}"
+      down_count: "{{ _down_count | default(0) }}"
+      total_errors: "{{ _error_count | default(0) }}"
+      status: >-
+        {{ 'error' if (snmp_descr_raw is failed or snmp_descr_raw.stdout == '')
+           else 'warn' if ((_down_count | default(0) | int) > 0) or ((_error_count | default(0) | int) > (snmp_error_threshold | int))
+           else 'ok' }}

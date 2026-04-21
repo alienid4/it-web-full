@@ -1,0 +1,60 @@
+# Nuxt dev/build outputs
+.output
+.data
+.nuxt
+.nitro
+.cache
+dist
+
+# Node dependencies
+node_modules
+
+# Logs
+logs
+*.log
+
+# Misc
+.DS_Store
+.fleet
+.idea
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Large deploy packages (keep out of git)
+*.tar.gz
+*.zip
+*.tar.gz.doc
+inspection_deploy_v*/
+
+# Generated / temp outputs
+b64_output*.txt
+tmp/
+tmp_*
+deploy_pkg/
+audit_build/
+audit_fix/
+backup_build/
+svg_build/
+security_build/
+
+# OS / editor
+Thumbs.db
+desktop.ini
+
+# Personal / unrelated content (not part of it-web-full)
+AI LAB/
+.claude/
+admin_build/
+snake-game/
+
+# Duplicates of root-level docs (keep only root copies)
+devkit/COPILOT_PROMPT.md
+devkit/DB_SCHEMA.json
+devkit/ENVIRONMENT_GUIDE.md
+devkit/FULL_SYSTEM_SPEC.md
+devkit/README.md
+devkit/setup_environment.sh
+

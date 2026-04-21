@@ -1,0 +1,65 @@
+# check_as400/tasks/main.yml
+# IBM AS/400 (IBM i) SNMP 監控
+# 從 ansible-host (localhost) 透過 SNMP 採集
+
+- name: AS400 - Get system description
+  shell: "snmpget -v {{ as400_snmp_version }} -c {{ as400_snmp_community }} -t 10 {{ ansible_host }} {{ oid_sys_descr }} 2>/dev/null | sed 's/.*STRING: //'"
+  register: as400_descr_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: AS400 - Get uptime
+  shell: "snmpget -v {{ as400_snmp_version }} -c {{ as400_snmp_community }} -t 10 {{ ansible_host }} {{ oid_sys_uptime }} 2>/dev/null | sed 's/.*Timeticks: //' | sed 's/(.*//' "
+  register: as400_uptime_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: AS400 - Get CPU utilization
+  shell: "snmpget -v {{ as400_snmp_version }} -c {{ as400_snmp_community }} -t 10 {{ ansible_host }} {{ oid_as400_cpu }} 2>/dev/null | awk -F'INTEGER: |Gauge32: ' '{print $2}'"
+  register: as400_cpu_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: AS400 - Get ASP utilization
+  shell: "snmpget -v {{ as400_snmp_version }} -c {{ as400_snmp_community }} -t 10 {{ ansible_host }} {{ oid_as400_asp }} 2>/dev/null | awk -F'INTEGER: |Gauge32: ' '{print $2}'"
+  register: as400_asp_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: AS400 - Get active jobs
+  shell: "snmpget -v {{ as400_snmp_version }} -c {{ as400_snmp_community }} -t 10 {{ ansible_host }} {{ oid_as400_jobs }} 2>/dev/null | awk -F'INTEGER: |Gauge32: ' '{print $2}'"
+  register: as400_jobs_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: AS400 - Get interactive users
+  shell: "snmpget -v {{ as400_snmp_version }} -c {{ as400_snmp_community }} -t 10 {{ ansible_host }} {{ oid_as400_users }} 2>/dev/null | awk -F'INTEGER: |Gauge32: ' '{print $2}'"
+  register: as400_users_raw
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: AS400 - Set result
+  set_fact:
+    as400_result:
+      reachable: "{{ as400_descr_raw is succeeded and as400_descr_raw.stdout != '' }}"
+      description: "{{ as400_descr_raw.stdout | default('unreachable') | trim }}"
+      uptime: "{{ as400_uptime_raw.stdout | default('') | trim }}"
+      cpu_percent: "{{ as400_cpu_raw.stdout | default('0') | trim }}"
+      asp_percent: "{{ as400_asp_raw.stdout | default('0') | trim }}"
+      active_jobs: "{{ as400_jobs_raw.stdout | default('0') | trim }}"
+      interactive_users: "{{ as400_users_raw.stdout | default('0') | trim }}"
+      asp_status: >-
+        {{ 'error' if (as400_asp_raw.stdout | default('0') | trim | int) >= (as400_asp_crit | int)
+           else 'warn' if (as400_asp_raw.stdout | default('0') | trim | int) >= (as400_asp_warn | int)
+           else 'ok' }}
+      status: >-
+        {{ 'error' if (as400_descr_raw is failed or as400_descr_raw.stdout == '')
+           or (as400_asp_raw.stdout | default('0') | trim | int) >= (as400_asp_crit | int)
+           else 'warn' if (as400_asp_raw.stdout | default('0') | trim | int) >= (as400_asp_warn | int)
+           else 'ok' }}

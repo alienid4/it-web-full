@@ -1,0 +1,50 @@
+# check_system/tasks/windows.yml
+# Windows Swap/Uptime/Users/FailLogin via SSH
+
+- name: Windows - Get system info
+  raw: 'powershell -Command "$pf=Get-WmiObject Win32_PageFileUsage -EA SilentlyContinue; $pfT=0; $pfU=0; if($pf){$pfT=$pf.AllocatedBaseSize;$pfU=$pf.CurrentUsage}; $pfP=0; if($pfT -gt 0){$pfP=[math]::Round($pfU/$pfT*100,1)}; $os=Get-CimInstance Win32_OperatingSystem; $bt=$os.LastBootUpTime.ToString(''yyyy-MM-dd HH:mm:ss''); $up=New-TimeSpan -Start $os.LastBootUpTime -End (Get-Date); $cc=(Get-WmiObject Win32_Processor).NumberOfLogicalProcessors; $uc=0; try{$q=query user 2>$null; if($q){$uc=($q|Select-Object -Skip 1).Count}}catch{}; @{swap_total=$pfT;swap_used=$pfU;swap_pct=$pfP;boot_time=$bt;uptime=\"up $($up.Days) days, $($up.Hours) hours\";user_count=$uc;cpu_count=$cc}|ConvertTo-Json"'
+  register: win_sys_raw
+  changed_when: false
+
+- name: Windows - Parse system
+  set_fact:
+    _wsys: "{{ win_sys_raw.stdout | trim | from_json }}"
+
+- name: Windows - Get failed logins
+  raw: 'powershell -Command "try{$evts=Get-WinEvent -FilterHashtable @{LogName=''Security'';Id=4625} -MaxEvents 200 -EA Stop; $c=@{}; $raw=@(); foreach($e in $evts){$u=$e.Properties[5].Value; if($u){if($c.ContainsKey($u)){$c[$u]++}else{$c[$u]=1}; if($raw.Count -lt 20){$raw+=@{user=$u;source=$e.Properties[19].Value;time=$e.TimeCreated.ToString(''yyyy-MM-dd HH:mm'')}}}}; $top=@(); foreach($k in ($c.GetEnumerator()|Sort-Object Value -Desc|Select -First 10)){$top+=@{user=$k.Key;count=$k.Value}}; @{total=($c.Values|Measure-Object -Sum).Sum;top=$top;raw=$raw}|ConvertTo-Json -Depth 3}catch{@{total=0;top=@();raw=@()}|ConvertTo-Json -Depth 3}"'
+  register: win_fl_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: Windows - Parse faillogin
+  set_fact:
+    _wfl: "{{ (win_fl_raw.stdout | trim | from_json) if win_fl_raw is succeeded and win_fl_raw.stdout | trim != '' and win_fl_raw.stdout | trim | first == '{' else {'total':0,'top':[],'raw':[]} }}"
+
+- name: Windows - Set system result
+  set_fact:
+    system_result:
+      swap:
+        total_mb: "{{ _wsys.swap_total | default(0) }}"
+        used_mb: "{{ _wsys.swap_used | default(0) }}"
+        percent: "{{ _wsys.swap_pct | default(0) }}"
+        status: "{{ 'error' if (_wsys.swap_pct | default(0) | float) >= 80 else 'warn' if (_wsys.swap_pct | default(0) | float) >= 50 else 'ok' }}"
+      io: {"devices":[],"max_busy":0,"status":"ok"}
+      load:
+        load_1: "0"
+        load_5: "0"
+        load_15: "0"
+        cpu_count: "{{ _wsys.cpu_count | default(1) }}"
+        status: "ok"
+      uptime:
+        boot_time: "{{ _wsys.boot_time | default('unknown') }}"
+        duration: "{{ _wsys.uptime | default('') }}"
+      users:
+        count: "{{ _wsys.user_count | default(0) }}"
+        users: []
+      faillogin:
+        total_failures: "{{ _wfl.total | default(0) }}"
+        top_offenders: "{{ (_wfl.top | default([]) | selectattr('count', 'ge', 5) | list)[:3] }}"
+        raw_entries: "{{ _wfl.raw | default([]) }}"
+        locked_accounts: []
+        status: "{{ 'warn' if (_wfl.top | default([]) | selectattr('count', 'ge', 5) | list | length) > 0 else 'ok' }}"
+      status: "ok"

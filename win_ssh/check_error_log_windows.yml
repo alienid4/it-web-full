@@ -1,0 +1,24 @@
+# check_error_log/tasks/windows.yml
+# Windows 事件檢視器 via SSH + PowerShell
+
+- name: Windows - Get system errors
+  raw: 'powershell -Command "$since=(Get-Date).AddHours(-24); $evts=Get-WinEvent -FilterHashtable @{LogName=''System'';Level=1,2,3;StartTime=$since} -MaxEvents 50 -EA SilentlyContinue; $r=@(); foreach($e in $evts){$r+=@{time=$e.TimeCreated.ToString(''HH:mm:ss'');level=switch($e.Level){1{''crit''}2{''error''}3{''warn''}default{''info''}};message=$e.Message.Substring(0,[Math]::Min(150,$e.Message.Length))}}; @{error_count=($r|?{$_.level -in @(''error'',''crit'')}).Count;warn_count=($r|?{$_.level -eq ''warn''}).Count;entries=$r}|ConvertTo-Json -Depth 3"'
+  register: win_elog_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: Windows - Parse error log
+  set_fact:
+    _win_elog: "{{ (win_elog_raw.stdout | trim | from_json) if win_elog_raw is succeeded and win_elog_raw.stdout | trim != '' else {'error_count':0,'warn_count':0,'entries':[]} }}"
+
+- name: Windows - Set error log result
+  set_fact:
+    error_log_result:
+      status: >-
+        {{ 'error' if (_win_elog.error_count | default(0) | int) > 0
+           else 'warn' if (_win_elog.warn_count | default(0) | int) > 0
+           else 'ok' }}
+      error_count: "{{ _win_elog.error_count | default(0) }}"
+      warn_count: "{{ _win_elog.warn_count | default(0) }}"
+      log_file: "Windows Event Log (System)"
+      entries: "{{ _win_elog.entries | default([]) }}"

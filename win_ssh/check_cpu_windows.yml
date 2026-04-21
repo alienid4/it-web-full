@@ -1,0 +1,31 @@
+# check_cpu/tasks/windows.yml
+# Windows CPU/Memory via SSH + PowerShell
+
+- name: Windows - Get CPU and Memory
+  raw: 'powershell -Command "$cpu=(Get-WmiObject Win32_Processor|Measure-Object -Property LoadPercentage -Average).Average; $os=Get-WmiObject Win32_OperatingSystem; $mt=[math]::Round($os.TotalVisibleMemorySize/1KB,0); $mf=[math]::Round($os.FreePhysicalMemory/1KB,0); $mu=$mt-$mf; $mp=[math]::Round($mu/$mt*100,0); @{cpu=$cpu;mem_total=$mt;mem_used=$mu;mem_free=$mf;mem_pct=$mp}|ConvertTo-Json"'
+  register: win_cpu_raw
+  changed_when: false
+
+- name: Windows - Parse CPU/Memory
+  set_fact:
+    _win_cpu: "{{ win_cpu_raw.stdout | trim | from_json }}"
+
+- name: Windows - Set CPU result
+  set_fact:
+    cpu_result:
+      cpu_percent: "{{ _win_cpu.cpu | default(0) }}"
+      mem_percent: "{{ _win_cpu.mem_pct | default(0) }}"
+      mem_total_mb: "{{ _win_cpu.mem_total | default(0) }}"
+      mem_used_mb: "{{ _win_cpu.mem_used | default(0) }}"
+      cpu_status: >-
+        {{ 'error' if (_win_cpu.cpu | default(0) | int) >= (cpu_crit | int)
+           else 'warn' if (_win_cpu.cpu | default(0) | int) >= (cpu_warn | int)
+           else 'ok' }}
+      mem_status: >-
+        {{ 'error' if (_win_cpu.mem_pct | default(0) | int) >= (mem_crit | int)
+           else 'warn' if (_win_cpu.mem_pct | default(0) | int) >= (mem_warn | int)
+           else 'ok' }}
+      status: >-
+        {{ 'error' if ((_win_cpu.cpu | default(0) | int) >= (cpu_crit | int)) or ((_win_cpu.mem_pct | default(0) | int) >= (mem_crit | int))
+           else 'warn' if ((_win_cpu.cpu | default(0) | int) >= (cpu_warn | int)) or ((_win_cpu.mem_pct | default(0) | int) >= (mem_warn | int))
+           else 'ok' }}

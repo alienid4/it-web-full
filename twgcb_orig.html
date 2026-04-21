@@ -1,0 +1,913 @@
+{% extends "base.html" %}
+{% block title %}TWGCB 合規檢查{% endblock %}
+{% block content %}
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+  <h1 style="margin:0;">TWGCB 合規檢查</h1>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <span id="overallRate" style="font-size:22px;font-weight:700;font-family:JetBrains Mono,monospace;"></span>
+    <button class="btn btn-primary" onclick="scanAll()">執行掃描</button>
+    
+    <button class="btn btn-secondary" onclick="exportExcel()">匯出 Excel</button>
+    <a href="/twgcb-report" class="btn btn-secondary" style="text-decoration:none;">產生報表</a>
+    <a href="/twgcb-settings" class="btn btn-secondary" style="text-decoration:none;">設定管理</a>
+  </div>
+</div>
+
+<div id="scanProgress" style="display:none;margin-bottom:16px;">
+  <div style="background:#E8F5E9;border-radius:12px;padding:16px 20px;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+      <div class="spinner"></div>
+      <span id="scanMsg" style="font-weight:600;font-size:14px;">掃描中，請稍候...</span>
+    </div>
+    <div style="height:4px;background:#c8e6c9;border-radius:2px;overflow:hidden;">
+      <div id="scanBar" style="height:100%;width:30%;background:var(--g1);border-radius:2px;animation:indeterminate 1.5s ease-in-out infinite;"></div>
+    </div>
+    <div id="scanDetail" style="font-size:12px;color:var(--c3);margin-top:6px;"></div>
+  </div>
+</div>
+<style>
+@keyframes indeterminate {
+  0% { transform:translateX(-100%); width:30%; }
+  50% { transform:translateX(150%); width:50%; }
+  100% { transform:translateX(400%); width:30%; }
+}
+</style>
+
+<!-- TWGCB 統計卡片 -->
+<div id="twgcbStatsCard" style="margin-bottom:20px;display:none;">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+    <!-- 總覽 -->
+    <div style="background:linear-gradient(135deg,var(--g1) 0%,var(--g2) 100%);color:white;padding:16px 20px;border-radius:12px;">
+      <div style="font-size:12px;opacity:0.9;">總體合規率</div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px;">
+        <span id="statRate" style="font-size:36px;font-weight:700;font-family:JetBrains Mono,monospace;">-</span>
+        <span style="font-size:14px;">%</span>
+      </div>
+      <div id="statCounts" style="font-size:11px;opacity:0.85;margin-top:6px;">-</div>
+    </div>
+
+    <!-- 按主機 -->
+    <div style="background:white;padding:16px 20px;border-radius:12px;border:1px solid #eee;">
+      <div style="font-size:12px;color:var(--c3);margin-bottom:8px;font-weight:600;">各主機合規率</div>
+      <div id="statByHost" style="font-size:12px;"></div>
+    </div>
+
+    <!-- 按分類 -->
+    <div style="background:white;padding:16px 20px;border-radius:12px;border:1px solid #eee;">
+      <div style="font-size:12px;color:var(--c3);margin-bottom:8px;font-weight:600;">各類別通過率</div>
+      <div id="statByCategory" style="font-size:12px;"></div>
+    </div>
+
+    <!-- FAIL 熱點 -->
+    <div style="background:white;padding:16px 20px;border-radius:12px;border:1px solid #eee;">
+      <div style="font-size:12px;color:var(--c3);margin-bottom:8px;font-weight:600;">失敗項目 Top 5</div>
+      <div id="statTopFails" style="font-size:12px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- OS Tab -->
+<div class="os-tabs">
+  <button class="os-tab active" onclick="switchOS('linux')">Linux <span class="os-tab-count" id="countLinux">0</span></button>
+  <button class="os-tab" onclick="switchOS('windows')">Windows <span class="os-tab-count" id="countWindows">0</span></button>
+  <button class="os-tab" onclick="switchOS('aix')">AIX <span class="os-tab-count" id="countAix">0</span></button>
+  <button class="os-tab" onclick="switchOS('as400')">AS/400 <span class="os-tab-count" id="countAs400">0</span></button>
+</div>
+
+<!-- 篩選列 -->
+<div class="filter-bar">
+  <input type="text" id="filterSearch" class="input-field" style="flex:1;min-width:180px;" placeholder="搜尋主機、系統別、AP負責人..." oninput="applyFilter()">
+  <select id="filterSystem" class="input-field" onchange="applyFilter()"><option value="">全部系統</option></select>
+  <select id="filterTier" class="input-field" onchange="applyFilter()">
+    <option value="">全部級別</option><option value="金">金</option><option value="銀">銀</option><option value="銅">銅</option>
+  </select>
+  <label class="toggle-label">只顯示異常
+    <input type="checkbox" id="toggleAbnormal" checked onchange="applyFilter()">
+    <span class="toggle-slider"></span>
+  </label>
+  <button class="btn btn-secondary btn-sm2" onclick="toggleAllCats(true)">全部展開</button>
+  <button class="btn btn-secondary btn-sm2" onclick="toggleAllCats(false)">全部收合</button>
+</div>
+
+<!-- AS/400 匯入區 (只在 AS/400 tab 顯示) -->
+<div id="importSection" style="display:none;margin-bottom:12px;">
+  <div class="card" style="padding:16px 20px;display:flex;align-items:center;gap:16px;">
+    <span style="font-size:13px;color:var(--c2);">AS/400 無法自動掃描，請用 Excel 匯入檢查結果：</span>
+    <input type="file" id="importFile" accept=".xlsx,.xls" style="font-size:13px;">
+    <button class="btn btn-primary" onclick="importExcel()">匯入</button>
+    <a href="/api/twgcb/import-template" class="btn btn-secondary" style="text-decoration:none;font-size:12px;">下載範本</a>
+    <span id="importMsg" style="font-size:13px;"></span>
+  </div>
+</div>
+
+<!-- 矩陣表格 -->
+<div class="card" style="padding:0;overflow-x:auto;">
+  <table class="matrix-table" id="matrixTable">
+    <thead id="matrixHead"></thead>
+    <tbody id="matrixBody"></tbody>
+  </table>
+</div>
+
+<!-- 例外 Modal -->
+<div id="exceptionModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeExModal()">
+  <div class="modal-box">
+    <h2>檢查項目操作</h2>
+    <div style="background:#FFF3E0;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;">
+      <strong id="exCheckName"></strong><br>
+      <span style="color:var(--c3);" id="exCheckId"></span> &mdash; 主機：<span id="exHostname" style="font-weight:700;"></span>
+    </div>
+    <!-- 一鍵修復區 -->
+    <div style="background:#E8F5E9;border-radius:8px;padding:12px 16px;margin-bottom:16px;">
+      <div style="font-weight:600;margin-bottom:8px;">🔧 一鍵修復</div>
+      <div id="fixCmd" style="font-family:JetBrains Mono;font-size:11px;background:#f5f5f5;padding:8px;border-radius:4px;margin-bottom:8px;word-break:break-all;">載入中...</div>
+      <div id="fixResult" style="display:none;margin-bottom:8px;padding:8px;border-radius:4px;font-size:12px;"></div>
+      <button class="btn btn-primary" id="fixBtn" onclick="execFix()" style="margin-right:8px;">執行修復</button>
+      <span id="fixStatus" style="font-size:12px;color:var(--c3);"></span>
+    </div>
+    <hr style="margin:16px 0;border:none;border-top:1px solid #e0e0e0;">
+    <div style="font-weight:600;margin-bottom:8px;">📋 或標記為例外</div>
+    <div class="form-group">
+      <label>例外原因 <span style="color:var(--red);">*</span></label>
+      <textarea id="exReason" class="input-field" style="width:100%;height:80px;" placeholder="例：此主機為 FTP 伺服器，必須開啟 FTP 服務，已申請例外處理。"></textarea>
+    </div>
+    <div class="form-group">
+      <label>核准人</label>
+      <input type="text" id="exApprovedBy" class="input-field" style="width:100%;" placeholder="例：林凱文">
+    </div>
+    <div class="form-group">
+      <label>核准日期</label>
+      <input type="date" id="exApprovedDate" class="input-field" style="width:200px;">
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="btn btn-primary" onclick="saveException()">確認標記例外</button>
+      <button class="btn btn-secondary" onclick="closeExModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<div id="exDetailModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeExDetailModal()">
+  <div class="modal-box">
+    <h2>例外詳情</h2>
+    <div style="background:#FFF3E0;border-radius:8px;padding:16px;margin-bottom:16px;">
+      <div style="font-weight:700;margin-bottom:8px;" id="exdTitle"></div>
+      <div style="font-size:13px;color:var(--c2);">
+        <div><strong>原因：</strong><span id="exdReason"></span></div>
+        <div style="margin-top:4px;"><strong>核准人：</strong><span id="exdApprovedBy"></span></div>
+        <div style="margin-top:4px;"><strong>核准日期：</strong><span id="exdApprovedDate"></span></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-danger" onclick="removeException()">取消例外（恢復紅燈）</button>
+      <button class="btn btn-secondary" onclick="closeExDetailModal()">關閉</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.card { background:white; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
+.btn { padding:8px 18px; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+.btn-primary { background:var(--g1); color:white; }
+.btn-primary:hover { background:var(--g2); }
+.btn-secondary { background:#e0e0e0; color:#333; }
+.btn-danger { background:var(--red); color:white; }
+.btn-sm2 { padding:6px 14px; font-size:12px; }
+
+/* OS Tabs */
+.os-tabs { display:flex; gap:0; margin-bottom:0; }
+.os-tab { padding:12px 28px; border:none; background:#e8e8e8; cursor:pointer; font-size:14px; font-weight:600; color:var(--c2); border-bottom:3px solid transparent; transition:all 0.2s; }
+.os-tab:first-child { border-radius:8px 0 0 0; }
+.os-tab:last-child { border-radius:0 8px 0 0; }
+.os-tab.active { background:white; color:var(--g2); border-bottom:3px solid var(--g1); }
+.os-tab:hover:not(.active) { background:#f0f0f0; }
+.os-tab-count { display:inline-block; background:#e0e0e0; color:var(--c2); padding:1px 8px; border-radius:10px; font-size:11px; margin-left:4px; }
+.os-tab.active .os-tab-count { background:var(--g1); color:white; }
+
+/* 篩選列 */
+.filter-bar { display:flex; gap:10px; padding:14px 20px; background:white; border-radius:0 0 12px 12px; margin-bottom:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); flex-wrap:wrap; align-items:center; }
+
+/* Toggle */
+.toggle-label { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600; color:var(--c2); cursor:pointer; white-space:nowrap; }
+.toggle-label input { display:none; }
+.toggle-slider { position:relative; width:44px; height:24px; background:#ccc; border-radius:24px; transition:.3s; display:inline-block; }
+.toggle-slider:before { content:""; position:absolute; height:18px; width:18px; left:3px; bottom:3px; background:white; border-radius:50%; transition:.3s; }
+.toggle-label input:checked + .toggle-slider { background:var(--g1); }
+.toggle-label input:checked + .toggle-slider:before { transform:translateX(20px); }
+
+.matrix-table { width:100%; border-collapse:collapse; font-size:13px; }
+.matrix-table th { padding:10px 12px; text-align:center; font-size:12px; color:var(--c3); font-weight:600; background:#fafafa; border-bottom:2px solid #e0e0e0; white-space:nowrap; position:sticky; top:0; z-index:2; }
+.matrix-table th.col-fixed { text-align:left; background:#f5f5f5; position:sticky; z-index:3; }
+.matrix-table td { padding:8px 12px; border-bottom:1px solid #f0f0f0; text-align:center; vertical-align:middle; }
+.matrix-table td.col-fixed { text-align:left; background:white; border-right:2px solid #e0e0e0; }
+.matrix-table td.col-reason { text-align:left; font-size:12px; color:var(--c2); max-width:200px; }
+.matrix-table tr:hover td { background:#fafffe; }
+.matrix-table tr:hover td.col-fixed { background:#f5faf5; }
+
+.cat-row { cursor:pointer; }
+.cat-row td { background:#f8f8f8 !important; border-bottom:2px solid #e0e0e0; padding:10px 12px; }
+.cat-row:hover td { background:#f0f5f0 !important; }
+.cat-toggle { display:inline-block; width:20px; font-size:14px; color:var(--c2); transition:transform 0.2s; }
+.cat-toggle.open { transform:rotate(90deg); }
+.cat-name { font-weight:700; font-size:14px; color:var(--c1); }
+.cat-count { font-size:11px; color:var(--c3); margin-left:6px; }
+.detail-row { display:none; }
+.detail-row.show { display:table-row; }
+.detail-row td.col-fixed { padding-left:32px; }
+
+.host-header { font-size:11px; min-width:70px; }
+.host-header a { color:var(--g2); text-decoration:none; font-weight:700; }
+.host-header a:hover { text-decoration:underline; }
+
+.light { display:inline-block; width:16px; height:16px; border-radius:50%; cursor:pointer; }
+.light-pass { background:var(--g1); box-shadow:0 0 4px rgba(74,178,52,0.3); }
+.light-fail { background:var(--red); box-shadow:0 0 4px rgba(224,11,0,0.3); }
+.light-exception { background:var(--orange); box-shadow:0 0 4px rgba(232,124,7,0.3); }
+.light-cat { width:14px; height:14px; }
+
+.modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; display:flex; justify-content:center; align-items:center; }
+.modal-box { background:white; border-radius:16px; padding:32px; width:520px; max-width:90%; }
+.form-group { margin-bottom:14px; }
+.form-group label { display:block; font-size:13px; font-weight:600; margin-bottom:4px; color:var(--c2); }
+.input-field { padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px; box-sizing:border-box; }
+.spinner { width:18px; height:18px; border:3px solid #ddd; border-top:3px solid var(--g1); border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+</style>
+
+<script>
+var allData = [], allChecks = [], currentEx = null, expandedCats = {};
+var currentOS = "linux";
+
+document.addEventListener("DOMContentLoaded", function(){ loadCounts(); loadTab("linux"); loadStats(); setTimeout(checkFixStatus, 2000); });
+
+function loadStats() {
+  fetch("/api/twgcb/stats").then(function(r){return r.json();}).then(function(d){
+    if(!d.success) return;
+    var card = document.getElementById("twgcbStatsCard");
+    if(card) card.style.display = "block";
+    var o = d.overall || {};
+    document.getElementById("statRate").textContent = o.rate || 0;
+    document.getElementById("statCounts").textContent = o.pass + " / " + o.total + " 通過  ( " + o.host_count + " 台主機)";
+
+    // 按主機
+    var hostHtml = (d.by_host || []).map(function(h){
+      var color = h.rate >= 90 ? "var(--g1)" : h.rate >= 70 ? "var(--orange)" : "var(--red)";
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px dashed #eee;">'
+        + '<span style="color:var(--c2);">' + h.hostname + '</span>'
+        + '<span style="font-family:JetBrains Mono,monospace;"><strong style="color:'+color+';">' + h.rate + '%</strong> <span style="color:var(--c3);font-size:10px;">(' + h.pass + '/' + h.total + ')</span></span>'
+        + '</div>';
+    }).join("");
+    document.getElementById("statByHost").innerHTML = hostHtml || "<span style=\"color:var(--c3);\">無資料</span>";
+
+    // 按分類
+    var catHtml = (d.by_category || []).slice(0, 6).map(function(c){
+      var color = c.rate >= 90 ? "var(--g1)" : c.rate >= 70 ? "var(--orange)" : "var(--red)";
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px dashed #eee;">'
+        + '<span style="color:var(--c2);">' + c.category + '</span>'
+        + '<span style="font-family:JetBrains Mono,monospace;"><strong style="color:'+color+';">' + c.rate + '%</strong> <span style="color:var(--c3);font-size:10px;">(' + c.pass + '/' + c.total + ')</span></span>'
+        + '</div>';
+    }).join("");
+    document.getElementById("statByCategory").innerHTML = catHtml || "<span style=\"color:var(--c3);\">無資料</span>";
+
+    // Top FAIL
+    var topHtml = (d.top_fails || []).slice(0, 5).map(function(f){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px dashed #eee;">'
+        + '<span style="color:var(--c2);font-size:11px;max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (f.name || f.id) + '</span>'
+        + '<span style="color:var(--red);font-weight:600;">✗ ' + f.count + '</span>'
+        + '</div>';
+    }).join("");
+    document.getElementById("statTopFails").innerHTML = topHtml || "<span style=\"color:var(--g1);\">✓ 無失敗項目</span>";
+  });
+}
+
+async function loadCounts() {
+  // 載入全部資料計算各 OS tab 數量
+  try {
+    var res = await fetch("/api/twgcb/results");
+    var json = await res.json();
+    if (!json.success) return;
+    var all = json.data;
+    var counts = {linux:0, windows:0, aix:0, as400:0};
+    all.forEach(function(r) {
+      var os = (r.os||"").toLowerCase();
+      if (os.match(/rocky|rhel|red hat|centos|debian|ubuntu|suse|oracle/)) counts.linux++;
+      else if (os.match(/windows/)) counts.windows++;
+      else if (os.match(/aix/)) counts.aix++;
+      else if (os.match(/as.?400|ibm.?i/)) counts.as400++;
+      else counts.linux++; // 預設歸 Linux
+    });
+    document.getElementById("countLinux").textContent = counts.linux;
+    document.getElementById("countWindows").textContent = counts.windows;
+    document.getElementById("countAix").textContent = counts.aix;
+    document.getElementById("countAs400").textContent = counts.as400;
+  } catch(e) {}
+}
+
+function switchOS(os) {
+  currentOS = os;
+  document.querySelectorAll(".os-tab").forEach(function(t,i) {
+    t.classList.toggle("active", ["linux","windows","aix","as400"][i] === os);
+  });
+  document.getElementById("importSection").style.display = (os === "as400") ? "block" : "none";
+  expandedCats = {};
+  loadTab(os);
+}
+
+async function loadTab(os) {
+  try {
+    var res = await fetch("/api/twgcb/results?os_type=" + os);
+    var json = await res.json();
+    if (!json.success) return;
+    allData = json.data;
+    buildMatrix();
+  } catch(e) {
+    document.getElementById("matrixBody").innerHTML =
+      '<tr><td colspan="99" style="text-align:center;padding:24px;color:var(--red);">載入失敗</td></tr>';
+  }
+}
+
+function buildMatrix() {
+  // 收集檢查項
+  var checkMap = {}, checkOrder = [];
+  allData.forEach(function(r) {
+    (r.checks||[]).forEach(function(c) {
+      if (!checkMap[c.id]) { checkMap[c.id] = c; checkOrder.push(c.id); }
+    });
+  });
+  allChecks = checkOrder.map(function(id){return checkMap[id];});
+
+  // 總合規率
+  var totalC = 0, totalP = 0;
+  allData.forEach(function(r) {
+    (r.checks||[]).forEach(function(c) { totalC++; if (c.status==="PASS"||c.exception) totalP++; });
+  });
+  var rate = totalC > 0 ? Math.round(totalP/totalC*100) : 0;
+  var rc = rate>=80?"var(--g1)":rate>=50?"var(--orange)":"var(--red)";
+  document.getElementById("overallRate").innerHTML = '<span style="color:'+rc+'">總合規率 '+rate+'%</span>';
+
+  // 篩選下拉
+  var sysSet = {};
+  allData.forEach(function(r) { var s=r.system_name||""; if(s) sysSet[s]=true; });
+  document.getElementById("filterSystem").innerHTML = '<option value="">全部系統</option>' +
+    Object.keys(sysSet).map(function(s){return '<option>'+s+'</option>';}).join("");
+
+  applyFilter();
+}
+
+function applyFilter() {
+  var keyword = (document.getElementById("filterSearch").value||"").trim().toLowerCase();
+  var sysFilter = document.getElementById("filterSystem").value;
+  var tierFilter = document.getElementById("filterTier").value;
+  var abnormalOnly = document.getElementById("toggleAbnormal").checked;
+
+  var filtered = allData.filter(function(r) {
+    if (sysFilter && (r.system_name||"") !== sysFilter) return false;
+    if (tierFilter && (r.tier||"") !== tierFilter) return false;
+    if (keyword) {
+      var h = [r.hostname, r.system_name||"", r.ap_owner||"", r.custodian||""].join(" ").toLowerCase();
+      if (h.indexOf(keyword) === -1) return false;
+    }
+    if (abnormalOnly) {
+      var hasIssue = (r.checks||[]).some(function(c){return c.status!=="PASS" && !c.exception;});
+      if (!hasIssue) return false;
+    }
+    return true;
+  });
+  renderMatrix(filtered.map(function(r){return r.hostname;}));
+}
+
+function renderMatrix(visibleHosts) {
+  var hostCheckMap = {};
+  allData.forEach(function(r) {
+    hostCheckMap[r.hostname] = {};
+    (r.checks||[]).forEach(function(c) { hostCheckMap[r.hostname][c.id] = c; });
+  });
+
+  var thead = document.getElementById("matrixHead");
+  var fixedCols = '<th class="col-fixed" style="width:30px;"></th><th class="col-fixed" style="width:280px;">分類 / 檢查項目</th>';
+
+  var row1 = '<tr><th class="col-fixed"></th><th class="col-fixed" style="font-size:11px;color:var(--c3);">系統別</th>';
+  var row2 = '<tr><th class="col-fixed"></th><th class="col-fixed" style="font-size:11px;color:var(--c3);">級別</th>';
+  var row3 = '<tr><th class="col-fixed"></th><th class="col-fixed" style="font-size:11px;color:var(--c3);">AP負責人</th>';
+  var row4 = '<tr>' + fixedCols;
+
+  visibleHosts.forEach(function(h) {
+    var r = allData.find(function(d){return d.hostname===h;});
+    var sys = (r&&r.system_name) ? r.system_name : "-";
+    var tier = (r&&r.tier) ? r.tier : "-";
+    var ap = (r&&r.ap_owner) ? r.ap_owner : (r&&r.custodian ? r.custodian : "-");
+    var tierColor = tier==="金"?"#FFD700":tier==="銀"?"#C0C0C0":tier==="銅"?"#CD7F32":"var(--c3)";
+    row1 += '<th style="font-size:11px;color:var(--c2);font-weight:400;">'+sys+'</th>';
+    row2 += '<th style="font-size:11px;font-weight:600;color:'+tierColor+';">'+tier+'</th>';
+    row3 += '<th style="font-size:11px;color:var(--c2);font-weight:400;">'+ap+'</th>';
+        row4 += '<th><div class="host-header"><a href="/twgcb/harden/'+h+'">'+h+'</a><br><button class="btn btn-sm" style="background:var(--orange);color:white;font-size:10px;padding:2px 8px;margin-top:4px;" onclick="event.stopPropagation();fixOneHost(\x27'+h+'\x27)">🔧全修</button> <button class="btn btn-sm" style="background:var(--c2);color:white;font-size:10px;padding:2px 8px;margin-top:4px;" onclick="event.stopPropagation();restoreOneHost(\x27'+h+'\x27)">↩還原</button> <button class="btn btn-sm" style="background:var(--g1);color:white;font-size:10px;padding:2px 8px;margin-top:4px;" onclick="event.stopPropagation();rescanHost(\x27'+h+'\x27)">🔄重掃</button></div></th>';
+  });
+  row1+='<th></th></tr>'; row2+='<th></th></tr>'; row3+='<th></th></tr>';
+  row4+='<th style="text-align:left;min-width:180px;">例外說明</th></tr>';
+  thead.innerHTML = row1+row2+row3+row4;
+
+  // 分類分組
+  var catOrder = [], catChecks = {};
+  allChecks.forEach(function(ck) {
+    if (!catChecks[ck.category]) { catChecks[ck.category]=[]; catOrder.push(ck.category); }
+    catChecks[ck.category].push(ck);
+  });
+
+  var tbody = document.getElementById("matrixBody");
+  if (visibleHosts.length === 0) {
+    var msg = document.getElementById("toggleAbnormal").checked ? "所有主機皆合規，無異常項目" : "無符合條件的主機";
+    tbody.innerHTML = '<tr><td colspan="99" style="text-align:center;padding:40px;color:var(--c3);font-size:15px;">'+msg+'</td></tr>';
+    return;
+  }
+
+  var html = "";
+  catOrder.forEach(function(cat) {
+    var checks = catChecks[cat];
+    var catId = cat.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g,"_");
+    var isOpen = expandedCats[cat] || false;
+
+    var catCells = "";
+    visibleHosts.forEach(function(h) {
+      var hasFail=false, hasEx=false;
+      checks.forEach(function(ck) {
+        var c = hostCheckMap[h]?hostCheckMap[h][ck.id]:null;
+        if (!c) return;
+        if (c.status!=="PASS" && !c.exception) hasFail=true;
+        if (c.exception) hasEx=true;
+      });
+      if (hasFail) catCells+='<td><span class="light light-cat light-fail"></span></td>';
+      else if (hasEx) catCells+='<td><span class="light light-cat light-exception"></span></td>';
+      else catCells+='<td><span class="light light-cat light-pass"></span></td>';
+    });
+
+    html += '<tr class="cat-row" onclick="toggleCat(\x27'+escQ(cat)+'\x27)">'+
+      '<td class="col-fixed" style="background:#f8f8f8;"><span class="cat-toggle'+(isOpen?" open":"")+'">&#9654;</span></td>'+
+      '<td class="col-fixed" style="background:#f8f8f8;"><span class="cat-name">'+cat+'</span><span class="cat-count">('+checks.length+'項)</span></td>'+
+      catCells+'<td class="col-reason"></td></tr>';
+
+    checks.forEach(function(ck,idx) {
+      var reasons=[], cells="";
+      visibleHosts.forEach(function(h) {
+        var c = hostCheckMap[h]?hostCheckMap[h][ck.id]:null;
+        if (!c) { cells+='<td>-</td>'; return; }
+        if (c.status==="PASS") cells+='<td><span class="light light-pass" title="合規"></span></td>';
+        else if (c.exception) {
+          cells+='<td><span class="light light-exception" title="例外" onclick="event.stopPropagation();showExDetail(\x27'+c.id+'\x27,\x27'+escQ(c.name)+'\x27,\x27'+h+'\x27,\x27'+escQ(c.exception_reason||"")+'\x27,\x27'+escQ(c.exception_approved_by||"")+'\x27,\x27'+escQ(c.exception_approved_date||"")+'\x27)"></span></td>';
+          reasons.push(h+"："+(c.exception_reason||""));
+        } else {
+          cells+='<td style="text-align:center;"><span class="light light-fail" title="未通過 — 點擊查看詳情" onclick="event.stopPropagation();openExModal(\x27'+c.id+'\x27,\x27'+escQ(c.name)+'\x27,\x27'+h+'\x27)" style="cursor:pointer;"></span><br><span style="display:inline-flex;gap:2px;margin-top:2px;"><button style="background:var(--g1);color:white;border:none;border-radius:3px;font-size:9px;padding:1px 5px;cursor:pointer;" onclick="event.stopPropagation();quickFix(\x27'+c.id+'\x27,\x27'+h+'\x27)" title="修復此項">修</button><button style="background:var(--c3);color:white;border:none;border-radius:3px;font-size:9px;padding:1px 5px;cursor:pointer;" onclick="event.stopPropagation();quickRestore(\x27'+c.id+'\x27,\x27'+h+'\x27)" title="還原此項">還</button></span></td>';
+        }
+      });
+      html+='<tr class="detail-row detail-'+catId+(isOpen?" show":"")+'">'+
+        '<td class="col-fixed" style="color:var(--c3);font-size:11px;padding-left:32px;">'+(idx+1)+'</td>'+
+        '<td class="col-fixed" style="padding-left:32px;font-size:12px;"><span style="font-family:JetBrains Mono,monospace;font-size:10px;color:var(--c3);">'+ck.id+'</span> <strong>'+ck.name+'</strong></td>'+
+        cells+'<td class="col-reason">'+(reasons.length?reasons.join("<br>"):"")+'</td></tr>';
+    });
+  });
+  tbody.innerHTML = html;
+}
+
+function toggleCat(cat) {
+  expandedCats[cat]=!expandedCats[cat];
+  var catId=cat.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g,"_");
+  document.querySelectorAll(".detail-"+catId).forEach(function(r){r.classList.toggle("show");});
+  document.querySelectorAll(".cat-row").forEach(function(tr) {
+    var n=tr.querySelector(".cat-name"); if(n&&n.textContent===cat) tr.querySelector(".cat-toggle").classList.toggle("open");
+  });
+}
+function toggleAllCats(open) {
+  document.querySelectorAll(".cat-row").forEach(function(tr) {
+    var n=tr.querySelector(".cat-name"); if(!n) return;
+    expandedCats[n.textContent]=open;
+    var t=tr.querySelector(".cat-toggle"); if(open) t.classList.add("open"); else t.classList.remove("open");
+  });
+  document.querySelectorAll(".detail-row").forEach(function(r) { if(open) r.classList.add("show"); else r.classList.remove("show"); });
+}
+
+// Excel
+function exportExcel() { window.open("/api/twgcb/export?os_type="+currentOS, "_blank"); }
+async function importExcel() {
+  var f=document.getElementById("importFile").files[0];
+  if(!f){alert("請選擇 Excel 檔案");return;}
+  var fd=new FormData(); fd.append("file",f); fd.append("os_type","as400");
+  try {
+    var res=await fetch("/api/twgcb/import-excel",{method:"POST",body:fd});
+    var json=await res.json();
+    document.getElementById("importMsg").innerHTML=json.success?'<span style="color:var(--g1)">&#10003; '+json.message+'</span>':'<span style="color:var(--red)">'+json.error+'</span>';
+    if(json.success){loadCounts();loadTab(currentOS);}
+  } catch(e){document.getElementById("importMsg").textContent="錯誤: "+e.message;}
+}
+
+// 例外管理
+function openExModal(cid,name,host) {
+  currentEx={id:cid,name:name,hostname:host};
+  document.getElementById("exCheckId").textContent=cid;
+  document.getElementById("exCheckName").textContent=name;
+  document.getElementById("exHostname").textContent=host;
+  document.getElementById("exReason").value="";
+  document.getElementById("exApprovedBy").value="";
+  document.getElementById("exApprovedDate").value=new Date().toISOString().split("T")[0];
+  document.getElementById("fixResult").style.display="none";
+  document.getElementById("fixBtn").disabled=false;
+  document.getElementById("fixBtn").textContent="執行修復";
+  document.getElementById("fixCmd").textContent="載入中...";
+  fetch("/api/admin/twgcb/config/"+cid+"/remediation",{credentials:"include"})
+    .then(function(r){return r.json();})
+    .then(function(res){
+      if(res.success&&res.data){document.getElementById("fixCmd").textContent=res.data.remediation||"無修復指令";}
+      else{document.getElementById("fixCmd").textContent="無法載入";}
+    }).catch(function(){document.getElementById("fixCmd").textContent="載入失敗";});
+  document.getElementById("exceptionModal").style.display="flex";
+}
+function execFix() {
+  if(!currentEx)return;
+  if(typeof requirePermission==="function"&&!requirePermission("admin"))return;
+  var btn=document.getElementById("fixBtn");
+  btn.disabled=true;btn.textContent="執行中...";
+  var prog=document.getElementById("scanProgress");prog.style.display="block";prog.scrollIntoView({behavior:"smooth",block:"center"});
+  document.getElementById("scanMsg").textContent="修復中："+currentEx.id;
+  document.getElementById("scanDetail").textContent="正在備份並套用修復，約需 5~15 秒...";
+  fetch("/api/admin/twgcb/fix",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({check_id:currentEx.id,hostname:currentEx.hostname})
+  }).then(function(r){return r.json();}).then(function(res){
+    var rd=document.getElementById("fixResult");rd.style.display="block";
+    var html = "";
+    if(res.success){
+      rd.style.background="#E8F5E9";rd.style.color="var(--g2)";
+      html="✓ "+res.message;
+      if(res.backup) html+="<div style='font-size:11px;margin-top:4px;color:var(--c3);'>"+res.backup+"</div>";
+      if(res.output) html+="<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;'>"+res.output+"</pre>";
+    }else{
+      rd.style.background="#FFEAEA";rd.style.color="var(--red)";
+      html="✗ "+(res.error||"失敗");
+      if(res.hostname) html+="<div style='font-size:11px;margin-top:4px;'>主機: "+res.hostname+"</div>";
+      if(res.check_id) html+="<div style='font-size:11px;'>項目: "+res.check_id+"</div>";
+      if(res.detail) html+="<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;max-height:200px;overflow:auto;'>"+res.detail+"</pre>";
+      else if(res.output) html+="<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;max-height:200px;overflow:auto;'>"+res.output+"</pre>";
+    }
+    // 還原按鈕
+    if(res.backup_files && res.backup_files.length > 0){
+      window._lastFixBackup = {hostname:res.hostname||currentEx.hostname, files:res.backup_files};
+      html+="<div style='margin-top:8px;'><button class='btn btn-sm' style='background:var(--orange);color:white;font-size:12px;padding:5px 14px;' onclick='restoreFix()'>↩ 還原修復前狀態</button></div>";
+    }
+    rd.innerHTML=html;
+    btn.disabled=false;btn.textContent="再次執行";document.getElementById("scanProgress").style.display="none";
+  }).catch(function(e){
+    var rd=document.getElementById("fixResult");rd.style.display="block";
+    rd.textContent="錯誤: "+e.message;btn.disabled=false;btn.textContent="重試";document.getElementById("scanProgress").style.display="none";
+  });
+}
+function restoreFix() {
+  if(!window._lastFixBackup) return;
+  if(!confirm("確定要還原修復前的狀態？")) return;
+  var rd=document.getElementById("fixResult");
+  rd.innerHTML="<span style='color:var(--c3);'>還原中...</span>";
+  fetch("/api/admin/twgcb/restore",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({hostname:window._lastFixBackup.hostname,backup_files:window._lastFixBackup.files})
+  }).then(function(r){return r.json();}).then(function(res){
+    if(res.success){
+      rd.style.background="#E8F5E9";rd.style.color="var(--g2)";
+      rd.innerHTML="✓ 還原成功"+(res.output?"<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;'>"+res.output+"</pre>":"");
+    }else{
+      rd.style.background="#FFEAEA";rd.style.color="var(--red)";
+      rd.innerHTML="✗ 還原失敗: "+(res.error||"")+(res.output?"<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;'>"+res.output+"</pre>":"");
+    }
+    window._lastFixBackup=null;
+  }).catch(function(e){rd.textContent="錯誤: "+e.message;});
+}
+function closeExModal(){document.getElementById("exceptionModal").style.display="none";currentEx=null;}
+async function saveException() {
+  var reason=document.getElementById("exReason").value.trim();
+  if(!reason){alert("請填寫例外原因");return;}
+  try {
+    var res=await fetch("/api/twgcb/exceptions",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({check_id:currentEx.id,hostname:currentEx.hostname,reason:reason,
+        approved_by:document.getElementById("exApprovedBy").value.trim(),
+        approved_date:document.getElementById("exApprovedDate").value})});
+    var json=await res.json();
+    if(json.success){closeExModal();loadTab(currentOS);}else{alert("失敗: "+json.error);}
+  } catch(e){alert("錯誤: "+e.message);}
+}
+function showExDetail(cid,name,host,reason,by,date) {
+  currentEx={id:cid,hostname:host};
+  document.getElementById("exdTitle").textContent=name+" ("+cid+") — "+host;
+  document.getElementById("exdReason").textContent=reason;
+  document.getElementById("exdApprovedBy").textContent=by||"-";
+  document.getElementById("exdApprovedDate").textContent=date||"-";
+  document.getElementById("exDetailModal").style.display="flex";
+}
+function closeExDetailModal(){document.getElementById("exDetailModal").style.display="none";}
+async function removeException() {
+  if(!confirm("確定要取消此例外？"))return;
+  try {
+    var res=await fetch("/api/twgcb/exceptions",{method:"DELETE",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({check_id:currentEx.id,hostname:currentEx.hostname})});
+    var json=await res.json();
+    if(json.success){closeExDetailModal();loadTab(currentOS);}else{alert("失敗: "+json.error);}
+  } catch(e){alert("錯誤: "+e.message);}
+}
+
+
+
+async function quickFix(checkId, hostname) {
+  if (typeof requirePermission === "function" && !requirePermission("admin")) {
+    if (!window.USER_NAME) { alert("⚠ 請先登入才能執行 TWGCB 修復 / 還原"); }
+    return;
+  }
+  if (!confirm("修復 " + hostname + " 的 " + checkId + "？")) return;
+  try {
+    var res = await fetch("/api/admin/twgcb/fix", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({check_id: checkId, hostname: hostname})
+    });
+    var json = await res.json();
+    if (json.success) {
+      alert("✓ " + json.message);
+    } else {
+      var errMsg = "✗ 修復失敗\n\n主機: " + hostname + "\n項目: " + checkId;
+      if (json.error) errMsg += "\n原因: " + json.error;
+      if (json.detail) errMsg += "\n\n詳細輸出:\n" + json.detail;
+      else if (json.output) errMsg += "\n\n詳細輸出:\n" + json.output;
+      alert(errMsg);
+    }
+    if (json.success) { setTimeout(function(){ loadTab(currentOS); }, 2000); }
+  } catch(e) {
+    if (window._fixTimer) { clearInterval(window._fixTimer); window._fixTimer=null; }
+    var _sp_rc = document.querySelector("#scanProgress .spinner"); if (_sp_rc) _sp_rc.style.display = "none";
+    var _bar_rc = document.getElementById("scanBar"); if (_bar_rc) _bar_rc.style.display = "none";
+    var _box_rc = document.querySelector("#scanProgress > div");
+    if (_box_rc) _box_rc.style.background = "#FFEBEE";
+    if (msg) msg.innerHTML = "<strong style='color:var(--red);'>✗ 還原錯誤</strong><br><span style='font-size:12px;'>" + e.message + "</span>";
+  }
+}
+
+async function quickRestore(checkId, hostname) {
+  if (typeof requirePermission === "function" && !requirePermission("admin")) {
+    if (!window.USER_NAME) { alert("⚠ 請先登入才能執行 TWGCB 修復 / 還原"); }
+    return;
+  }
+  if (!confirm("還原 " + hostname + " 的 " + checkId + " 修復前狀態？")) return;
+  // 從 config 取得 remediation 裡的檔案路徑作為 backup_files
+  try {
+    var cfgRes = await fetch("/api/admin/twgcb/config/" + checkId + "/remediation", {credentials: "include"});
+    var cfgJson = await cfgRes.json();
+    var rem = (cfgJson.data && cfgJson.data.remediation) || "";
+    var files = rem.match(/\/etc\/[\w.\/\-]+/g) || [];
+    var bakFiles = files.map(function(f) { return f + ".twgcb_bak"; });
+    if (!bakFiles.length) { alert("此項目無備份檔案可還原"); return; }
+    var res = await fetch("/api/admin/twgcb/restore", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({hostname: hostname, backup_files: bakFiles})
+    });
+    var json = await res.json();
+    alert(json.success ? "✓ 還原成功" : "✗ " + (json.error || "失敗"));
+    if (json.success) { setTimeout(function(){ loadTab(currentOS); }, 2000); }
+  } catch(e) {
+    if (window._fixTimer) { clearInterval(window._fixTimer); window._fixTimer=null; }
+    var _sp_rc = document.querySelector("#scanProgress .spinner"); if (_sp_rc) _sp_rc.style.display = "none";
+    var _bar_rc = document.getElementById("scanBar"); if (_bar_rc) _bar_rc.style.display = "none";
+    var _box_rc = document.querySelector("#scanProgress > div");
+    if (_box_rc) _box_rc.style.background = "#FFEBEE";
+    if (msg) msg.innerHTML = "<strong style='color:var(--red);'>✗ 還原錯誤</strong><br><span style='font-size:12px;'>" + e.message + "</span>";
+  }
+}
+
+async function restoreOneHost(hostname) {
+  if (typeof requirePermission === "function" && !requirePermission("admin")) {
+    if (!window.USER_NAME) { alert("⚠ 請先登入才能執行 TWGCB 修復 / 還原"); }
+    return;
+  }
+  if (!confirm("確定要還原 " + hostname + " 所有修復前的狀態？\n\n會找出所有 .twgcb_bak 備份檔並還原 + 重啟服務")) return;
+  var prog = document.getElementById("scanProgress");
+  if (prog) {
+    var _sp3 = document.querySelector("#scanProgress .spinner"); if (_sp3) _sp3.style.display = "";
+    var _bar3 = document.getElementById("scanBar"); if (_bar3) _bar3.style.display = "";
+    var _box = document.querySelector("#scanProgress > div"); if (_box) _box.style.background = "#E8F5E9";
+    prog.style.display = "block"; prog.scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  var msg = document.getElementById("scanMsg");
+  if (msg) msg.textContent = "正在還原 " + hostname + "...";
+  try {
+    var res = await fetch("/api/admin/twgcb/restore-all", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({hostname: hostname})
+    });
+    var json = await res.json();
+    if (window._fixTimer) { clearInterval(window._fixTimer); window._fixTimer=null; }
+    var _sp2 = document.querySelector("#scanProgress .spinner"); if (_sp2) _sp2.style.display = "none";
+    var _bar2 = document.getElementById("scanBar"); if (_bar2) _bar2.style.display = "none";
+    if (prog) {
+      var detail = document.getElementById("scanDetail");
+      if (detail) detail.textContent = "修復完成";
+    }
+    if (msg) {
+      if (json.success) {
+        var html = "<strong>↩ " + hostname + " " + (json.message || "還原完成") + "</strong><br>";
+        if (typeof json.restored === "number") html += "<span style='font-size:12px;color:var(--c3);'>還原 " + json.restored + " / " + (json.total || json.restored) + " 個檔案</span><br>";
+        if (json.files) json.files.forEach(function(f) {
+          html += "<span style='font-size:11px;color:var(--g1);'>✓ " + f + "</span><br>";
+        });
+        if (json.restart) html += "<br><span style='font-size:12px;'>服務重啟: " + json.restart + "</span>";
+        html += "<div style='margin-top:12px;'><button class='btn btn-primary btn-sm' onclick=\"rescanHost('" + hostname + "')\">重新掃描 " + hostname + " 取得最新狀態</button></div>";
+        msg.innerHTML = html;
+      } else {
+        var _box_r = document.querySelector("#scanProgress > div");
+        if (_box_r) _box_r.style.background = "#FFEBEE";
+        var _err_r = "<strong style='color:var(--red);'>✗ " + hostname + " 還原失敗</strong><br><span style='font-size:12px;'>" + (json.error || "未知錯誤") + "</span>";
+        if (json.output) _err_r += "<pre style='font-size:10px;margin:6px 0 0;white-space:pre-wrap;max-height:120px;overflow:auto;'>" + json.output.substring(0, 500) + "</pre>";
+        msg.innerHTML = _err_r;
+      }
+    }
+    setTimeout(function() { loadCounts(); loadTab(currentOS); }, 5000);
+  } catch(e) {
+    if (msg) msg.textContent = "錯誤: " + e.message;
+  }
+}
+async function fixOneHost(hostname) {
+  if (typeof requirePermission === "function" && !requirePermission("admin")) {
+    if (!window.USER_NAME) { alert("⚠ 請先登入才能執行 TWGCB 修復 / 還原"); }
+    return;
+  }
+  if (!confirm("確定要對 " + hostname + " 執行一鍵全修？\n\n流程：備份設定檔 → 修復所有FAIL項 → 重啟相關服務")) return;
+  var prog = document.getElementById("scanProgress");
+  if (prog) {
+    var _sp3 = document.querySelector("#scanProgress .spinner"); if (_sp3) _sp3.style.display = "";
+    var _bar3 = document.getElementById("scanBar"); if (_bar3) _bar3.style.display = "";
+    var _box = document.querySelector("#scanProgress > div"); if (_box) _box.style.background = "#E8F5E9";
+    prog.style.display = "block"; prog.scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  var msg = document.getElementById("scanMsg");
+  if (msg) msg.textContent = "正在修復 " + hostname + "...";
+  var detail = document.getElementById("scanDetail");
+  if (detail) {
+    var startTime = new Date();
+    detail.innerHTML = "開始時間: " + startTime.toLocaleTimeString("zh-TW") + " | 已經過: <span id='fixTimer'>0</span> 秒";
+    window._fixTimer = setInterval(function(){
+      var el = document.getElementById("fixTimer");
+      if(el) el.textContent = Math.floor((Date.now() - startTime.getTime())/1000);
+    }, 1000);
+  }
+  try {
+    var res = await fetch("/api/admin/twgcb/fix-all", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({hostname: hostname})
+    });
+    var json = await res.json();
+    // 清 timer / 隱藏 spinner / scanBar（無論成敗都要關）
+    if (window._fixTimer) { clearInterval(window._fixTimer); window._fixTimer=null; }
+    var _sp = document.querySelector("#scanProgress .spinner"); if (_sp) _sp.style.display = "none";
+    var _bar = document.getElementById("scanBar"); if (_bar) _bar.style.display = "none";
+    if (msg) {
+      if (json.success) {
+        var html = "<strong>" + hostname + " " + json.message + "</strong><br>";
+        if (json.results) json.results.forEach(function(r) {
+          var c = r.status === "FIXED" ? "var(--g1)" : r.status === "SKIP" ? "var(--c3)" : "var(--red)";
+          html += "<span style='font-size:11px;color:" + c + ";'>[" + r.status + "] " + r.id + " " + r.name + "</span>";
+          if (r.status === "FAIL" && (r.detail || r.output)) html += "<div style='font-size:10px;color:var(--c3);margin:2px 0 4px 16px;background:#f8f8f8;padding:4px 8px;border-radius:4px;max-height:60px;overflow:auto;font-family:JetBrains Mono,monospace;white-space:pre-wrap;'>" + (r.detail || r.output || "").substring(0,300) + "</div>";
+          else html += "<br>";
+        });
+        if (json.restart) html += "<br>服務重啟: " + json.restart;
+        msg.innerHTML = html;
+      } else {
+        msg.textContent = "✗ " + (json.error || "失敗");
+      }
+    }
+    setTimeout(function() { loadCounts(); loadTab(currentOS); }, 5000);
+  } catch(e) {
+    if (window._fixTimer) { clearInterval(window._fixTimer); window._fixTimer=null; }
+    var box = document.querySelector("#scanProgress > div");
+    if (box) box.style.background = "#FFEBEE";
+    if (msg) msg.innerHTML = "<strong style=\"color:var(--red);\">✗ 修復失敗</strong><br><span style=\"font-size:12px;\">" + e.message + "</span>";
+    setTimeout(function(){
+      var p = document.getElementById("scanProgress"); if (p) p.style.display = "none";
+      if (box) box.style.background = "#E8F5E9";
+    }, 12000);
+  }
+}
+
+// F5 安全：頁面載入時檢查是否有進行中的修復
+async function checkFixStatus() {
+  try {
+    var hosts = document.querySelectorAll(".host-header a");
+    for (var i = 0; i < hosts.length; i++) {
+      var hostname = hosts[i].textContent.trim();
+      if (!hostname) continue;
+      var res = await fetch("/api/admin/twgcb/fix-status/" + hostname, {credentials:"include"});
+      var json = await res.json();
+      if (json.success && json.data && json.data.status === "running") {
+        var prog = document.getElementById("scanProgress");
+        if (prog) {
+    var _sp3 = document.querySelector("#scanProgress .spinner"); if (_sp3) _sp3.style.display = "";
+    var _bar3 = document.getElementById("scanBar"); if (_bar3) _bar3.style.display = "";
+    var _box = document.querySelector("#scanProgress > div"); if (_box) _box.style.background = "#E8F5E9";
+    prog.style.display = "block"; prog.scrollIntoView({behavior:"smooth",block:"center"});
+  }
+        var msg = document.getElementById("scanMsg");
+        if (msg) msg.textContent = "修復進行中: " + hostname + "（由 " + json.data.started_by + " 啟動）";
+        var detail = document.getElementById("scanDetail");
+        if (detail) {
+          var started = new Date(json.data.started_at);
+          detail.innerHTML = "開始時間: " + started.toLocaleTimeString("zh-TW") + " | 已經過: <span id='fixTimer'>" + Math.floor((Date.now() - started.getTime())/1000) + "</span> 秒";
+          window._fixTimer = setInterval(function(){
+            var el = document.getElementById("fixTimer");
+            if(el) el.textContent = Math.floor((Date.now() - started.getTime())/1000);
+          }, 1000);
+        }
+        // Poll until done
+        var pollId = setInterval(async function(){
+          var r2 = await fetch("/api/admin/twgcb/fix-status/" + hostname, {credentials:"include"});
+          var j2 = await r2.json();
+          if (j2.success && j2.data && j2.data.status === "done") {
+            clearInterval(pollId);
+            if (window._fixTimer) { clearInterval(window._fixTimer); window._fixTimer=null; }
+            if (msg) {
+              var html = "<strong>" + hostname + " " + j2.data.message + "</strong><br>";
+              if (j2.data.results) j2.data.results.forEach(function(r) {
+                var c = r.status === "FIXED" ? "var(--g1)" : r.status === "SKIP" ? "var(--c3)" : "var(--red)";
+                html += "<span style='font-size:11px;color:" + c + ";'>[" + r.status + "] " + r.id + " " + r.name + "</span>";
+                if (r.status === "FAIL" && (r.detail || r.output)) html += "<div style='font-size:10px;color:var(--c3);margin:2px 0 4px 16px;background:#f8f8f8;padding:4px 8px;border-radius:4px;max-height:60px;overflow:auto;font-family:JetBrains Mono,monospace;white-space:pre-wrap;'>" + (r.detail || r.output || "").substring(0,300) + "</div>";
+                else html += "<br>";
+              });
+              if (j2.data.restart) html += "<br>服務重啟: " + j2.data.restart;
+              html += "<div style='margin-top:12px;'><button class='btn btn-primary btn-sm' onclick=\"rescanHost('" + hostname + "')\"> 重新掃描 " + hostname + "</button></div>";
+              msg.innerHTML = html;
+            }
+            var detail2 = document.getElementById("scanDetail");
+            if (detail2) detail2.textContent = "修復完成 (" + j2.data.finished_at.substring(11,16) + ")";
+            setTimeout(function(){ loadCounts(); loadTab(currentOS); }, 3000);
+          }
+        }, 3000);
+        break;
+      } else if (json.success && json.data && json.data.status === "done") {
+        // 上一次修復結果還在，不顯示
+      }
+    }
+  } catch(e) {}
+}
+
+async function rescanHost(hostname) {
+  var prog = document.getElementById("scanProgress");
+  if (prog) {
+    var _sp3 = document.querySelector("#scanProgress .spinner"); if (_sp3) _sp3.style.display = "";
+    var _bar3 = document.getElementById("scanBar"); if (_bar3) _bar3.style.display = "";
+    var _box = document.querySelector("#scanProgress > div"); if (_box) _box.style.background = "#E8F5E9";
+    prog.style.display = "block"; prog.scrollIntoView({behavior:"smooth",block:"center"});
+  }
+  var msg = document.getElementById("scanMsg");
+  if (msg) msg.textContent = "重新掃描 " + hostname + "...";
+  var detail = document.getElementById("scanDetail");
+  if (detail) {
+    var _st = new Date();
+    detail.innerHTML = "開始時間: " + _st.toLocaleTimeString("zh-TW") + " | 已經過: <span id='rescanTimer'>0</span> 秒 | Ansible 掃描中約需 10~60 秒...";
+    window._rescanTimer = setInterval(function(){
+      var el = document.getElementById("rescanTimer");
+      if(el) el.textContent = Math.floor((Date.now() - _st.getTime())/1000);
+    }, 1000);
+  }
+  try {
+    var res = await fetch("/api/twgcb/scan", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({target: hostname})
+    });
+    var json = await res.json();
+    if (window._rescanTimer) { clearInterval(window._rescanTimer); window._rescanTimer=null; }
+    var _sp_rs = document.querySelector("#scanProgress .spinner"); if (_sp_rs) _sp_rs.style.display = "none";
+    var _bar_rs = document.getElementById("scanBar"); if (_bar_rs) _bar_rs.style.display = "none";
+    var _box_rs = document.querySelector("#scanProgress > div");
+    if (json.success) {
+      if (_box_rs) _box_rs.style.background = "#E8F5E9";
+      if (msg) msg.innerHTML = "<strong style='color:var(--g2);'>✓ " + hostname + " 掃描完成</strong><br><span style='font-size:12px;'>" + (json.message || "") + "</span>";
+      if (detail) detail.textContent = "";
+      setTimeout(function(){ if (prog) prog.style.display = "none"; loadCounts(); loadTab(currentOS); }, 2500);
+    } else {
+      if (_box_rs) _box_rs.style.background = "#FFEBEE";
+      if (msg) msg.innerHTML = "<strong style='color:var(--red);'>✗ " + hostname + " 掃描失敗</strong><br><span style='font-size:12px;'>" + (json.error || "未知錯誤") + "</span>";
+      if (detail) detail.textContent = "";
+    }
+  } catch(e) {
+    if (window._rescanTimer) { clearInterval(window._rescanTimer); window._rescanTimer=null; }
+    var _sp_rsx = document.querySelector("#scanProgress .spinner"); if (_sp_rsx) _sp_rsx.style.display = "none";
+    var _bar_rsx = document.getElementById("scanBar"); if (_bar_rsx) _bar_rsx.style.display = "none";
+    var _box_rsx = document.querySelector("#scanProgress > div");
+    if (_box_rsx) _box_rsx.style.background = "#FFEBEE";
+    if (msg) msg.innerHTML = "<strong style='color:var(--red);'>✗ 掃描錯誤</strong><br><span style='font-size:12px;'>" + e.message + "</span>";
+  }
+}
+
+async function scanAll() {
+  var prog=document.getElementById("scanProgress"); prog.style.display="block"; prog.scrollIntoView({behavior:"smooth",block:"center"});
+  document.getElementById("scanMsg").textContent="掃描中，請稍候...";document.getElementById("scanDetail").textContent="正在透過 Ansible 掃描所有主機，約需 10~30 秒...";
+  try {
+    var res=await fetch("/api/twgcb/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target:"all"})});
+    var json=await res.json();
+    document.getElementById("scanMsg").innerHTML=json.success?"&#10003; "+json.message:"&#10007; "+(json.error||"失敗");
+    if(json.success){setTimeout(function(){prog.style.display="none";loadCounts();loadTab(currentOS);},1500);}
+  } catch(e){document.getElementById("scanMsg").textContent="&#10007; "+e.message;}
+}
+
+function escQ(s){return(s||"").replace(/\\/g,"\\\\").replace(/\x27/g,"\\\x27");}
+</script>
+{% endblock %}

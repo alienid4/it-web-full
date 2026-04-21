@@ -1,0 +1,94 @@
+---
+- name: 金融業 IT 每日巡檢
+  hosts: "{{ target_hosts | default('all') }}"
+  gather_facts: true
+  vars:
+    inspection_home: /seclog/AI/inspection
+
+  pre_tasks:
+    - name: 設定報告時間戳記
+      set_fact:
+        report_timestamp: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+      run_once: true
+      delegate_to: localhost
+
+    - name: 建立報告目錄
+      file:
+        path: "{{ inspection_home }}/data/reports"
+        state: directory
+        mode: '0755'
+      run_once: true
+      delegate_to: localhost
+
+  roles:
+    - check_disk
+    - check_cpu
+    - check_service
+    - check_account
+    - check_error_log
+    - check_db_connection
+    - check_account_audit
+    - check_system
+    - check_windows
+    - { role: check_snmp, when: "snmp_device | default(false)" }
+    - { role: check_as400, when: "as400_device | default(false)" }
+
+  post_tasks:
+    - name: 彙整主機巡檢結果
+      set_fact:
+        host_result:
+          hostname: "{{ inventory_hostname }}"
+          ip: "{{ ansible_host | default(inventory_hostname) }}"
+          os: "{{ ansible_distribution | default('unknown') }} {{ ansible_distribution_version | default('') }}"
+          timestamp: "{{ report_timestamp }}"
+          overall_status: >-
+            {{ 'error' if (
+              (disk_result       | default({'status':'ok'})).status == 'error' or
+              (cpu_result        | default({'status':'ok'})).status == 'error' or
+              (service_result    | default({'status':'ok'})).status == 'error' or
+              (account_result    | default({'status':'ok'})).status == 'error' or
+              (error_log_result  | default({'status':'ok'})).status == 'error' or
+              (db_result         | default({'status':'ok'})).status == 'error' or
+              (system_result     | default({'status':'ok'})).status == 'error'
+            ) else 'warn' if (
+              (disk_result       | default({'status':'ok'})).status == 'warn' or
+              (cpu_result        | default({'status':'ok'})).status == 'warn' or
+              (service_result    | default({'status':'ok'})).status == 'warn' or
+              (account_result    | default({'status':'ok'})).status == 'warn' or
+              (error_log_result  | default({'status':'ok'})).status == 'warn' or
+              (db_result         | default({'status':'ok'})).status == 'warn' or
+              (system_result     | default({'status':'ok'})).status == 'warn'
+            ) else 'ok' }}
+          results:
+            disk:      "{{ disk_result      | default({}) }}"
+            cpu:       "{{ cpu_result       | default({}) }}"
+            service:   "{{ service_result   | default({}) }}"
+            account:   "{{ account_result   | default({}) }}"
+            error_log: "{{ error_log_result | default({}) }}"
+            db:        "{{ db_result        | default({}) }}"
+            system:    "{{ system_result    | default({}) }}"
+            windows:   "{{ windows_result   | default({}) }}"
+            snmp:      "{{ snmp_result      | default({}) }}"
+            as400:     "{{ as400_result     | default({}) }}"
+            account_audit: "{{ account_audit_result | default([]) }}"
+
+    - name: 儲存主機巡檢 JSON
+      copy:
+        content: "{{ host_result | to_nice_json }}"
+        dest: "{{ inspection_home }}/data/reports/{{ report_timestamp }}_{{ inventory_hostname }}.json"
+      delegate_to: localhost
+
+    - name: 產生 HTML 報告並送出通知
+      shell: >
+        python3 {{ inspection_home }}/scripts/generate_report.py
+        {{ inspection_home }}/data/reports/{{ report_timestamp }}
+      run_once: true
+      delegate_to: localhost
+      register: report_result
+      ignore_errors: true
+
+    - name: 顯示報告結果
+      debug:
+        msg: "{{ report_result.stdout_lines | default(['(無輸出)']) }}"
+      run_once: true
+      delegate_to: localhost

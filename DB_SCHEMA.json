@@ -1,0 +1,298 @@
+{
+  "_comment": "MongoDB inspection 資料庫 — Collection Schema 範例文件。Copilot 開發時參考此結構連接現有資料庫。",
+  "database": "inspection",
+  "connection": "mongodb://localhost:27017/inspection",
+
+  "collections": {
+
+    "hosts": {
+      "_comment": "受監控主機清單，hostname 為唯一鍵",
+      "sample": {
+        "hostname": "SECSVR019",
+        "ip": "<TARGET_HOST>",
+        "os": "Rocky Linux 9.7",
+        "os_group": "rocky",
+        "status": "使用中",
+        "environment": "正式",
+        "group": "Web Servers",
+        "has_python": true,
+        "asset_seq": "AST-2024-0019",
+        "asset_name": "網站伺服器",
+        "division": "資訊處",
+        "department": "系統部",
+        "owner": "系統部",
+        "custodian": "王大明",
+        "custodian_ad": "dmwang",
+        "system_type": "gold",
+        "ap_owner": "陳小華",
+        "imported_at": "2026-04-01T08:00:00",
+        "updated_at": "2026-04-18T06:30:00"
+      },
+      "indexes": [
+        {"key": {"hostname": 1}, "unique": true}
+      ]
+    },
+
+    "inspections": {
+      "_comment": "每次巡檢結果，每台主機一筆。建議索引 (hostname, run_date, run_time)",
+      "sample": {
+        "hostname": "SECSVR019",
+        "run_id": "20260418_063000",
+        "run_date": "2026-04-18",
+        "run_time": "06:30:00",
+        "overall_status": "warn",
+        "ip": "<TARGET_HOST>",
+        "os": "Rocky Linux 9.7",
+        "disk": {
+          "status": "warn",
+          "warn_threshold": 85,
+          "crit_threshold": 95,
+          "partitions": [
+            {"mount": "/", "size": "50G", "used": "44G", "free": "6G", "percent": 88, "status": "warn"},
+            {"mount": "/home", "size": "100G", "used": "30G", "free": "70G", "percent": 30, "status": "ok"},
+            {"mount": "/var", "size": "30G", "used": "10G", "free": "20G", "percent": 33, "status": "ok"}
+          ]
+        },
+        "cpu": {
+          "status": "ok",
+          "cpu_percent": 25.3,
+          "mem_percent": 45.2,
+          "warn_threshold": 80,
+          "crit_threshold": 95
+        },
+        "service": {
+          "status": "ok",
+          "services": [
+            {"name": "sshd", "status": "running"},
+            {"name": "crond", "status": "running"},
+            {"name": "httpd", "status": "running"}
+          ]
+        },
+        "account": {
+          "status": "ok",
+          "diff": "No changes",
+          "uid0_alert": false,
+          "accounts_added": [],
+          "accounts_removed": []
+        },
+        "error_log": {
+          "status": "warn",
+          "count": 3,
+          "max_entries": 50,
+          "entries": [
+            {"time": "2026-04-18 05:12:33", "level": "WARNING", "message": "disk space low on /"},
+            {"time": "2026-04-18 04:30:15", "level": "ERROR", "message": "failed to rotate log"},
+            {"time": "2026-04-18 03:45:00", "level": "WARNING", "message": "high swap usage detected"}
+          ]
+        },
+        "system": {
+          "status": "ok",
+          "swap_percent": 5.2,
+          "io_busy": 12.5,
+          "load_average": {"1min": 0.52, "5min": 0.35, "15min": 0.22},
+          "uptime_seconds": 864000,
+          "online_users": 3,
+          "failed_login": {
+            "count": 15,
+            "top_offenders": [
+              {
+                "user": "admin",
+                "count": 10,
+                "status": "locked",
+                "unlock_cmds": ["faillock --user admin --reset"]
+              },
+              {
+                "user": "root",
+                "count": 5,
+                "status": "ok",
+                "unlock_cmds": []
+              }
+            ]
+          }
+        },
+        "created_at": "2026-04-18T06:35:00"
+      },
+      "indexes": [
+        {"key": {"hostname": 1, "run_date": -1, "run_time": -1}},
+        {"key": {"run_date": -1}},
+        {"key": {"overall_status": 1}}
+      ]
+    },
+
+    "filter_rules": {
+      "_comment": "過濾規則，用於標記已知問題減少誤報",
+      "sample": {
+        "rule_id": "6612a3b4c5d6e7f8a9b0c1d2",
+        "name": "已知的日誌輪替錯誤",
+        "type": "keyword",
+        "pattern": "failed to rotate log",
+        "apply_to": "all",
+        "enabled": true,
+        "is_known_issue": true,
+        "known_issue_reason": "logrotate 設定問題，已排入下次維護窗口修復",
+        "hit_count": 42,
+        "created_at": "2026-04-10T10:00:00",
+        "updated_at": "2026-04-15T14:30:00"
+      }
+    },
+
+    "settings": {
+      "_comment": "系統設定，key-value 結構",
+      "samples": [
+        {
+          "key": "thresholds",
+          "value": {
+            "disk_warn": 85, "disk_crit": 95,
+            "cpu_warn": 80, "cpu_crit": 95,
+            "mem_warn": 80, "mem_crit": 95
+          }
+        },
+        {
+          "key": "disk_exclude_mounts",
+          "value": ["/dev", "/run", "/sys", "/proc", "/tmp"]
+        },
+        {
+          "key": "disk_exclude_prefixes",
+          "value": ["/run/", "/dev/", "/sys/", "/proc/", "/var/lib/containers/"]
+        },
+        {
+          "key": "service_check_list",
+          "value": ["sshd", "crond"]
+        },
+        {
+          "key": "notify_email",
+          "value": {
+            "enabled": true,
+            "smtp_host": "smtp.gmail.com",
+            "smtp_port": 587,
+            "smtp_user": "alert@company.com",
+            "smtp_pass": "ENV:SMTP_PASSWORD",
+            "recipients": ["admin@company.com"]
+          }
+        }
+      ]
+    },
+
+    "users": {
+      "_comment": "使用者帳號，username 唯一。角色：superadmin / admin / oper",
+      "sample": {
+        "username": "admin",
+        "password_hash": "$2b$12$...(bcrypt hash)...",
+        "display_name": "系統管理員",
+        "role": "admin",
+        "must_change_password": false,
+        "last_seen": "2026-04-18T09:15:30",
+        "last_ip": "<ADMIN_HOST>",
+        "email": "admin@company.com"
+      },
+      "indexes": [
+        {"key": {"username": 1}, "unique": true}
+      ]
+    },
+
+    "admin_worklog": {
+      "_comment": "管理操作稽核日誌",
+      "sample": {
+        "username": "admin",
+        "action": "backup_create",
+        "details": "建立系統備份 backup_20260418_091530.tar.gz",
+        "timestamp": "2026-04-18T09:15:30",
+        "ip_address": "<ADMIN_HOST>"
+      },
+      "indexes": [
+        {"key": {"timestamp": -1}}
+      ]
+    },
+
+    "alert_acks": {
+      "_comment": "告警確認記錄",
+      "sample": {
+        "key": "SECSVR019_2026-04-18_063000",
+        "user": "admin",
+        "timestamp": "2026-04-18T10:00:00"
+      }
+    },
+
+    "twgcb_results": {
+      "_comment": "TWGCB 合規掃描結果",
+      "sample": {
+        "hostname": "SECSVR019",
+        "os": "Rocky Linux 9.7",
+        "scan_time": "2026-04-17T14:00:00",
+        "checks": [
+          {
+            "check_id": "PWD-001",
+            "category": "密碼政策",
+            "level": "L1",
+            "title": "密碼最小長度",
+            "expected": ">=12",
+            "actual": "8",
+            "result": "fail"
+          },
+          {
+            "check_id": "SSH-001",
+            "category": "SSH 安全",
+            "level": "L1",
+            "title": "SSH Protocol 版本",
+            "expected": "2",
+            "actual": "2",
+            "result": "pass"
+          },
+          {
+            "check_id": "SEL-001",
+            "category": "SELinux",
+            "level": "L2",
+            "title": "SELinux 模式",
+            "expected": "Enforcing",
+            "actual": "Enforcing",
+            "result": "pass"
+          }
+        ],
+        "imported_at": "2026-04-17T14:05:00"
+      },
+      "indexes": [
+        {"key": {"hostname": 1, "scan_time": -1}}
+      ]
+    },
+
+    "twgcb_backups": {
+      "_comment": "強化前組態備份記錄",
+      "sample": {
+        "hostname": "SECSVR019",
+        "timestamp": "20260417_140000",
+        "type": "full",
+        "local_path": "/seclog/backup/twgcb/SECSVR019/20260417_140000_full/",
+        "mgmt_path": "/seclog/backup/twgcb/20260417_140000_full/SECSVR019/",
+        "local_ok": true,
+        "mgmt_ok": true,
+        "created_at": "2026-04-17T14:00:00"
+      }
+    },
+
+    "hr_users": {
+      "_comment": "HR 員工資料，用於帳號稽核比對",
+      "sample": {
+        "ad_account": "dmwang",
+        "name": "王大明",
+        "emp_id": "E20210001",
+        "department": "系統部",
+        "title": "資深工程師",
+        "email": "dmwang@company.com",
+        "phone": "02-2345-6789"
+      },
+      "indexes": [
+        {"key": {"ad_account": 1}, "unique": true}
+      ]
+    },
+
+    "account_notes": {
+      "_comment": "帳號稽核備註",
+      "sample": {
+        "hostname": "SECSVR019",
+        "user": "testuser",
+        "note": "測試用帳號，已確認保留至 2026-06-30",
+        "department": "系統部"
+      }
+    }
+  }
+}

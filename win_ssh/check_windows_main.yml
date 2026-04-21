@@ -1,0 +1,68 @@
+# check_windows/tasks/main.yml
+# Windows 專屬: Update / IIS / Defender / 防火牆 via SSH + PowerShell
+
+- name: Windows checks only
+  when: ansible_os_family is defined and ansible_os_family == "Windows"
+  block:
+
+    - name: Get Windows Update info
+      raw: 'powershell -Command "try{$u=Get-HotFix|?{$_.InstalledOn -gt (Get-Date).AddDays(-30)}|Sort InstalledOn -Desc|Select -First 10|%{@{id=$_.HotFixID;desc=$_.Description;date=$_.InstalledOn.ToString(''yyyy-MM-dd'')}};@{count=$u.Count;updates=@($u)}|ConvertTo-Json -Depth 3}catch{@{count=0;updates=@()}|ConvertTo-Json}"'
+      register: win_upd_raw
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Get IIS status
+      raw: 'powershell -Command "$iis=Get-Service W3SVC -EA SilentlyContinue; if($iis){try{$sites=Get-WebSite -EA Stop|%{@{name=$_.Name;state=$_.State;bindings=$_.Bindings.Collection.BindingInformation -join '',''}};@{installed=$true;status=$iis.Status.ToString();sites=@($sites)}|ConvertTo-Json -Depth 3}catch{@{installed=$true;status=$iis.Status.ToString();sites=@()}|ConvertTo-Json}}else{@{installed=$false;status=''NotInstalled'';sites=@()}|ConvertTo-Json}"'
+      register: win_iis_raw
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Get firewall status
+      raw: 'powershell -Command "Get-NetFirewallProfile|%{@{name=$_.Name;enabled=$_.Enabled}}|ConvertTo-Json"'
+      register: win_fw_raw
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Get Defender status
+      raw: 'powershell -Command "try{$d=Get-MpComputerStatus;@{enabled=$d.AntivirusEnabled;realtime=$d.RealTimeProtectionEnabled;sig_date=$d.AntivirusSignatureLastUpdated.ToString(''yyyy-MM-dd HH:mm'');sig_age=[math]::Round(((Get-Date)-$d.AntivirusSignatureLastUpdated).TotalDays,0);scan_date=$d.QuickScanEndTime.ToString(''yyyy-MM-dd HH:mm'');threats=$d.ThreatDetected}|ConvertTo-Json}catch{@{enabled=$false;realtime=$false;sig_date=''N/A'';sig_age=999;scan_date=''N/A'';threats=0}|ConvertTo-Json}"'
+      register: win_def_raw
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Parse Windows results
+      set_fact:
+        _w_upd: "{{ (win_upd_raw.stdout | trim | from_json) if win_upd_raw is succeeded and win_upd_raw.stdout | trim | first == '{' else {'count':0,'updates':[]} }}"
+        _w_iis: "{{ (win_iis_raw.stdout | trim | from_json) if win_iis_raw is succeeded and win_iis_raw.stdout | trim | first == '{' else {'installed':false} }}"
+        _w_fw_raw: "{{ (win_fw_raw.stdout | trim | from_json) if win_fw_raw is succeeded and win_fw_raw.stdout | trim != '' else [] }}"
+        _w_def: "{{ (win_def_raw.stdout | trim | from_json) if win_def_raw is succeeded and win_def_raw.stdout | trim | first == '{' else {'enabled':false,'realtime':false,'sig_age':999} }}"
+
+    - name: Normalize firewall
+      set_fact:
+        _w_fw: "{{ [_w_fw_raw] if _w_fw_raw is mapping else _w_fw_raw }}"
+
+    - name: Set windows_result
+      set_fact:
+        windows_result:
+          updates:
+            count: "{{ _w_upd.count | default(0) }}"
+            recent: "{{ _w_upd.updates | default([]) }}"
+          iis:
+            installed: "{{ _w_iis.installed | default(false) }}"
+            status: "{{ _w_iis.status | default('N/A') }}"
+            sites: "{{ _w_iis.sites | default([]) }}"
+          firewall: "{{ _w_fw | default([]) }}"
+          defender:
+            enabled: "{{ _w_def.enabled | default(false) }}"
+            realtime: "{{ _w_def.realtime | default(false) }}"
+            signature_date: "{{ _w_def.sig_date | default('N/A') }}"
+            signature_age_days: "{{ _w_def.sig_age | default(999) }}"
+            last_scan: "{{ _w_def.scan_date | default('N/A') }}"
+            threats_detected: "{{ _w_def.threats | default(0) }}"
+          status: >-
+            {{ 'warn' if ((_w_def.sig_age | default(999) | int) > 7) or (not (_w_def.realtime | default(false)))
+               else 'ok' }}
+
+- name: Set empty windows_result for non-Windows
+  set_fact:
+    windows_result: {"updates":{"count":0,"recent":[]},"iis":{"installed":false},"firewall":[],"defender":{"enabled":false},"status":"ok"}
+  when: ansible_os_family is not defined or ansible_os_family != "Windows"

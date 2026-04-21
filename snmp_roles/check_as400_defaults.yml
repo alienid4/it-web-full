@@ -1,0 +1,17 @@
+# check_as400/defaults/main.yml
+# AS/400 (IBM i) 監控預設值
+
+as400_snmp_version: "2c"
+as400_snmp_community: "public"
+as400_asp_warn: 85
+as400_asp_crit: 95
+
+# IBM i 專用 OIDs
+# AS/400 CPU: 1.3.6.1.4.1.2.6.4.5.1.0
+# AS/400 ASP: 1.3.6.1.4.1.2.6.4.5.4.0
+oid_as400_cpu: "1.3.6.1.4.1.2.6.4.5.1.0"
+oid_as400_asp: "1.3.6.1.4.1.2.6.4.5.4.0"
+oid_as400_jobs: "1.3.6.1.4.1.2.6.4.5.3.0"
+oid_as400_users: "1.3.6.1.4.1.2.6.4.5.2.0"
+
+inspection_home: /seclog/AI/inspection
