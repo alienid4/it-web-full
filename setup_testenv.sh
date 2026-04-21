@@ -131,7 +131,16 @@ ok "執行期目錄建立"
 # ============================================
 step "寫入設定檔"
 
-# config.py
+# config.py — 若不存在就從 .example 拷貝
+CONFIG_PY="$INSTALL_DIR/webapp/config.py"
+CONFIG_EX="$INSTALL_DIR/webapp/config.py.example"
+if [ ! -f "$CONFIG_PY" ] && [ -f "$CONFIG_EX" ]; then
+    cp "$CONFIG_EX" "$CONFIG_PY"
+    ok "config.py 從 .example 建立"
+elif [ ! -f "$CONFIG_PY" ] && [ ! -f "$CONFIG_EX" ]; then
+    fail "找不到 webapp/config.py 也沒有 config.py.example，repo 不完整"
+fi
+
 python3 << PYEOF
 import re
 path = "${INSTALL_DIR}/webapp/config.py"
