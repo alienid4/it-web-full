@@ -6,7 +6,7 @@
   <h1 style="margin:0;">TWGCB 合規檢查</h1>
   <div style="display:flex;gap:10px;align-items:center;">
     <span id="overallRate" style="font-size:22px;font-weight:700;font-family:JetBrains Mono,monospace;"></span>
-    <button class="btn btn-primary" onclick="scanAll()">執行掃描</button>
+    <button class="btn btn-primary" onclick="scanAll(this)">執行掃描</button>
     
     <button class="btn btn-secondary" onclick="exportExcel()">匯出 Excel</button>
     <a href="/twgcb-report" class="btn btn-secondary" style="text-decoration:none;">產生報表</a>
@@ -33,6 +33,42 @@
   100% { transform:translateX(400%); width:30%; }
 }
 </style>
+
+<!-- TWGCB 統計卡片 -->
+<div id="twgcbStatsCard" style="margin-bottom:20px;display:none;">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+    <!-- 總覽 -->
+    <div style="background:linear-gradient(135deg,var(--g1) 0%,var(--g2) 100%);color:white;padding:16px 20px;border-radius:12px;">
+      <div style="font-size:12px;opacity:0.9;">總體合規率</div>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-top:4px;">
+        <span id="statRate" style="font-size:36px;font-weight:700;font-family:JetBrains Mono,monospace;">-</span>
+        <span style="font-size:14px;">%</span>
+      </div>
+      <div id="statCounts" style="font-size:11px;opacity:0.85;margin-top:6px;">-</div>
+    </div>
+
+    <!-- 按主機 -->
+    <div style="background:white;padding:16px 20px;border-radius:12px;border:1px solid #eee;">
+      <div style="font-size:12px;color:var(--c3);margin-bottom:8px;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
+        <span>各主機合規率 <span style="font-weight:400;color:var(--c3);">（最差 10 台）</span></span>
+        <span id="statByHostMore" style="font-weight:400;font-size:11px;color:var(--c3);"></span>
+      </div>
+      <div id="statByHost" style="font-size:12px;"></div>
+    </div>
+
+    <!-- 按分類 -->
+    <div style="background:white;padding:16px 20px;border-radius:12px;border:1px solid #eee;">
+      <div style="font-size:12px;color:var(--c3);margin-bottom:8px;font-weight:600;">各類別通過率</div>
+      <div id="statByCategory" style="font-size:12px;"></div>
+    </div>
+
+    <!-- FAIL 熱點 -->
+    <div style="background:white;padding:16px 20px;border-radius:12px;border:1px solid #eee;">
+      <div style="font-size:12px;color:var(--c3);margin-bottom:8px;font-weight:600;">失敗項目 Top 5</div>
+      <div id="statTopFails" style="font-size:12px;"></div>
+    </div>
+  </div>
+</div>
 
 <!-- OS Tab -->
 <div class="os-tabs">
@@ -62,7 +98,7 @@
   <div class="card" style="padding:16px 20px;display:flex;align-items:center;gap:16px;">
     <span style="font-size:13px;color:var(--c2);">AS/400 無法自動掃描，請用 Excel 匯入檢查結果：</span>
     <input type="file" id="importFile" accept=".xlsx,.xls" style="font-size:13px;">
-    <button class="btn btn-primary" onclick="importExcel()">匯入</button>
+    <button class="btn btn-primary" onclick="importExcel(this)">匯入</button>
     <a href="/api/twgcb/import-template" class="btn btn-secondary" style="text-decoration:none;font-size:12px;">下載範本</a>
     <span id="importMsg" style="font-size:13px;"></span>
   </div>
@@ -74,6 +110,7 @@
     <thead id="matrixHead"></thead>
     <tbody id="matrixBody"></tbody>
   </table>
+  <div id="pagination" style="padding:12px;text-align:center;background:var(--bg2);border-top:1px solid #e0e0e0;"></div>
 </div>
 
 <!-- 例外 Modal -->
@@ -107,7 +144,7 @@
       <input type="date" id="exApprovedDate" class="input-field" style="width:200px;">
     </div>
     <div style="display:flex;gap:10px;margin-top:16px;">
-      <button class="btn btn-primary" onclick="saveException()">確認標記例外</button>
+      <button class="btn btn-primary" onclick="saveException(this)">確認標記例外</button>
       <button class="btn btn-secondary" onclick="closeExModal()">取消</button>
     </div>
   </div>
@@ -118,15 +155,40 @@
     <h2>例外詳情</h2>
     <div style="background:#FFF3E0;border-radius:8px;padding:16px;margin-bottom:16px;">
       <div style="font-weight:700;margin-bottom:8px;" id="exdTitle"></div>
-      <div style="font-size:13px;color:var(--c2);">
+      <!-- 變更 #42: View 模式 -->
+      <div id="exdViewMode" style="font-size:13px;color:var(--c2);">
         <div><strong>原因：</strong><span id="exdReason"></span></div>
         <div style="margin-top:4px;"><strong>核准人：</strong><span id="exdApprovedBy"></span></div>
         <div style="margin-top:4px;"><strong>核准日期：</strong><span id="exdApprovedDate"></span></div>
       </div>
+      <!-- 變更 #42: Edit 模式 -->
+      <div id="exdEditMode" style="display:none;">
+        <div class="form-group">
+          <label>例外原因 <span style="color:var(--red);">*</span></label>
+          <textarea id="exdEditReason" class="input-field" style="width:100%;height:70px;"></textarea>
+        </div>
+        <div class="form-group">
+          <label>核准人</label>
+          <input type="text" id="exdEditBy" class="input-field" style="width:100%;">
+        </div>
+        <div class="form-group">
+          <label>核准日期</label>
+          <input type="date" id="exdEditDate" class="input-field" style="width:200px;">
+        </div>
+      </div>
     </div>
     <div style="display:flex;gap:10px;">
-      <button class="btn btn-danger" onclick="removeException()">取消例外（恢復紅燈）</button>
-      <button class="btn btn-secondary" onclick="closeExDetailModal()">關閉</button>
+      <!-- View 模式按鈕 -->
+      <span id="exdViewBtns">
+        <button class="btn btn-primary" onclick="editExceptionStart()">✏️ 編輯</button>
+        <button class="btn btn-danger" onclick="removeException(this)">取消例外（恢復紅燈）</button>
+        <button class="btn btn-secondary" onclick="closeExDetailModal()">關閉</button>
+      </span>
+      <!-- Edit 模式按鈕 (變更 #42) -->
+      <span id="exdEditBtns" style="display:none;">
+        <button class="btn btn-primary" onclick="saveEditException(this)">💾 儲存</button>
+        <button class="btn btn-secondary" onclick="editExceptionCancel()">取消編輯</button>
+      </span>
     </div>
   </div>
 </div>
@@ -189,6 +251,8 @@
 .light-pass { background:var(--g1); box-shadow:0 0 4px rgba(74,178,52,0.3); }
 .light-fail { background:var(--red); box-shadow:0 0 4px rgba(224,11,0,0.3); }
 .light-exception { background:var(--orange); box-shadow:0 0 4px rgba(232,124,7,0.3); }
+/* 變更 #43: PASS + 已標例外 → 綠燈外加橘色粗環，點擊可看例外詳情 */
+.light-has-exc { outline:4px solid var(--orange); outline-offset:2px; box-shadow:0 0 6px rgba(232,124,7,0.5) !important; }
 .light-cat { width:14px; height:14px; }
 
 .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; display:flex; justify-content:center; align-items:center; }
@@ -203,30 +267,132 @@
 <script>
 var allData = [], allChecks = [], currentEx = null, expandedCats = {};
 var currentOS = "linux";
+// Phase 1: server-side 分頁狀態（500+ 台規模）
+var _page = 0, _pageSize = 30, _totalHosts = 0;
+// Phase 2: 快取 /api/twgcb/stats 的 overall（buildMatrix 用它替代當前頁計算）
+var _overallStats = null;
 
-document.addEventListener("DOMContentLoaded", function(){ loadCounts(); loadTab("linux"); setTimeout(checkFixStatus, 2000); });
+// 變更 #37: 同主機修復鎖 — 避免使用者連續點同主機多顆「修」按鈕造成 remediation 踩到彼此
+// 值：{ hostname: unlockTimestamp }（毫秒）
+window._fixingHosts = window._fixingHosts || {};
+function _tryLockFix(hostname) {
+  var until = window._fixingHosts[hostname];
+  if (until && until > Date.now()) {
+    var remain = Math.ceil((until - Date.now()) / 1000);
+    _showRescanToast("正在修復 " + hostname + "（" + remain + " 秒後可再點或用「全修」）", "info");
+    return false;
+  }
+  // 預鎖 5 秒避免 API 回應前重複點擊（成功後會延長到 20 秒、失敗時立即釋放）
+  window._fixingHosts[hostname] = Date.now() + 5000;
+  return true;
+}
+function _extendLockFix(hostname, seconds) {
+  window._fixingHosts[hostname] = Date.now() + (seconds * 1000);
+  setTimeout(function(){ delete window._fixingHosts[hostname]; }, seconds * 1000);
+}
+function _releaseLockFix(hostname) {
+  delete window._fixingHosts[hostname];
+}
 
-async function loadCounts() {
-  // 載入全部資料計算各 OS tab 數量
-  try {
-    var res = await fetch("/api/twgcb/results");
-    var json = await res.json();
-    if (!json.success) return;
-    var all = json.data;
+document.addEventListener("DOMContentLoaded", function(){ loadStats(); loadFilterOptions(); loadTab("linux"); setTimeout(checkFixStatus, 2000); });
+
+// Phase 2 #3: 一次性載入全部系統別/AP負責人/級別（避免分頁後下拉只看當前頁）
+function loadFilterOptions() {
+  fetch("/api/twgcb/filter-options").then(function(r){return r.json();}).then(function(d){
+    if (!d.success) return;
+    var sel = document.getElementById("filterSystem");
+    if (sel) {
+      var cur = sel.value;
+      sel.innerHTML = '<option value="">全部系統</option>' +
+        (d.systems || []).map(function(s){return '<option'+(s===cur?' selected':'')+'>'+s+'</option>';}).join("");
+    }
+  }).catch(function(){});
+}
+
+function loadStats() {
+  fetch("/api/twgcb/stats").then(function(r){return r.json();}).then(function(d){
+    if(!d.success) return;
+    // 順便算 OS 分佈（取代原 loadCounts 的全量 results 抓取）
     var counts = {linux:0, windows:0, aix:0, as400:0};
-    all.forEach(function(r) {
-      var os = (r.os||"").toLowerCase();
-      if (os.match(/rocky|rhel|red hat|centos|debian|ubuntu|suse|oracle/)) counts.linux++;
-      else if (os.match(/windows/)) counts.windows++;
+    (d.by_host || []).forEach(function(h){
+      var os = (h.os||"").toLowerCase();
+      if (os.match(/windows/)) counts.windows++;
       else if (os.match(/aix/)) counts.aix++;
       else if (os.match(/as.?400|ibm.?i/)) counts.as400++;
-      else counts.linux++; // 預設歸 Linux
+      else counts.linux++;
     });
     document.getElementById("countLinux").textContent = counts.linux;
     document.getElementById("countWindows").textContent = counts.windows;
     document.getElementById("countAix").textContent = counts.aix;
     document.getElementById("countAs400").textContent = counts.as400;
-  } catch(e) {}
+    var card = document.getElementById("twgcbStatsCard");
+    if(card) card.style.display = "block";
+    var o = d.overall || {};
+    document.getElementById("statRate").textContent = o.rate || 0;
+    document.getElementById("statCounts").textContent = o.pass + " / " + o.total + " 通過  ( " + o.host_count + " 台主機)";
+    // Phase 2: 快取 overall，並同步更新矩陣頁的總合規率（避免矩陣頁只算當前頁誤導）
+    _overallStats = o;
+    _updateOverallRate();
+
+    // 按主機（Phase 2: 只顯示最差 10 台，500 台時頁面不再爆長）
+    var allHosts = (d.by_host || []).slice();
+    var worstHosts = allHosts.slice().sort(function(a,b){ return a.rate - b.rate; }).slice(0, 10);
+    var hostHtml = worstHosts.map(function(h){
+      var color = h.rate >= 90 ? "var(--g1)" : h.rate >= 70 ? "var(--orange)" : "var(--red)";
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px dashed #eee;">'
+        + '<span style="color:var(--c2);">' + h.hostname + '</span>'
+        + '<span style="font-family:JetBrains Mono,monospace;"><strong style="color:'+color+';">' + h.rate + '%</strong> <span style="color:var(--c3);font-size:10px;">(' + h.pass + '/' + h.total + ')</span></span>'
+        + '</div>';
+    }).join("");
+    document.getElementById("statByHost").innerHTML = hostHtml || "<span style=\"color:var(--c3);\">無資料</span>";
+    var moreEl = document.getElementById("statByHostMore");
+    if (moreEl) moreEl.textContent = allHosts.length > 10 ? "共 " + allHosts.length + " 台" : "";
+
+    // 按分類
+    var catHtml = (d.by_category || []).slice(0, 6).map(function(c){
+      var color = c.rate >= 90 ? "var(--g1)" : c.rate >= 70 ? "var(--orange)" : "var(--red)";
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px dashed #eee;">'
+        + '<span style="color:var(--c2);">' + c.category + '</span>'
+        + '<span style="font-family:JetBrains Mono,monospace;"><strong style="color:'+color+';">' + c.rate + '%</strong> <span style="color:var(--c3);font-size:10px;">(' + c.pass + '/' + c.total + ')</span></span>'
+        + '</div>';
+    }).join("");
+    document.getElementById("statByCategory").innerHTML = catHtml || "<span style=\"color:var(--c3);\">無資料</span>";
+
+    // Top FAIL
+    var topHtml = (d.top_fails || []).slice(0, 5).map(function(f){
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px dashed #eee;">'
+        + '<span style="color:var(--c2);font-size:11px;max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (f.name || f.id) + '</span>'
+        + '<span style="color:var(--red);font-weight:600;">✗ ' + f.count + '</span>'
+        + '</div>';
+    }).join("");
+    document.getElementById("statTopFails").innerHTML = topHtml || "<span style=\"color:var(--g1);\">✓ 無失敗項目</span>";
+  });
+}
+
+function loadCounts() {
+  // 統一入口：直接呼叫 loadStats（原本分開呼叫 /api/twgcb/stats 兩次，Flask 單執行緒會卡）
+  loadStats();
+}
+
+// Phase 2: 更新右上角「總合規率」
+// 優先用 _overallStats（跨所有主機、所有 OS），stats 尚未回來時 fallback 當前頁並標註
+function _updateOverallRate() {
+  var el = document.getElementById("overallRate");
+  if (!el) return;
+  var rate, suffix = "";
+  if (_overallStats && typeof _overallStats.rate === "number") {
+    rate = _overallStats.rate;
+  } else {
+    // fallback：stats 還沒載入完成，用當前頁計算
+    var totalC = 0, totalP = 0;
+    (allData || []).forEach(function(r) {
+      (r.checks||[]).forEach(function(c) { totalC++; if (c.status==="PASS"||c.exception) totalP++; });
+    });
+    rate = totalC > 0 ? Math.round(totalP/totalC*100) : 0;
+    suffix = '<span style="font-size:12px;color:var(--c3);font-weight:400;margin-left:4px;">(載入中)</span>';
+  }
+  var rc = rate>=80?"var(--g1)":rate>=50?"var(--orange)":"var(--red)";
+  el.innerHTML = '<span style="color:'+rc+'">總合規率 '+rate+'%</span>' + suffix;
 }
 
 function switchOS(os) {
@@ -236,20 +402,66 @@ function switchOS(os) {
   });
   document.getElementById("importSection").style.display = (os === "as400") ? "block" : "none";
   expandedCats = {};
+  _page = 0; // 切 OS 時回第一頁
   loadTab(os);
+}
+
+function _buildFilterParams(os) {
+  var p = new URLSearchParams();
+  p.set("os_type", os);
+  var search = (document.getElementById("filterSearch") && document.getElementById("filterSearch").value || "").trim();
+  if (search) p.set("search", search);
+  var sys = document.getElementById("filterSystem") && document.getElementById("filterSystem").value || "";
+  if (sys) p.set("system", sys);
+  var tier = document.getElementById("filterTier") && document.getElementById("filterTier").value || "";
+  if (tier) p.set("tier", tier);
+  var toggle = document.getElementById("toggleAbnormal");
+  if (toggle && toggle.checked) p.set("fail_only", "1");
+  p.set("limit", _pageSize);
+  p.set("offset", _page * _pageSize);
+  return p.toString();
 }
 
 async function loadTab(os) {
   try {
-    var res = await fetch("/api/twgcb/results?os_type=" + os);
+    var url = "/api/twgcb/results?" + _buildFilterParams(os);
+    var res = await fetch(url);
     var json = await res.json();
     if (!json.success) return;
+    if (currentOS !== os) return; // race guard：使用者已切換 tab，丟棄此結果
     allData = json.data;
+    _totalHosts = json.total || (json.data ? json.data.length : 0);
     buildMatrix();
+    _renderPagination();
   } catch(e) {
+    if (currentOS !== os) return;
     document.getElementById("matrixBody").innerHTML =
       '<tr><td colspan="99" style="text-align:center;padding:24px;color:var(--red);">載入失敗</td></tr>';
   }
+}
+
+function _renderPagination() {
+  var el = document.getElementById("pagination");
+  if (!el) return;
+  var totalPages = _pageSize > 0 ? Math.max(1, Math.ceil(_totalHosts / _pageSize)) : 1;
+  if (_totalHosts <= _pageSize) {
+    el.innerHTML = _totalHosts ? '<span style="color:var(--c3);font-size:12px;">共 ' + _totalHosts + ' 台（無需分頁）</span>' : "";
+    return;
+  }
+  var btnStyle = "background:white;border:1px solid var(--c4);color:var(--c2);font-size:12px;padding:4px 10px;margin:0 2px;border-radius:4px;cursor:pointer;";
+  var btnDis = btnStyle + "opacity:0.4;cursor:not-allowed;";
+  var prevDis = _page <= 0, nextDis = _page >= totalPages - 1;
+  el.innerHTML =
+    '<span style="color:var(--c3);font-size:12px;margin-right:12px;">共 <strong>' + _totalHosts + '</strong> 台，第 <strong>' + (_page + 1) + '</strong> / ' + totalPages + ' 頁</span>'
+    + '<button onclick="_gotoPage(0)" style="' + (prevDis ? btnDis : btnStyle) + '"' + (prevDis ? ' disabled' : '') + '>« 首頁</button>'
+    + '<button onclick="_gotoPage(' + (_page - 1) + ')" style="' + (prevDis ? btnDis : btnStyle) + '"' + (prevDis ? ' disabled' : '') + '>‹ 上一頁</button>'
+    + '<button onclick="_gotoPage(' + (_page + 1) + ')" style="' + (nextDis ? btnDis : btnStyle) + '"' + (nextDis ? ' disabled' : '') + '>下一頁 ›</button>'
+    + '<button onclick="_gotoPage(' + (totalPages - 1) + ')" style="' + (nextDis ? btnDis : btnStyle) + '"' + (nextDis ? ' disabled' : '') + '>末頁 »</button>';
+}
+
+function _gotoPage(p) {
+  _page = Math.max(0, p);
+  loadTab(currentOS);
 }
 
 function buildMatrix() {
@@ -262,44 +474,24 @@ function buildMatrix() {
   });
   allChecks = checkOrder.map(function(id){return checkMap[id];});
 
-  // 總合規率
-  var totalC = 0, totalP = 0;
-  allData.forEach(function(r) {
-    (r.checks||[]).forEach(function(c) { totalC++; if (c.status==="PASS"||c.exception) totalP++; });
-  });
-  var rate = totalC > 0 ? Math.round(totalP/totalC*100) : 0;
-  var rc = rate>=80?"var(--g1)":rate>=50?"var(--orange)":"var(--red)";
-  document.getElementById("overallRate").innerHTML = '<span style="color:'+rc+'">總合規率 '+rate+'%</span>';
+  // Phase 2: 總合規率改用 /api/twgcb/stats 的 overall（跨所有主機），避免分頁時只算當前頁誤導
+  _updateOverallRate();
 
-  // 篩選下拉
-  var sysSet = {};
-  allData.forEach(function(r) { var s=r.system_name||""; if(s) sysSet[s]=true; });
-  document.getElementById("filterSystem").innerHTML = '<option value="">全部系統</option>' +
-    Object.keys(sysSet).map(function(s){return '<option>'+s+'</option>';}).join("");
+  // Phase 2 #3: 系統別 dropdown 改由 loadFilterOptions() 一次載滿，不再每次 buildMatrix 補當前頁
 
-  applyFilter();
+  // Server 已經篩過，直接渲染所有 allData（不再二次 client-side filter）
+  renderMatrix(allData.map(function(r){ return r.hostname; }));
 }
 
+// Phase 1: filter 改 server-side。這裡只重置到第一頁並重新拉 + 渲染。
+// 使用 debounce 避免 search box 每按一個字就打一次 API。
+var _filterDebounce = null;
 function applyFilter() {
-  var keyword = (document.getElementById("filterSearch").value||"").trim().toLowerCase();
-  var sysFilter = document.getElementById("filterSystem").value;
-  var tierFilter = document.getElementById("filterTier").value;
-  var abnormalOnly = document.getElementById("toggleAbnormal").checked;
-
-  var filtered = allData.filter(function(r) {
-    if (sysFilter && (r.system_name||"") !== sysFilter) return false;
-    if (tierFilter && (r.tier||"") !== tierFilter) return false;
-    if (keyword) {
-      var h = [r.hostname, r.system_name||"", r.ap_owner||"", r.custodian||""].join(" ").toLowerCase();
-      if (h.indexOf(keyword) === -1) return false;
-    }
-    if (abnormalOnly) {
-      var hasIssue = (r.checks||[]).some(function(c){return c.status!=="PASS" && !c.exception;});
-      if (!hasIssue) return false;
-    }
-    return true;
-  });
-  renderMatrix(filtered.map(function(r){return r.hostname;}));
+  if (_filterDebounce) clearTimeout(_filterDebounce);
+  _filterDebounce = setTimeout(function(){
+    _page = 0;
+    loadTab(currentOS);
+  }, 250);
 }
 
 function renderMatrix(visibleHosts) {
@@ -326,7 +518,7 @@ function renderMatrix(visibleHosts) {
     row1 += '<th style="font-size:11px;color:var(--c2);font-weight:400;">'+sys+'</th>';
     row2 += '<th style="font-size:11px;font-weight:600;color:'+tierColor+';">'+tier+'</th>';
     row3 += '<th style="font-size:11px;color:var(--c2);font-weight:400;">'+ap+'</th>';
-        row4 += '<th><div class="host-header"><a href="/twgcb/harden/'+h+'">'+h+'</a><br><button class="btn btn-sm" style="background:var(--orange);color:white;font-size:10px;padding:2px 8px;margin-top:4px;" onclick="event.stopPropagation();fixOneHost(\x27'+h+'\x27)">🔧全修</button> <button class="btn btn-sm" style="background:var(--c2);color:white;font-size:10px;padding:2px 8px;margin-top:4px;" onclick="event.stopPropagation();restoreOneHost(\x27'+h+'\x27)">↩還原</button></div></th>';
+        row4 += '<th><div class="host-header"><a href="/twgcb/harden/'+h+'">'+h+'</a><br><button class="btn btn-sm" style="background:var(--orange);color:white;font-size:10px;padding:2px 8px;margin-top:4px;" onclick="event.stopPropagation();fixOneHost(\x27'+h+'\x27, this)">🔧全修</button> <button class="btn btn-sm" style="background:var(--c2);color:white;font-size:10px;padding:2px 8px;margin-top:4px;" onclick="event.stopPropagation();restoreOneHost(\x27'+h+'\x27, this)">↩還原</button> <button class="btn btn-sm" style="background:var(--g1);color:white;font-size:10px;padding:2px 8px;margin-top:4px;" onclick="event.stopPropagation();twgcbRescan(\x27'+h+'\x27, this)">🔄重掃</button></div></th>';
   });
   row1+='<th></th></tr>'; row2+='<th></th></tr>'; row3+='<th></th></tr>';
   row4+='<th style="text-align:left;min-width:180px;">例外說明</th></tr>';
@@ -376,12 +568,20 @@ function renderMatrix(visibleHosts) {
       visibleHosts.forEach(function(h) {
         var c = hostCheckMap[h]?hostCheckMap[h][ck.id]:null;
         if (!c) { cells+='<td>-</td>'; return; }
-        if (c.status==="PASS") cells+='<td><span class="light light-pass" title="合規"></span></td>';
+        // 變更 #43: PASS + 已標例外 → 綠燈 + 橘色環，點擊可查看例外詳情
+        if (c.status==="PASS") {
+          if (c.exception) {
+            cells+='<td><span class="light light-pass light-has-exc" title="合規（有例外紀錄 — 點擊查看）" onclick="event.stopPropagation();showExDetail(\x27'+c.id+'\x27,\x27'+escQ(c.name)+'\x27,\x27'+h+'\x27,\x27'+escQ(c.exception_reason||"")+'\x27,\x27'+escQ(c.exception_approved_by||"")+'\x27,\x27'+escQ(c.exception_approved_date||"")+'\x27)"></span></td>';
+            reasons.push(h+"：(PASS 但有例外) "+(c.exception_reason||""));
+          } else {
+            cells+='<td><span class="light light-pass" title="合規"></span></td>';
+          }
+        }
         else if (c.exception) {
           cells+='<td><span class="light light-exception" title="例外" onclick="event.stopPropagation();showExDetail(\x27'+c.id+'\x27,\x27'+escQ(c.name)+'\x27,\x27'+h+'\x27,\x27'+escQ(c.exception_reason||"")+'\x27,\x27'+escQ(c.exception_approved_by||"")+'\x27,\x27'+escQ(c.exception_approved_date||"")+'\x27)"></span></td>';
           reasons.push(h+"："+(c.exception_reason||""));
         } else {
-          cells+='<td style="text-align:center;"><span class="light light-fail" title="未通過 — 點擊查看詳情" onclick="event.stopPropagation();openExModal(\x27'+c.id+'\x27,\x27'+escQ(c.name)+'\x27,\x27'+h+'\x27)" style="cursor:pointer;"></span><br><span style="display:inline-flex;gap:2px;margin-top:2px;"><button style="background:var(--g1);color:white;border:none;border-radius:3px;font-size:9px;padding:1px 5px;cursor:pointer;" onclick="event.stopPropagation();quickFix(\x27'+c.id+'\x27,\x27'+h+'\x27)" title="修復此項">修</button><button style="background:var(--c3);color:white;border:none;border-radius:3px;font-size:9px;padding:1px 5px;cursor:pointer;" onclick="event.stopPropagation();quickRestore(\x27'+c.id+'\x27,\x27'+h+'\x27)" title="還原此項">還</button></span></td>';
+          cells+='<td style="text-align:center;"><span class="light light-fail" title="未通過 — 點擊查看詳情" onclick="event.stopPropagation();openExModal(\x27'+c.id+'\x27,\x27'+escQ(c.name)+'\x27,\x27'+h+'\x27)" style="cursor:pointer;"></span><br><span style="display:inline-flex;gap:2px;margin-top:2px;"><button style="background:var(--g1);color:white;border:none;border-radius:3px;font-size:9px;padding:1px 5px;cursor:pointer;" onclick="event.stopPropagation();quickFix(\x27'+c.id+'\x27,\x27'+h+'\x27,this)" title="修復此項">修</button><button style="background:var(--c3);color:white;border:none;border-radius:3px;font-size:9px;padding:1px 5px;cursor:pointer;" onclick="event.stopPropagation();quickRestore(\x27'+c.id+'\x27,\x27'+h+'\x27,this)" title="還原此項">還</button></span></td>';
         }
       });
       html+='<tr class="detail-row detail-'+catId+(isOpen?" show":"")+'">'+
@@ -412,16 +612,41 @@ function toggleAllCats(open) {
 
 // Excel
 function exportExcel() { window.open("/api/twgcb/export?os_type="+currentOS, "_blank"); }
-async function importExcel() {
-  var f=document.getElementById("importFile").files[0];
-  if(!f){alert("請選擇 Excel 檔案");return;}
-  var fd=new FormData(); fd.append("file",f); fd.append("os_type","as400");
+async function importExcel(btn) {
+  var f = document.getElementById("importFile").files[0];
+  if (!f) { alert("請選擇 Excel 檔案"); return; }
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:12px;height:12px;border-width:2px;vertical-align:middle;"></span> 匯入中';
+  }
+  var importMsg = document.getElementById("importMsg");
+  if (importMsg) importMsg.innerHTML = '<span style="color:var(--c3)">匯入中...</span>';
+  var fd = new FormData(); fd.append("file", f); fd.append("os_type", "as400");
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 60000);
   try {
-    var res=await fetch("/api/twgcb/import-excel",{method:"POST",body:fd});
-    var json=await res.json();
-    document.getElementById("importMsg").innerHTML=json.success?'<span style="color:var(--g1)">&#10003; '+json.message+'</span>':'<span style="color:var(--red)">'+json.error+'</span>';
-    if(json.success){loadCounts();loadTab(currentOS);}
-  } catch(e){document.getElementById("importMsg").textContent="錯誤: "+e.message;}
+    var res = await fetch("/api/twgcb/import-excel", { method: "POST", body: fd, signal: controller.signal });
+    var json = await res.json();
+    if (importMsg) importMsg.innerHTML = json.success
+      ? '<span style="color:var(--g1)">&#10003; ' + json.message + '</span>'
+      : '<span style="color:var(--red)">' + (json.error || "匯入失敗") + '</span>';
+    if (json.success) {
+      _showRescanToast("Excel 匯入成功：" + (json.message || ""), "success");
+      loadCounts(); loadTab(currentOS);
+    } else {
+      _showRescanToast("Excel 匯入失敗：" + (json.error || "未知錯誤"), "error");
+    }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "請求逾時（超過 60 秒），檔案可能過大" : (e.message || "未知錯誤");
+    if (importMsg) importMsg.textContent = "錯誤: " + emsg;
+    _showRescanToast("Excel 匯入失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
+  }
 }
 
 // 例外管理
@@ -445,17 +670,28 @@ function openExModal(cid,name,host) {
     }).catch(function(){document.getElementById("fixCmd").textContent="載入失敗";});
   document.getElementById("exceptionModal").style.display="flex";
 }
-function execFix() {
+// Phase 2 #6: async-feedback 標準化（spinner / AbortController / toast / finally 還原狀態）
+async function execFix() {
   if(!currentEx)return;
   if(typeof requirePermission==="function"&&!requirePermission("admin"))return;
+  // 變更 #37: 同主機鎖
+  if (!_tryLockFix(currentEx.hostname)) return;
   var btn=document.getElementById("fixBtn");
-  btn.disabled=true;btn.textContent="執行中...";
-  var prog=document.getElementById("scanProgress");prog.style.display="block";
+  var _origHTML = btn.innerHTML;
+  btn.disabled=true;
+  btn.style.opacity="0.7";
+  btn.innerHTML='<span class="spinner-sm" style="width:12px;height:12px;border-width:2px;vertical-align:middle;"></span> 修復中';
+  var prog=document.getElementById("scanProgress");prog.style.display="block";prog.scrollIntoView({behavior:"smooth",block:"center"});
   document.getElementById("scanMsg").textContent="修復中："+currentEx.id;
   document.getElementById("scanDetail").textContent="正在備份並套用修復，約需 5~15 秒...";
-  fetch("/api/admin/twgcb/fix",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({check_id:currentEx.id,hostname:currentEx.hostname})
-  }).then(function(r){return r.json();}).then(function(res){
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 90000);
+  try {
+    var r = await fetch("/api/admin/twgcb/fix",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({check_id:currentEx.id,hostname:currentEx.hostname}),
+      signal: controller.signal
+    });
+    var res = await r.json();
     var rd=document.getElementById("fixResult");rd.style.display="block";
     var html = "";
     if(res.success){
@@ -463,6 +699,17 @@ function execFix() {
       html="✓ "+res.message;
       if(res.backup) html+="<div style='font-size:11px;margin-top:4px;color:var(--c3);'>"+res.backup+"</div>";
       if(res.output) html+="<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;'>"+res.output+"</pre>";
+      // 變更 #36: 後端已啟動背景 rescan，~20 秒後自動刷新矩陣 + 統計
+      // 變更 #37: 鎖延長到背景 rescan 結束
+      _extendLockFix(currentEx.hostname, res.rescan_pending ? 20 : 2);
+      if (res.rescan_pending) {
+        html+="<div style='font-size:11px;margin-top:4px;color:var(--c3);'>(背景重新掃描中，20 秒後自動刷新狀態...)</div>";
+        setTimeout(function(){
+          if (typeof loadStats === "function") loadStats();
+          if (typeof loadTab === "function" && typeof currentOS !== "undefined") loadTab(currentOS);
+        }, 20000);
+      }
+      _showRescanToast("修復成功："+currentEx.id+(res.rescan_pending?"（背景刷新中）":""), "success");
     }else{
       rd.style.background="#FFEAEA";rd.style.color="var(--red)";
       html="✗ "+(res.error||"失敗");
@@ -470,49 +717,115 @@ function execFix() {
       if(res.check_id) html+="<div style='font-size:11px;'>項目: "+res.check_id+"</div>";
       if(res.detail) html+="<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;max-height:200px;overflow:auto;'>"+res.detail+"</pre>";
       else if(res.output) html+="<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;max-height:200px;overflow:auto;'>"+res.output+"</pre>";
+      _showRescanToast("修復失敗："+(res.error||currentEx.id), "error");
+      _releaseLockFix(currentEx.hostname);
     }
-    // 還原按鈕
     if(res.backup_files && res.backup_files.length > 0){
       window._lastFixBackup = {hostname:res.hostname||currentEx.hostname, files:res.backup_files};
-      html+="<div style='margin-top:8px;'><button class='btn btn-sm' style='background:var(--orange);color:white;font-size:12px;padding:5px 14px;' onclick='restoreFix()'>↩ 還原修復前狀態</button></div>";
+      html+="<div style='margin-top:8px;'><button class='btn btn-sm' style='background:var(--orange);color:white;font-size:12px;padding:5px 14px;' onclick='restoreFix(this)'>↩ 還原修復前狀態</button></div>";
     }
     rd.innerHTML=html;
-    btn.disabled=false;btn.textContent="再次執行";document.getElementById("scanProgress").style.display="none";
-  }).catch(function(e){
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "修復逾時（超過 90 秒）" : (e.message || "未知錯誤");
     var rd=document.getElementById("fixResult");rd.style.display="block";
-    rd.textContent="錯誤: "+e.message;btn.disabled=false;btn.textContent="重試";document.getElementById("scanProgress").style.display="none";
-  });
+    rd.style.background="#FFEAEA";rd.style.color="var(--red)";
+    rd.textContent="錯誤: "+emsg;
+    _showRescanToast("修復失敗："+emsg, "error");
+    if (currentEx) _releaseLockFix(currentEx.hostname);
+  } finally {
+    clearTimeout(timeoutId);
+    btn.disabled=false;
+    btn.style.opacity="";
+    btn.innerHTML=_origHTML;
+    var _prog = document.getElementById("scanProgress");
+    if (_prog) _prog.style.display="none";
+  }
 }
-function restoreFix() {
+async function restoreFix(btn) {
   if(!window._lastFixBackup) return;
   if(!confirm("確定要還原修復前的狀態？")) return;
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 還原中';
+  }
   var rd=document.getElementById("fixResult");
-  rd.innerHTML="<span style='color:var(--c3);'>還原中...</span>";
-  fetch("/api/admin/twgcb/restore",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({hostname:window._lastFixBackup.hostname,backup_files:window._lastFixBackup.files})
-  }).then(function(r){return r.json();}).then(function(res){
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 60000);
+  try {
+    var r = await fetch("/api/admin/twgcb/restore",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({hostname:window._lastFixBackup.hostname,backup_files:window._lastFixBackup.files}),
+      signal: controller.signal
+    });
+    var res = await r.json();
     if(res.success){
       rd.style.background="#E8F5E9";rd.style.color="var(--g2)";
-      rd.innerHTML="✓ 還原成功"+(res.output?"<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;'>"+res.output+"</pre>":"");
+      var extra = res.rescan_pending ? "<div style='font-size:11px;margin-top:4px;color:var(--c3);'>(背景重新掃描中，20 秒後自動刷新狀態...)</div>" : "";
+      rd.innerHTML="✓ 還原成功"+extra+(res.output?"<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;'>"+res.output+"</pre>":"");
+      _showRescanToast("已還原修復前狀態"+(res.rescan_pending?"（背景刷新中）":""), "success");
+      window._lastFixBackup=null;
+      // 變更 #45: 背景 rescan 完自動刷矩陣
+      if (res.rescan_pending) {
+        setTimeout(function(){
+          if (typeof loadStats === 'function') loadStats();
+          if (typeof loadTab === 'function' && typeof currentOS !== 'undefined') loadTab(currentOS);
+        }, 20000);
+      }
     }else{
       rd.style.background="#FFEAEA";rd.style.color="var(--red)";
       rd.innerHTML="✗ 還原失敗: "+(res.error||"")+(res.output?"<pre style='font-size:10px;margin:4px 0 0;white-space:pre-wrap;'>"+res.output+"</pre>":"");
+      _showRescanToast("還原失敗："+(res.error||"未知錯誤"), "error");
     }
-    window._lastFixBackup=null;
-  }).catch(function(e){rd.textContent="錯誤: "+e.message;});
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "還原逾時（超過 60 秒）" : (e.message || "未知錯誤");
+    rd.style.background="#FFEAEA";rd.style.color="var(--red)";
+    rd.textContent="錯誤: "+emsg;
+    _showRescanToast("還原失敗："+emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled=false; btn.style.opacity=""; btn.innerHTML=_origHTML; }
+  }
 }
 function closeExModal(){document.getElementById("exceptionModal").style.display="none";currentEx=null;}
-async function saveException() {
-  var reason=document.getElementById("exReason").value.trim();
-  if(!reason){alert("請填寫例外原因");return;}
+async function saveException(btn) {
+  var reason = document.getElementById("exReason").value.trim();
+  if (!reason) { alert("請填寫例外原因"); return; }
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:12px;height:12px;border-width:2px;vertical-align:middle;"></span> 儲存中';
+  }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 30000);
   try {
-    var res=await fetch("/api/twgcb/exceptions",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({check_id:currentEx.id,hostname:currentEx.hostname,reason:reason,
-        approved_by:document.getElementById("exApprovedBy").value.trim(),
-        approved_date:document.getElementById("exApprovedDate").value})});
-    var json=await res.json();
-    if(json.success){closeExModal();loadTab(currentOS);}else{alert("失敗: "+json.error);}
-  } catch(e){alert("錯誤: "+e.message);}
+    var res = await fetch("/api/twgcb/exceptions", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        check_id: currentEx.id, hostname: currentEx.hostname, reason: reason,
+        approved_by: document.getElementById("exApprovedBy").value.trim(),
+        approved_date: document.getElementById("exApprovedDate").value
+      }),
+      signal: controller.signal
+    });
+    var json = await res.json();
+    if (json.success) {
+      closeExModal();
+      loadTab(currentOS);
+      _showRescanToast("已標記例外：" + (currentEx && currentEx.id ? currentEx.id : ""), "success");
+    } else {
+      _showRescanToast("標記例外失敗：" + (json.error || "未知錯誤"), "error");
+    }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "請求逾時（超過 30 秒）" : (e.message || "未知錯誤");
+    _showRescanToast("標記例外失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
+  }
 }
 function showExDetail(cid,name,host,reason,by,date) {
   currentEx={id:cid,hostname:host};
@@ -522,116 +835,313 @@ function showExDetail(cid,name,host,reason,by,date) {
   document.getElementById("exdApprovedDate").textContent=date||"-";
   document.getElementById("exDetailModal").style.display="flex";
 }
-function closeExDetailModal(){document.getElementById("exDetailModal").style.display="none";}
-async function removeException() {
-  if(!confirm("確定要取消此例外？"))return;
+function closeExDetailModal(){
+  document.getElementById("exDetailModal").style.display="none";
+  // 變更 #42: 關閉時重置為 View 模式
+  editExceptionCancel();
+}
+
+// 變更 #42: 編輯例外功能（reason / approved_by / approved_date 都可改）
+function editExceptionStart() {
+  document.getElementById('exdViewMode').style.display = 'none';
+  document.getElementById('exdEditMode').style.display = 'block';
+  document.getElementById('exdViewBtns').style.display = 'none';
+  document.getElementById('exdEditBtns').style.display = 'inline';
+  // 把現值塞進 input
+  document.getElementById('exdEditReason').value = document.getElementById('exdReason').textContent || '';
+  var by = document.getElementById('exdApprovedBy').textContent || '';
+  document.getElementById('exdEditBy').value = (by === '-' ? '' : by);
+  var date = document.getElementById('exdApprovedDate').textContent || '';
+  document.getElementById('exdEditDate').value = (date === '-' ? '' : date);
+}
+
+function editExceptionCancel() {
+  document.getElementById('exdViewMode').style.display = 'block';
+  document.getElementById('exdEditMode').style.display = 'none';
+  document.getElementById('exdViewBtns').style.display = 'inline';
+  document.getElementById('exdEditBtns').style.display = 'none';
+}
+
+async function saveEditException(btn) {
+  var reason = document.getElementById('exdEditReason').value.trim();
+  if (!reason) { alert('請填寫例外原因'); return; }
+  var by = document.getElementById('exdEditBy').value.trim();
+  var date = document.getElementById('exdEditDate').value;
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = '0.7';
+    btn.innerHTML = '<span class="spinner-sm" style="width:12px;height:12px;border-width:2px;vertical-align:middle;"></span> 儲存中';
+  }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 30000);
   try {
-    var res=await fetch("/api/twgcb/exceptions",{method:"DELETE",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({check_id:currentEx.id,hostname:currentEx.hostname})});
-    var json=await res.json();
-    if(json.success){closeExDetailModal();loadTab(currentOS);}else{alert("失敗: "+json.error);}
-  } catch(e){alert("錯誤: "+e.message);}
+    var res = await fetch('/api/twgcb/exceptions', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        check_id: currentEx.id, hostname: currentEx.hostname,
+        reason: reason, approved_by: by, approved_date: date
+      }),
+      signal: controller.signal
+    });
+    var json = await res.json();
+    if (json.success) {
+      closeExDetailModal();
+      loadTab(currentOS);
+      _showRescanToast('\u2713 已更新例外：' + (currentEx && currentEx.id ? currentEx.id : ''), 'success');
+    } else {
+      _showRescanToast('\u2717 更新失敗：' + (json.error || '未知錯誤'), 'error');
+    }
+  } catch(e) {
+    var emsg = (e.name === 'AbortError') ? '請求逾時（超過 30 秒）' : (e.message || '未知錯誤');
+    _showRescanToast('\u2717 更新失敗：' + emsg, 'error');
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = _origHTML; }
+  }
+}
+async function removeException(btn) {
+  if (!confirm("確定要取消此例外？")) return;
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:12px;height:12px;border-width:2px;vertical-align:middle;"></span> 取消中';
+  }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 30000);
+  try {
+    var res = await fetch("/api/twgcb/exceptions", {
+      method: "DELETE", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({check_id: currentEx.id, hostname: currentEx.hostname}),
+      signal: controller.signal
+    });
+    var json = await res.json();
+    if (json.success) {
+      closeExDetailModal();
+      loadTab(currentOS);
+      _showRescanToast("已取消例外：" + (currentEx && currentEx.id ? currentEx.id : ""), "success");
+    } else {
+      _showRescanToast("取消例外失敗：" + (json.error || "未知錯誤"), "error");
+    }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "請求逾時（超過 30 秒）" : (e.message || "未知錯誤");
+    _showRescanToast("取消例外失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
+  }
 }
 
 
 
-async function quickFix(checkId, hostname) {
-  if (typeof requirePermission === "function" && !requirePermission("admin")) return;
-  if (!confirm("修復 " + hostname + " 的 " + checkId + "？")) return;
+async function quickFix(checkId, hostname, btn) {
+  if (typeof requirePermission === "function" && !requirePermission("admin")) {
+    if (!window.USER_NAME) { alert("⚠ 請先登入才能執行 TWGCB 修復 / 還原"); }
+    return;
+  }
+  // 變更 #37: 同主機鎖 — 避免連點兩顆「修」按鈕造成 remediation race
+  if (!_tryLockFix(hostname)) return;
+  if (!confirm("修復 " + hostname + " 的 " + checkId + "？")) { _releaseLockFix(hostname); return; }
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.5";
+    btn.innerHTML = "…";
+  }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 120000);
   try {
     var res = await fetch("/api/admin/twgcb/fix", {
       method: "POST", credentials: "include",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({check_id: checkId, hostname: hostname})
+      body: JSON.stringify({check_id: checkId, hostname: hostname}),
+      signal: controller.signal
     });
     var json = await res.json();
     if (json.success) {
-      alert("✓ " + json.message);
+      // 變更 #36: 後端會背景 rescan + import，20 秒後自動刷新矩陣看到新狀態
+      var hint = json.rescan_pending ? "（背景掃描中，稍候自動刷新）" : "";
+      _showRescanToast("已修復 " + hostname + " / " + checkId + hint, "success");
+      var _delay = json.rescan_pending ? 20000 : 2000;
+      // 鎖延長到背景 rescan 結束再釋放，避免連點讀到舊 scan_result 的 remediation
+      _extendLockFix(hostname, json.rescan_pending ? 20 : 2);
+      setTimeout(function(){
+        if (typeof loadStats === "function") loadStats();
+        loadTab(currentOS);
+      }, _delay);
     } else {
-      var errMsg = "✗ 修復失敗
-
-主機: " + hostname + "
-項目: " + checkId;
-      if (json.error) errMsg += "
-原因: " + json.error;
-      if (json.detail) errMsg += "
-
-詳細輸出:
-" + json.detail;
-      else if (json.output) errMsg += "
-
-詳細輸出:
-" + json.output;
-      alert(errMsg);
+      var errDetail = json.error || "未知錯誤";
+      if (json.detail) errDetail += "｜" + String(json.detail).substring(0, 200);
+      else if (json.output) errDetail += "｜" + String(json.output).substring(0, 200);
+      _showRescanToast(checkId + " 修復失敗：" + errDetail, "error");
+      _releaseLockFix(hostname);
     }
-    if (json.success) { setTimeout(function(){ loadTab(currentOS); }, 2000); }
-  } catch(e) { alert("錯誤: " + e.message); }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "請求逾時（超過 120 秒）" : (e.message || "未知錯誤");
+    _showRescanToast(checkId + " 修復失敗：" + emsg, "error");
+    _releaseLockFix(hostname);
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
+  }
 }
 
-async function quickRestore(checkId, hostname) {
-  if (typeof requirePermission === "function" && !requirePermission("admin")) return;
+async function quickRestore(checkId, hostname, btn) {
+  if (typeof requirePermission === "function" && !requirePermission("admin")) {
+    if (!window.USER_NAME) { alert("⚠ 請先登入才能執行 TWGCB 修復 / 還原"); }
+    return;
+  }
   if (!confirm("還原 " + hostname + " 的 " + checkId + " 修復前狀態？")) return;
-  // 從 config 取得 remediation 裡的檔案路徑作為 backup_files
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.5";
+    btn.innerHTML = "…";
+  }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 120000);
   try {
-    var cfgRes = await fetch("/api/admin/twgcb/config/" + checkId + "/remediation", {credentials: "include"});
+    var cfgRes = await fetch("/api/admin/twgcb/config/" + checkId + "/remediation", {credentials: "include", signal: controller.signal});
     var cfgJson = await cfgRes.json();
     var rem = (cfgJson.data && cfgJson.data.remediation) || "";
     var files = rem.match(/\/etc\/[\w.\/\-]+/g) || [];
     var bakFiles = files.map(function(f) { return f + ".twgcb_bak"; });
-    if (!bakFiles.length) { alert("此項目無備份檔案可還原"); return; }
+    if (!bakFiles.length) {
+      _showRescanToast(checkId + " 無備份檔案可還原", "error");
+      return;
+    }
     var res = await fetch("/api/admin/twgcb/restore", {
       method: "POST", credentials: "include",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({hostname: hostname, backup_files: bakFiles})
+      body: JSON.stringify({hostname: hostname, backup_files: bakFiles}),
+      signal: controller.signal
     });
     var json = await res.json();
-    alert(json.success ? "✓ 還原成功" : "✗ " + (json.error || "失敗"));
-    if (json.success) { setTimeout(function(){ loadTab(currentOS); }, 2000); }
-  } catch(e) { alert("錯誤: " + e.message); }
+    if (json.success) {
+      // 變更 #45: 後端加了背景 rescan，20 秒後自動刷新拿真實狀態
+      var hint = json.rescan_pending ? "（背景掃描中，稍候自動刷新）" : "";
+      _showRescanToast("已還原 " + hostname + " / " + checkId + hint, "success");
+      // 同主機鎖延長避免連點踩到背景 rescan
+      if (typeof _extendLockFix === 'function') _extendLockFix(hostname, json.rescan_pending ? 20 : 2);
+      var _delay = json.rescan_pending ? 20000 : 2000;
+      setTimeout(function(){
+        if (typeof loadStats === "function") loadStats();
+        loadTab(currentOS);
+      }, _delay);
+    } else {
+      _showRescanToast(checkId + " 還原失敗：" + (json.error || "未知錯誤"), "error");
+    }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "請求逾時（超過 120 秒）" : (e.message || "未知錯誤");
+    _showRescanToast(checkId + " 還原失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
+  }
 }
 
-async function restoreOneHost(hostname) {
-  if (typeof requirePermission === "function" && !requirePermission("admin")) return;
+async function restoreOneHost(hostname, btn) {
+  if (typeof requirePermission === "function" && !requirePermission("admin")) {
+    if (!window.USER_NAME) { alert("⚠ 請先登入才能執行 TWGCB 修復 / 還原"); }
+    return;
+  }
   if (!confirm("確定要還原 " + hostname + " 所有修復前的狀態？\n\n會找出所有 .twgcb_bak 備份檔並還原 + 重啟服務")) return;
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 還原中';
+  }
   var prog = document.getElementById("scanProgress");
-  if (prog) prog.style.display = "block";
+  var _box = null;
+  if (prog) {
+    var _sp3 = document.querySelector("#scanProgress .spinner"); if (_sp3) _sp3.style.display = "";
+    var _bar3 = document.getElementById("scanBar"); if (_bar3) _bar3.style.display = "";
+    _box = document.querySelector("#scanProgress > div"); if (_box) _box.style.background = "#E8F5E9";
+    prog.style.display = "block"; prog.scrollIntoView({behavior:"smooth",block:"center"});
+  }
   var msg = document.getElementById("scanMsg");
   if (msg) msg.textContent = "正在還原 " + hostname + "...";
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 180000);
   try {
     var res = await fetch("/api/admin/twgcb/restore-all", {
       method: "POST", credentials: "include",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({hostname: hostname})
+      body: JSON.stringify({hostname: hostname}),
+      signal: controller.signal
     });
     var json = await res.json();
-    if (window._fixTimer) { clearInterval(window._fixTimer); window._fixTimer=null; }
     if (prog) {
       var detail = document.getElementById("scanDetail");
-      if (detail) detail.textContent = "修復完成";
+      if (detail) detail.textContent = json.success ? "還原完成" : "還原失敗";
     }
     if (msg) {
       if (json.success) {
-        var html = "<strong>↩ " + hostname + " " + json.message + "</strong><br>";
+        var html = "<strong>↩ " + hostname + " " + (json.message || "還原完成") + "</strong><br>";
+        if (typeof json.restored === "number") html += "<span style='font-size:12px;color:var(--c3);'>還原 " + json.restored + " / " + (json.total || json.restored) + " 個檔案</span><br>";
         if (json.files) json.files.forEach(function(f) {
-          html += "<span style='font-size:11px;color:var(--c3);'>" + f + "</span><br>";
+          html += "<span style='font-size:11px;color:var(--g1);'>✓ " + f + "</span><br>";
         });
-        if (json.restart) html += "<br>服務重啟: " + json.restart;
-        html += "<div style='margin-top:12px;'><button class='btn btn-primary btn-sm' onclick=\"rescanHost('" + hostname + "')\"> 重新掃描 " + hostname + "</button></div>";
+        if (json.restart) html += "<br><span style='font-size:12px;'>服務重啟: " + json.restart + "</span>";
+        // 變更 #45: 後端改為背景 rescan，20 秒後自動刷新真實狀態
+        if (json.rescan_pending) html += "<br><span style='color:var(--c3);font-size:11px;'>(背景重新掃描中，約 20 秒後自動刷新實機狀態)</span>";
+        else html += "<div style='margin-top:12px;'><button class='btn btn-primary btn-sm' onclick=\"twgcbRescan('" + hostname + "', this)\">重新掃描 " + hostname + " 取得最新狀態</button></div>";
         msg.innerHTML = html;
+        _showRescanToast("已還原 " + hostname + (typeof json.restored === "number" ? "（" + json.restored + " 個檔案）" : "") + (json.rescan_pending?"（背景刷新中）":""), "success");
       } else {
-        msg.textContent = "✗ " + (json.error || "失敗");
+        if (_box) _box.style.background = "#FFEBEE";
+        var _err_r = "<strong style='color:var(--red);'>✗ " + hostname + " 還原失敗</strong><br><span style='font-size:12px;'>" + (json.error || "未知錯誤") + "</span>";
+        if (json.output) _err_r += "<pre style='font-size:10px;margin:6px 0 0;white-space:pre-wrap;max-height:120px;overflow:auto;'>" + json.output.substring(0, 500) + "</pre>";
+        msg.innerHTML = _err_r;
+        _showRescanToast(hostname + " 還原失敗：" + (json.error || "未知錯誤"), "error");
       }
     }
-    setTimeout(function() { loadCounts(); loadTab(currentOS); }, 5000);
+    // 變更 #45: 背景 rescan 啟動則 20 秒後刷新，否則 5 秒（原行為）
+    var _refreshDelay = (json && json.rescan_pending) ? 20000 : 5000;
+    setTimeout(function() { loadCounts(); loadTab(currentOS); }, _refreshDelay);
   } catch(e) {
-    if (msg) msg.textContent = "錯誤: " + e.message;
+    var emsg = (e.name === "AbortError") ? "請求逾時（超過 180 秒）" : (e.message || "未知錯誤");
+    if (_box) _box.style.background = "#FFEBEE";
+    if (msg) msg.innerHTML = "<strong style='color:var(--red);'>✗ " + hostname + " 還原錯誤</strong><br><span style='font-size:12px;'>" + emsg + "</span>";
+    _showRescanToast(hostname + " 還原失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (window._fixTimer) { clearInterval(window._fixTimer); window._fixTimer = null; }
+    var _sp_f = document.querySelector("#scanProgress .spinner"); if (_sp_f) _sp_f.style.display = "none";
+    var _bar_f = document.getElementById("scanBar"); if (_bar_f) _bar_f.style.display = "none";
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
   }
 }
-async function fixOneHost(hostname) {
-  if (typeof requirePermission === "function" && !requirePermission("admin")) return;
-  if (!confirm("確定要對 " + hostname + " 執行一鍵全修？\n\n流程：備份設定檔 → 修復所有FAIL項 → 重啟相關服務")) return;
+async function fixOneHost(hostname, btn) {
+  if (typeof requirePermission === "function" && !requirePermission("admin")) {
+    if (!window.USER_NAME) { alert("⚠ 請先登入才能執行 TWGCB 修復 / 還原"); }
+    return;
+  }
+  // 變更 #37: 同主機鎖 — 若有單項修復正在跑，擋下全修避免兩邊搶同個檔案
+  if (!_tryLockFix(hostname)) return;
+  if (!confirm("確定要對 " + hostname + " 執行一鍵全修？\n\n流程：備份設定檔 → 修復所有FAIL項 → 重啟相關服務")) { _releaseLockFix(hostname); return; }
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 修復中';
+  }
   var prog = document.getElementById("scanProgress");
-  if (prog) prog.style.display = "block";
+  var _box = null;
+  if (prog) {
+    var _sp3 = document.querySelector("#scanProgress .spinner"); if (_sp3) _sp3.style.display = "";
+    var _bar3 = document.getElementById("scanBar"); if (_bar3) _bar3.style.display = "";
+    _box = document.querySelector("#scanProgress > div"); if (_box) _box.style.background = "#E8F5E9";
+    prog.style.display = "block"; prog.scrollIntoView({behavior:"smooth",block:"center"});
+  }
   var msg = document.getElementById("scanMsg");
   if (msg) msg.textContent = "正在修復 " + hostname + "...";
   var detail = document.getElementById("scanDetail");
@@ -643,32 +1153,67 @@ async function fixOneHost(hostname) {
       if(el) el.textContent = Math.floor((Date.now() - startTime.getTime())/1000);
     }, 1000);
   }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 300000);
   try {
     var res = await fetch("/api/admin/twgcb/fix-all", {
       method: "POST", credentials: "include",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({hostname: hostname})
+      body: JSON.stringify({hostname: hostname}),
+      signal: controller.signal
     });
     var json = await res.json();
     if (msg) {
       if (json.success) {
+        var fixedCount = 0, failCount = 0;
         var html = "<strong>" + hostname + " " + json.message + "</strong><br>";
         if (json.results) json.results.forEach(function(r) {
+          if (r.status === "FIXED") fixedCount++;
+          if (r.status === "FAIL") failCount++;
           var c = r.status === "FIXED" ? "var(--g1)" : r.status === "SKIP" ? "var(--c3)" : "var(--red)";
           html += "<span style='font-size:11px;color:" + c + ";'>[" + r.status + "] " + r.id + " " + r.name + "</span>";
           if (r.status === "FAIL" && (r.detail || r.output)) html += "<div style='font-size:10px;color:var(--c3);margin:2px 0 4px 16px;background:#f8f8f8;padding:4px 8px;border-radius:4px;max-height:60px;overflow:auto;font-family:JetBrains Mono,monospace;white-space:pre-wrap;'>" + (r.detail || r.output || "").substring(0,300) + "</div>";
           else html += "<br>";
         });
         if (json.restart) html += "<br>服務重啟: " + json.restart;
+        // 變更 #42: 顯示「已跳過 N 項例外」
+        if (json.skipped_exceptions && json.skipped_exceptions > 0) {
+          html += "<br><span style='color:var(--orange);font-size:11px;'>ℹ️ 已跳過 " + json.skipped_exceptions + " 項例外（不會修復）</span>";
+        }
+        // 變更 #36: 後端改為背景 rescan（不再作弊直接把 status 改 PASS）
+        if (json.rescan_pending) html += "<br><span style='color:var(--c3);font-size:11px;'>(背景重新掃描中，約 20 秒後自動刷新實機狀態)</span>";
         msg.innerHTML = html;
+        var tMsg = "已修復 " + hostname + "：FIXED " + fixedCount + (failCount > 0 ? "，FAIL " + failCount : "");
+        if (json.skipped_exceptions > 0) tMsg += "，跳過例外 " + json.skipped_exceptions;
+        _showRescanToast(tMsg + (json.rescan_pending?"（背景刷新中）":""), failCount > 0 ? "error" : "success");
+        // 變更 #37: 鎖延到背景 rescan 結束（若有）；失敗項目不延長（下次重試時使用者能立刻點）
+        _extendLockFix(hostname, json.rescan_pending ? 25 : 3);
       } else {
+        if (_box) _box.style.background = "#FFEBEE";
         msg.textContent = "✗ " + (json.error || "失敗");
+        _showRescanToast(hostname + " 修復失敗：" + (json.error || "未知錯誤"), "error");
+        _releaseLockFix(hostname);
       }
     }
-    setTimeout(function() { loadCounts(); loadTab(currentOS); }, 5000);
+    // 變更 #36: 若背景 rescan 啟動，等 20 秒拿真實狀態；沒有則 5 秒刷新（原行為）
+    var _refreshDelay = (json && json.rescan_pending) ? 20000 : 5000;
+    setTimeout(function() { loadCounts(); loadTab(currentOS); }, _refreshDelay);
   } catch(e) {
-    if (window._fixTimer) { clearInterval(window._fixTimer); window._fixTimer=null; }
-    if (msg) msg.textContent = "錯誤: " + e.message;
+    var emsg = (e.name === "AbortError") ? "請求逾時（超過 300 秒），修復可能仍在背景進行" : (e.message || "未知錯誤");
+    if (_box) _box.style.background = "#FFEBEE";
+    if (msg) msg.innerHTML = "<strong style=\"color:var(--red);\">✗ 修復失敗</strong><br><span style=\"font-size:12px;\">" + emsg + "</span>";
+    _showRescanToast(hostname + " 修復失敗：" + emsg, "error");
+    _releaseLockFix(hostname);
+    setTimeout(function(){
+      var p = document.getElementById("scanProgress"); if (p) p.style.display = "none";
+      if (_box) _box.style.background = "#E8F5E9";
+    }, 12000);
+  } finally {
+    clearTimeout(timeoutId);
+    if (window._fixTimer) { clearInterval(window._fixTimer); window._fixTimer = null; }
+    var _sp_ff = document.querySelector("#scanProgress .spinner"); if (_sp_ff) _sp_ff.style.display = "none";
+    var _bar_ff = document.getElementById("scanBar"); if (_bar_ff) _bar_ff.style.display = "none";
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
   }
 }
 
@@ -683,7 +1228,12 @@ async function checkFixStatus() {
       var json = await res.json();
       if (json.success && json.data && json.data.status === "running") {
         var prog = document.getElementById("scanProgress");
-        if (prog) prog.style.display = "block";
+        if (prog) {
+    var _sp3 = document.querySelector("#scanProgress .spinner"); if (_sp3) _sp3.style.display = "";
+    var _bar3 = document.getElementById("scanBar"); if (_bar3) _bar3.style.display = "";
+    var _box = document.querySelector("#scanProgress > div"); if (_box) _box.style.background = "#E8F5E9";
+    prog.style.display = "block"; prog.scrollIntoView({behavior:"smooth",block:"center"});
+  }
         var msg = document.getElementById("scanMsg");
         if (msg) msg.textContent = "修復進行中: " + hostname + "（由 " + json.data.started_by + " 啟動）";
         var detail = document.getElementById("scanDetail");
@@ -711,7 +1261,7 @@ async function checkFixStatus() {
                 else html += "<br>";
               });
               if (j2.data.restart) html += "<br>服務重啟: " + j2.data.restart;
-              html += "<div style='margin-top:12px;'><button class='btn btn-primary btn-sm' onclick=\"rescanHost('" + hostname + "')\"> 重新掃描 " + hostname + "</button></div>";
+              html += "<div style='margin-top:12px;'><button class='btn btn-primary btn-sm' onclick=\"twgcbRescan('" + hostname + "', this)\"> 重新掃描 " + hostname + "</button></div>";
               msg.innerHTML = html;
             }
             var detail2 = document.getElementById("scanDetail");
@@ -727,36 +1277,116 @@ async function checkFixStatus() {
   } catch(e) {}
 }
 
-async function rescanHost(hostname) {
+async function twgcbRescan(hostname, btn) {
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 掃描中';
+  }
   var prog = document.getElementById("scanProgress");
-  if (prog) prog.style.display = "block";
+  var _box = null;
+  if (prog) {
+    var _sp3 = document.querySelector("#scanProgress .spinner"); if (_sp3) _sp3.style.display = "";
+    var _bar3 = document.getElementById("scanBar"); if (_bar3) _bar3.style.display = "";
+    _box = document.querySelector("#scanProgress > div"); if (_box) _box.style.background = "#E8F5E9";
+    prog.style.display = "block"; prog.scrollIntoView({behavior:"smooth",block:"center"});
+  }
   var msg = document.getElementById("scanMsg");
   if (msg) msg.textContent = "重新掃描 " + hostname + "...";
   var detail = document.getElementById("scanDetail");
-  if (detail) detail.textContent = "正在透過 Ansible 掃描此主機，約需 10~20 秒...";
+  if (detail) {
+    var _st = new Date();
+    detail.innerHTML = "開始時間: " + _st.toLocaleTimeString("zh-TW") + " | 已經過: <span id='rescanTimer'>0</span> 秒 | Ansible 掃描中約需 10~60 秒...";
+    window._rescanTimer = setInterval(function(){
+      var el = document.getElementById("rescanTimer");
+      if(el) el.textContent = Math.floor((Date.now() - _st.getTime())/1000);
+    }, 1000);
+  }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 90000);
   try {
     var res = await fetch("/api/twgcb/scan", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({target: hostname})
+      body: JSON.stringify({target: hostname}),
+      signal: controller.signal
     });
     var json = await res.json();
-    if (msg) msg.innerHTML = json.success ? "✓ " + hostname + " 掃描完成" : "✗ " + (json.error || "失敗");
-    if (detail) detail.textContent = "";
-    if (json.success) setTimeout(function(){ prog.style.display = "none"; loadCounts(); loadTab(currentOS); }, 1500);
+    if (json.success) {
+      if (_box) _box.style.background = "#E8F5E9";
+      if (msg) msg.innerHTML = "<strong style='color:var(--g2);'>✓ " + hostname + " 掃描完成</strong><br><span style='font-size:12px;'>" + (json.message || "") + "</span>";
+      if (detail) detail.textContent = "";
+      _showRescanToast("已重新掃描 " + hostname, "success");
+      setTimeout(function(){ if (prog) prog.style.display = "none"; loadCounts(); loadTab(currentOS); }, 2500);
+    } else {
+      if (_box) _box.style.background = "#FFEBEE";
+      if (msg) msg.innerHTML = "<strong style='color:var(--red);'>✗ " + hostname + " 掃描失敗</strong><br><span style='font-size:12px;'>" + (json.error || "未知錯誤") + "</span>";
+      if (detail) detail.textContent = "";
+      _showRescanToast(hostname + " 掃描失敗：" + (json.error || "未知錯誤"), "error");
+    }
   } catch(e) {
-    if (msg) msg.textContent = "錯誤: " + e.message;
+    var emsg = (e.name === "AbortError") ? "請求逾時（超過 90 秒），Ansible 可能卡住" : (e.message || "未知錯誤");
+    if (_box) _box.style.background = "#FFEBEE";
+    if (msg) msg.innerHTML = "<strong style='color:var(--red);'>✗ 掃描錯誤</strong><br><span style='font-size:12px;'>" + emsg + "</span>";
+    _showRescanToast(hostname + " 掃描失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (window._rescanTimer) { clearInterval(window._rescanTimer); window._rescanTimer = null; }
+    var _sp_f = document.querySelector("#scanProgress .spinner"); if (_sp_f) _sp_f.style.display = "none";
+    var _bar_f = document.getElementById("scanBar"); if (_bar_f) _bar_f.style.display = "none";
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
   }
 }
 
-async function scanAll() {
-  var prog=document.getElementById("scanProgress"); prog.style.display="block";
-  document.getElementById("scanMsg").textContent="掃描中，請稍候...";document.getElementById("scanDetail").textContent="正在透過 Ansible 掃描所有主機，約需 10~30 秒...";
+function _showRescanToast(text, type) {
+  var bg = type === "success" ? "var(--g1)" : (type === "error" ? "var(--red)" : "var(--c2)");
+  var icon = type === "success" ? "✓" : (type === "error" ? "✗" : "ℹ");
+  var t = document.createElement("div");
+  t.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);background:" + bg + ";color:white;padding:12px 24px;border-radius:12px;z-index:9999;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.3);display:flex;align-items:center;gap:10px;animation:slideUp 0.3s ease;";
+  t.innerHTML = '<span style="font-size:18px;">' + icon + "</span><span>" + text + "</span>";
+  document.body.appendChild(t);
+  setTimeout(function(){ t.remove(); }, 3500);
+}
+
+async function scanAll(btn) {
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:14px;height:14px;border-width:2px;vertical-align:middle;"></span> 掃描中';
+  }
+  var prog = document.getElementById("scanProgress");
+  if (prog) { prog.style.display = "block"; prog.scrollIntoView({behavior:"smooth",block:"center"}); }
+  var msg = document.getElementById("scanMsg");
+  var detail = document.getElementById("scanDetail");
+  if (msg) msg.textContent = "掃描中，請稍候...";
+  if (detail) detail.textContent = "正在透過 Ansible 掃描所有主機，約需 10~30 秒...";
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 120000);
   try {
-    var res=await fetch("/api/twgcb/scan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({target:"all"})});
-    var json=await res.json();
-    document.getElementById("scanMsg").innerHTML=json.success?"&#10003; "+json.message:"&#10007; "+(json.error||"失敗");
-    if(json.success){setTimeout(function(){prog.style.display="none";loadCounts();loadTab(currentOS);},1500);}
-  } catch(e){document.getElementById("scanMsg").textContent="&#10007; "+e.message;}
+    var res = await fetch("/api/twgcb/scan", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({target: "all"}),
+      signal: controller.signal
+    });
+    var json = await res.json();
+    if (msg) msg.innerHTML = json.success ? "&#10003; " + json.message : "&#10007; " + (json.error || "失敗");
+    if (json.success) {
+      _showRescanToast("已掃描所有主機", "success");
+      setTimeout(function(){ if (prog) prog.style.display = "none"; loadCounts(); loadTab(currentOS); }, 1500);
+    } else {
+      _showRescanToast("全部掃描失敗：" + (json.error || "未知錯誤"), "error");
+    }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "請求逾時（超過 120 秒）" : (e.message || "未知錯誤");
+    if (msg) msg.textContent = "&#10007; " + emsg;
+    _showRescanToast("全部掃描失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
+  }
 }
 
 function escQ(s){return(s||"").replace(/\\/g,"\\\\").replace(/\x27/g,"\\\x27");}

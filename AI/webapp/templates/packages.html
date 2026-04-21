@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block title %}軟體盤點 - IT 每日巡檢系統{% endblock %}
+{% block content %}
+<h2 style="margin-bottom:8px;font-size:20px;">軟體盤點 (Package Inventory)</h2>
+<p style="color:var(--c3);font-size:13px;margin-bottom:18px;">
+  各主機已安裝的系統套件、核心版本、作業系統。支援版本控制、變更追蹤、CSV / JSON 下載。
+</p>
+
+<!-- Tab switcher -->
+<div style="border-bottom:1px solid #e0e0e0;margin-bottom:18px;">
+  <button class="pkg-tab-btn active" id="pkg-tab-btn-hosts" onclick="showPkgTab('hosts')"
+    style="padding:10px 18px;border:none;background:transparent;cursor:pointer;font-size:14px;color:var(--g2);border-bottom:3px solid var(--g2);margin-bottom:-2px;font-weight:600;">📋 主機清單</button>
+  <button class="pkg-tab-btn" id="pkg-tab-btn-search" onclick="showPkgTab('search')"
+    style="padding:10px 18px;border:none;background:transparent;cursor:pointer;font-size:14px;color:var(--c3);border-bottom:3px solid transparent;margin-bottom:-2px;">🔍 套件搜尋</button>
+  <button class="pkg-tab-btn" id="pkg-tab-btn-changes" onclick="showPkgTab('changes')"
+    style="padding:10px 18px;border:none;background:transparent;cursor:pointer;font-size:14px;color:var(--c3);border-bottom:3px solid transparent;margin-bottom:-2px;">📜 變更歷史</button>
+</div>
+
+<!-- Tab: 主機清單 -->
+<div id="pkg-tab-hosts" class="pkg-tab-panel">
+  <div style="margin-bottom:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <span class="ct-tip" data-tip="立即觸發 Ansible 對所有主機執行 rpm/dpkg/Get-ItemProperty 盤點。約 1~3 分鐘，背景跑。">
+      <button id="pkg-collect-all-btn" type="button" class="btn" style="background:var(--g1);color:white;" onclick="collectPackages('')">🔄 全部收集</button>
+    </span>
+    <span style="color:var(--c4);">|</span>
+    <div class="form-group" style="margin:0;">
+      <label>搜尋主機</label>
+      <input type="text" id="pkg-host-search" oninput="renderHostsTable()" placeholder="hostname / OS" style="min-width:200px;">
+    </div>
+    <span id="pkg-hosts-status" style="font-size:12px;color:var(--c3);margin-left:auto;"></span>
+  </div>
+  <div class="card">
+    <div id="pkg-hosts-content"><div class="skeleton" style="height:200px;"></div></div>
+  </div>
+</div>
+
+<!-- Tab: 套件搜尋 -->
+<div id="pkg-tab-search" class="pkg-tab-panel" style="display:none;">
+  <div style="margin-bottom:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <div class="form-group" style="margin:0;flex:1;max-width:400px;">
+      <label>搜尋套件名</label>
+      <input type="text" id="pkg-search-q" onkeydown="if(event.key==='Enter') doPkgSearch()" placeholder="例: openssh, nginx, kernel">
+    </div>
+    <button class="btn" style="background:var(--g2);color:white;margin-top:18px;" onclick="doPkgSearch()">🔍 搜尋</button>
+    <span id="pkg-search-status" style="font-size:12px;color:var(--c3);margin-top:18px;"></span>
+  </div>
+  <div class="card">
+    <div id="pkg-search-content" style="color:var(--c3);">輸入套件名關鍵字後按「搜尋」或 Enter。可找出「哪些主機裝了此套件？版本有幾種？」</div>
+  </div>
+</div>
+
+<!-- Tab: 變更歷史 -->
+<div id="pkg-tab-changes" class="pkg-tab-panel" style="display:none;">
+  <div style="margin-bottom:14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <div class="form-group" style="margin:0;"><label>主機</label><select id="pkg-changes-host" onchange="loadChanges()"><option value="">全部</option></select></div>
+    <div class="form-group" style="margin:0;"><label>最近天數</label><select id="pkg-changes-days" onchange="loadChanges()">
+      <option value="7">7 天</option>
+      <option value="30" selected>30 天</option>
+      <option value="90">90 天</option>
+      <option value="365">365 天</option>
+    </select></div>
+    <span id="pkg-changes-status" style="font-size:12px;color:var(--c3);margin-top:18px;margin-left:auto;"></span>
+  </div>
+  <div class="card">
+    <div id="pkg-changes-content"><div class="skeleton" style="height:200px;"></div></div>
+  </div>
+</div>
+
+<!-- Host detail modal -->
+<div id="pkg-detail-modal" class="modal-backdrop" style="display:none;" onclick="if(event.target===this) closePkgDetail()">
+  <div class="modal" style="max-width:900px;max-height:85vh;display:flex;flex-direction:column;">
+    <div style="padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center;">
+      <h3 id="pkg-detail-title" style="margin:0;font-size:17px;">主機套件清單</h3>
+      <span onclick="closePkgDetail()" style="cursor:pointer;color:var(--c4);font-size:22px;line-height:1;">&times;</span>
+    </div>
+    <div style="padding:12px 20px;border-bottom:1px solid #eee;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <input type="text" id="pkg-detail-filter" oninput="renderDetailTable()" placeholder="篩選 name / version" style="flex:1;min-width:180px;">
+      <a id="pkg-detail-download-csv" class="btn" style="background:var(--g2);color:white;text-decoration:none;" href="#">⬇ CSV</a>
+      <a id="pkg-detail-download-json" class="btn" style="background:var(--c3);color:white;text-decoration:none;" href="#">⬇ JSON</a>
+    </div>
+    <div id="pkg-detail-body" style="padding:0 20px 16px;overflow-y:auto;flex:1;"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var _pkgHosts = [];
+var _pkgDetail = null;
+
+function showPkgTab(name) {
+  var tabs = ['hosts','search','changes'];
+  tabs.forEach(function(t){
+    var panel = document.getElementById('pkg-tab-'+t);
+    var btn = document.getElementById('pkg-tab-btn-'+t);
+    if (t === name) {
+      panel.style.display = '';
+      btn.classList.add('active');
+      btn.style.color = 'var(--g2)';
+      btn.style.borderBottomColor = 'var(--g2)';
+      btn.style.fontWeight = '600';
+    } else {
+      panel.style.display = 'none';
+      btn.classList.remove('active');
+      btn.style.color = 'var(--c3)';
+      btn.style.borderBottomColor = 'transparent';
+      btn.style.fontWeight = '';
+    }
+  });
+  if (name === 'changes') loadChanges();
+}
+
+// ---------- Hosts tab ----------
+function loadHosts() {
+  fetch('/api/packages').then(function(r){return r.json();}).then(function(res){
+    if(!res.success){ document.getElementById('pkg-hosts-content').innerHTML = '<div style="padding:20px;color:var(--red);">載入失敗: '+(res.error||'?')+'</div>'; return; }
+    _pkgHosts = res.data || [];
+    document.getElementById('pkg-hosts-status').textContent = '共 '+_pkgHosts.length+' 台，最後更新時間取自各主機 collected_at';
+    // populate changes-host select
+    var sel = document.getElementById('pkg-changes-host');
+    var opts = '<option value="">全部</option>';
+    _pkgHosts.forEach(function(h){ opts += '<option value="'+h.hostname+'">'+h.hostname+'</option>'; });
+    sel.innerHTML = opts;
+    renderHostsTable();
+  });
+}
+
+function renderHostsTable() {
+  var q = (document.getElementById('pkg-host-search').value||'').toLowerCase();
+  var rows = _pkgHosts.filter(function(h){
+    if(!q) return true;
+    return (h.hostname||'').toLowerCase().indexOf(q)>=0 ||
+           (h.os||'').toLowerCase().indexOf(q)>=0 ||
+           (h.kernel||'').toLowerCase().indexOf(q)>=0;
+  });
+  var target = document.getElementById('pkg-hosts-content');
+  if(rows.length === 0){ target.innerHTML = '<div style="padding:24px;text-align:center;color:var(--c3);">尚無資料。按「🔄 全部收集」開始盤點，完成後按「匯入」。</div>'; return; }
+
+  var html = '<table class="data-table"><thead><tr>'+
+    '<th>主機</th><th>OS</th><th>核心</th><th>套件管理</th>'+
+    '<th style="text-align:right;">套件數</th><th>上次收集</th><th>操作</th></tr></thead><tbody>';
+  rows.forEach(function(h){
+    var ename = encodeURIComponent(h.hostname);
+    html += '<tr>'+
+      '<td><strong>'+h.hostname+'</strong></td>'+
+      '<td>'+(h.os||'-')+'</td>'+
+      '<td style="font-family:monospace;font-size:12px;">'+(h.kernel||'-')+'</td>'+
+      '<td><span class="badge" style="background:#eef;color:#447;">'+(h.pkg_manager||'-')+'</span></td>'+
+      '<td style="text-align:right;font-weight:600;">'+(h.package_count||0)+'</td>'+
+      '<td style="font-size:12px;color:var(--c3);">'+(h.collected_at||'-')+'</td>'+
+      '<td style="white-space:nowrap;">'+
+        '<button class="btn btn-sm" onclick="showPkgDetail(&quot;'+h.hostname+'&quot;)">📋 檢視</button> '+
+        '<a class="btn btn-sm" style="background:var(--g2);color:white;text-decoration:none;" href="/api/packages/export/'+ename+'?fmt=csv">⬇ CSV</a> '+
+        '<a class="btn btn-sm" style="background:var(--c3);color:white;text-decoration:none;" href="/api/packages/export/'+ename+'?fmt=json">⬇ JSON</a>'+
+      '</td>'+
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  target.innerHTML = html;
+}
+
+function collectPackages(limit) {
+  var btn = document.getElementById('pkg-collect-all-btn');
+  btn.disabled = true;
+  var orig = btn.textContent;
+  btn.textContent = '⏳ 送出中...';
+  fetch('/api/packages/collect', {
+    method:'POST', credentials:'include',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({limit: limit||''}),
+  }).then(function(r){return r.json();}).then(function(res){
+    if(!res.success){ alert('啟動失敗: '+(res.error||'?')); btn.disabled=false; btn.textContent=orig; return; }
+    btn.textContent = '✅ 已送出 (背景跑中)';
+    // Poll log tail (simple) every 8s, auto-import after 60s
+    setTimeout(function(){
+      fetch('/api/packages/import',{method:'POST',credentials:'include'}).then(function(r){return r.json();}).then(function(ir){
+        if(ir.success){
+          var d = ir.data;
+          alert('盤點完成並匯入:\n  主機數 '+d.imported+'\n  新增套件 '+d.added_total+'\n  移除 '+d.removed_total+'\n  升級 '+d.upgraded_total);
+          loadHosts();
+        }
+        btn.disabled=false; btn.textContent=orig;
+      });
+    }, 60000);
+  }).catch(function(e){
+    alert('網路錯誤: '+e); btn.disabled=false; btn.textContent=orig;
+  });
+}
+
+// ---------- Search tab ----------
+function doPkgSearch() {
+  var q = document.getElementById('pkg-search-q').value.trim();
+  if(!q){ alert('請輸入套件名'); return; }
+  var statusEl = document.getElementById('pkg-search-status');
+  statusEl.textContent = '搜尋中...';
+  fetch('/api/packages/search?q='+encodeURIComponent(q)).then(function(r){return r.json();}).then(function(res){
+    if(!res.success){ statusEl.textContent='失敗: '+(res.error||'?'); return; }
+    statusEl.textContent = '找到 '+res.count+' 個符合套件';
+    var target = document.getElementById('pkg-search-content');
+    if(res.count === 0){ target.innerHTML = '<div style="padding:16px;color:var(--c3);">沒有主機安裝符合「'+q+'」的套件。</div>'; return; }
+    var html = '<table class="data-table"><thead><tr>'+
+      '<th>套件名</th><th style="text-align:right;">版本數</th><th style="text-align:right;">主機數</th><th>版本分布</th></tr></thead><tbody>';
+    res.data.forEach(function(p){
+      var verHtml = p.versions.map(function(v){
+        var hostLabels = v.hosts.map(function(h){return '<span class="badge" style="background:#eef;color:#446;margin:2px;">'+h+'</span>';}).join('');
+        return '<div style="margin:4px 0;font-size:12px;"><code style="background:#f5f5f5;padding:2px 6px;border-radius:4px;">'+v.version+'</code> ('+v.host_count+' 台) '+hostLabels+'</div>';
+      }).join('');
+      html += '<tr>'+
+        '<td><strong>'+p.name+'</strong></td>'+
+        '<td style="text-align:right;">'+p.version_count+'</td>'+
+        '<td style="text-align:right;">'+p.total_hosts+'</td>'+
+        '<td>'+verHtml+'</td>'+
+      '</tr>';
+    });
+    html += '</tbody></table>';
+    target.innerHTML = html;
+  });
+}
+
+// ---------- Changes tab ----------
+function loadChanges() {
+  var host = document.getElementById('pkg-changes-host').value;
+  var days = document.getElementById('pkg-changes-days').value;
+  var url = '/api/packages/changes?days='+days+(host?'&host='+encodeURIComponent(host):'');
+  fetch(url).then(function(r){return r.json();}).then(function(res){
+    var target = document.getElementById('pkg-changes-content');
+    if(!res.success){ target.innerHTML = '<div style="padding:16px;color:var(--red);">'+(res.error||'失敗')+'</div>'; return; }
+    document.getElementById('pkg-changes-status').textContent = '共 '+res.count+' 筆變更';
+    if(res.count === 0){ target.innerHTML = '<div style="padding:24px;text-align:center;color:var(--c3);">無變更紀錄（首次收集不產生 diff，第二次之後才會記錄）</div>'; return; }
+    var html = '<table class="data-table"><thead><tr>'+
+      '<th>時間</th><th>主機</th><th style="text-align:right;color:var(--g1);">+新增</th><th style="text-align:right;color:var(--red);">-移除</th><th style="text-align:right;color:var(--orange);">~升級</th><th>明細</th></tr></thead><tbody>';
+    res.data.forEach(function(c, idx){
+      var details = [];
+      if(c.added_count)   details.push(c.added.slice(0,5).map(function(p){return '<span style="color:var(--g1);">+'+p.name+'</span>';}).join(', ') + (c.added_count>5?' +'+(c.added_count-5)+' more':''));
+      if(c.removed_count) details.push(c.removed.slice(0,5).map(function(p){return '<span style="color:var(--red);">-'+p.name+'</span>';}).join(', ') + (c.removed_count>5?' +'+(c.removed_count-5)+' more':''));
+      if(c.upgraded_count)details.push(c.upgraded.slice(0,5).map(function(p){return '<span style="color:var(--orange);">~'+p.name+'</span> ('+p.old_version+'→'+p.new_version+')';}).join('<br>') + (c.upgraded_count>5?'<br>+'+(c.upgraded_count-5)+' more':''));
+      html += '<tr>'+
+        '<td style="font-size:12px;white-space:nowrap;">'+c.changed_at+'</td>'+
+        '<td><strong>'+c.hostname+'</strong></td>'+
+        '<td style="text-align:right;color:var(--g1);">'+c.added_count+'</td>'+
+        '<td style="text-align:right;color:var(--red);">'+c.removed_count+'</td>'+
+        '<td style="text-align:right;color:var(--orange);">'+c.upgraded_count+'</td>'+
+        '<td style="font-size:12px;">'+details.join('<br>')+'</td>'+
+      '</tr>';
+    });
+    html += '</tbody></table>';
+    target.innerHTML = html;
+  });
+}
+
+// ---------- Detail modal ----------
+function showPkgDetail(hostname) {
+  var modal = document.getElementById('pkg-detail-modal');
+  modal.style.display = 'flex';
+  document.getElementById('pkg-detail-title').textContent = '套件清單 — '+hostname;
+  document.getElementById('pkg-detail-body').innerHTML = '<div class="skeleton" style="height:180px;margin:20px 0;"></div>';
+  document.getElementById('pkg-detail-download-csv').href = '/api/packages/export/'+encodeURIComponent(hostname)+'?fmt=csv';
+  document.getElementById('pkg-detail-download-json').href = '/api/packages/export/'+encodeURIComponent(hostname)+'?fmt=json';
+  document.getElementById('pkg-detail-filter').value = '';
+  fetch('/api/packages/host/'+encodeURIComponent(hostname)).then(function(r){return r.json();}).then(function(res){
+    if(!res.success){ document.getElementById('pkg-detail-body').innerHTML = '<div style="padding:20px;color:var(--red);">'+(res.error||'載入失敗')+'</div>'; return; }
+    _pkgDetail = res.data;
+    renderDetailTable();
+  });
+}
+
+function renderDetailTable() {
+  if(!_pkgDetail) return;
+  var q = (document.getElementById('pkg-detail-filter').value||'').toLowerCase();
+  var pkgs = (_pkgDetail.packages || []).filter(function(p){
+    if(!q) return true;
+    return (p.name||'').toLowerCase().indexOf(q)>=0 || (p.version||'').toLowerCase().indexOf(q)>=0;
+  });
+  var header = '<div style="padding:8px 0;font-size:13px;color:var(--c3);">OS: <strong>'+(_pkgDetail.os||'-')+'</strong> · Kernel: <code>'+(_pkgDetail.kernel||'-')+'</code> · 套件 '+pkgs.length+'/'+(_pkgDetail.package_count||0)+' · 收集時間 '+(_pkgDetail.collected_at||'-')+'</div>';
+  var html = header + '<table class="data-table"><thead><tr><th>套件名</th><th>版本</th><th>架構</th><th>安裝日</th></tr></thead><tbody>';
+  pkgs.forEach(function(p){
+    html += '<tr>'+
+      '<td><strong>'+(p.name||'')+'</strong></td>'+
+      '<td style="font-family:monospace;font-size:12px;">'+(p.version||'')+'</td>'+
+      '<td>'+(p.arch||'')+'</td>'+
+      '<td style="font-size:12px;color:var(--c3);">'+(p.install_date||'')+'</td>'+
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('pkg-detail-body').innerHTML = html;
+}
+
+function closePkgDetail() {
+  document.getElementById('pkg-detail-modal').style.display = 'none';
+  _pkgDetail = null;
+}
+
+// Init
+document.addEventListener('DOMContentLoaded', loadHosts);
+</script>
+{% endblock %}

@@ -729,3 +729,55 @@ table.check-table tr.row-fail { background: #FFF9F9; }
   .toggle-label { font-size: 12px; }
   .filter-bar { gap: 8px; }
 }
+
+
+/* ========== 自訂 tooltip (品牌綠色, hover 約 1s 出現) ========== */
+.ct-tip {
+    position: relative;
+    display: inline-block;
+}
+.ct-tip::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    background: var(--g2, #00736b);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.5;
+    padding: 8px 12px;
+    border-radius: 6px;
+    white-space: normal;
+    width: max-content;
+    max-width: 280px;
+    box-shadow: 0 4px 12px rgba(0, 115, 107, 0.25);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    transition-delay: 0s;
+    z-index: 1000;
+}
+.ct-tip::before {
+    content: "";
+    position: absolute;
+    bottom: calc(100% + 2px);
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    border: 6px solid transparent;
+    border-top-color: var(--g2, #00736b);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    transition-delay: 0s;
+    z-index: 1000;
+}
+.ct-tip:hover::after,
+.ct-tip:hover::before,
+.ct-tip:focus-within::after,
+.ct-tip:focus-within::before {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    transition-delay: 0.8s;
+}

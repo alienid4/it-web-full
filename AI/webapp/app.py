@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """金融業 IT 每日自動巡檢系統 - Flask 主程式"""
 from flask import Flask, render_template, redirect, session, request
+import os
 from datetime import datetime
 from config import FLASK_HOST, FLASK_PORT, FLASK_DEBUG, SECRET_KEY
 
@@ -8,6 +9,27 @@ app = Flask(__name__,
             template_folder="templates",
             static_folder="static")
 app.secret_key = SECRET_KEY
+
+# ===== 2026-04-20: 全站強制登入 =====
+_PUBLIC_PATHS = {"/login", "/api/admin/login", "/api/settings/version", "/favicon.ico"}
+
+@app.before_request
+def _enforce_login_before_request():
+    from flask import request, session, redirect, jsonify
+    p = request.path or "/"
+    # 白名單: 靜態資源, 明確公開路徑
+    if p.startswith("/static/"):
+        return None
+    if p in _PUBLIC_PATHS:
+        return None
+    if session.get("user_id"):
+        return None
+    # 未登入: API 回 401, 頁面導到 /login
+    if p.startswith("/api/"):
+        return jsonify({"success": False, "error": "未登入", "code": 401}), 401
+    return redirect("/login?next=" + p)
+# ===================================
+
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["PERMANENT_SESSION_LIFETIME"] = 28800  # 8 hours
@@ -38,6 +60,10 @@ def add_security_headers(response):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
     response.headers["X-XSS-Protection"] = "1; mode=block"
+    # HTML 頁面禁止 cache (JS/CSS/HTML 變更能立刻見效)
+    if response.mimetype == "text/html":
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
     response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://fonts.gstatic.com https://cdn.jsdelivr.net"
     del response.headers["Server"]; response.headers["Server"] = ""
     return response
@@ -55,6 +81,9 @@ from routes.api_harden import bp as harden_bp
 from routes.api_superadmin import bp as superadmin_bp
 from routes.api_security_audit import bp as security_audit_bp
 from routes.api_linux_init import bp as linux_init_bp
+from routes.api_packages import bp as packages_bp
+from routes.api_nmon import bp as nmon_bp
+from routes.api_cio import bp as cio_bp
 
 app.register_blueprint(hosts_bp)
 app.register_blueprint(inspections_bp)
@@ -68,8 +97,90 @@ app.register_blueprint(harden_bp)
 app.register_blueprint(superadmin_bp)
 app.register_blueprint(security_audit_bp)
 app.register_blueprint(linux_init_bp)
+app.register_blueprint(packages_bp)
+app.register_blueprint(nmon_bp)
+app.register_blueprint(cio_bp)
 
 # 確保預設 admin 帳號存在
+# v3.9.3.0: static asset cache busting (自動帶 ?v=版本)
+import json as _json
+def _load_app_version():
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "version.json"), encoding="utf-8") as _f:
+            return _json.load(_f).get("version", "dev")
+    except Exception:
+        return "dev"
+_APP_VER = _load_app_version()
+
+@app.context_processor
+def _inject_app_version():
+    return {"APP_VER": _APP_VER}
+
+
+# ===== 2026-04-20: Feature Flag System =====
+# 每個 feature key 對應到哪些 URL 要擋 (前綴 match)
+_FEATURE_PATH_MAP = [
+    ("audit",          ["/audit", "/api/audit"]),
+    ("packages",       ["/packages", "/api/packages"]),
+    ("perf",           ["/perf", "/api/nmon"]),
+    ("twgcb",          ["/twgcb", "/api/twgcb", "/api/harden"]),
+    ("summary",        ["/summary"]),
+    ("security_audit", ["/api/security-audit", "/api/security_audit"]),
+]
+
+
+def _feature_for_path(path):
+    for key, prefixes in _FEATURE_PATH_MAP:
+        for p in prefixes:
+            if path == p or path.startswith(p + "/") or path.startswith(p + "?"):
+                return key
+    return None
+
+
+@app.before_request
+def _check_feature_flag():
+    from flask import request, jsonify, redirect
+    p = request.path or "/"
+    if p.startswith("/static/") or p == "/feature-disabled":
+        return None
+    key = _feature_for_path(p)
+    if not key:
+        return None
+    from services import feature_flags
+    flags = feature_flags.all_flags()
+    if flags.get(key, True):
+        return None
+    # 模組已關
+    if p.startswith("/api/"):
+        return jsonify({"success": False, "error": "模組未開通", "module": key, "code": 402}), 402
+    return redirect("/feature-disabled?m=" + key)
+
+
+@app.context_processor
+def _inject_features():
+    # 把 feature flags 注入所有 template (讓 nav / admin 用 {% if FEATURES.xxx %})
+    try:
+        from services import feature_flags
+        return {"FEATURES": feature_flags.all_flags()}
+    except Exception:
+        return {"FEATURES": {}}
+
+
+@app.route("/feature-disabled")
+def feature_disabled_page():
+    from flask import request
+    key = request.args.get("m", "")
+    try:
+        from services import feature_flags
+        flags = {f["key"]: f for f in feature_flags.list_flags()}
+    except Exception:
+        flags = {}
+    info = flags.get(key, {})
+    return render_template("feature_disabled.html", module=key,
+                           module_name=info.get("name", key),
+                           description=info.get("description", ""))
+# ===== Feature Flag end =====
+
 from services.auth_service import ensure_default_admin
 with app.app_context():
     ensure_default_admin()
@@ -148,6 +259,21 @@ def audit_page():
     return render_template("audit.html")
 
 
+@app.route("/packages")
+def packages_page():
+    return render_template("packages.html")
+
+
+@app.route("/perf")
+def perf_page():
+    return render_template("perf.html")
+
+
+@app.route("/executive")
+def executive_page():
+    return render_template("executive.html")
+
+
 
 
 @app.route("/twgcb")
@@ -204,4 +330,4 @@ def superadmin_page():
 
 
 if __name__ == "__main__":
-    app.run(host=FLASK_HOST, port=FLASK_PORT, debug=FLASK_DEBUG)
+    app.run(host=FLASK_HOST, port=FLASK_PORT, debug=FLASK_DEBUG, threaded=True)

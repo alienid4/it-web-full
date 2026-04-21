@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from decorators import login_required
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from services.mongo_service import get_all_hosts, get_host, upsert_host, get_hosts_summary
@@ -7,6 +8,7 @@ bp = Blueprint("api_hosts", __name__, url_prefix="/api/hosts")
 
 
 @bp.route("", methods=["GET"])
+@login_required
 def list_hosts():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 50, type=int)
@@ -22,11 +24,13 @@ def list_hosts():
 
 
 @bp.route("/summary", methods=["GET"])
+@login_required
 def hosts_summary():
     return jsonify({"success": True, "data": get_hosts_summary()})
 
 
 @bp.route("/<hostname>", methods=["GET"])
+@login_required
 def host_detail(hostname):
     h = get_host(hostname)
     if not h:
@@ -35,6 +39,7 @@ def host_detail(hostname):
 
 
 @bp.route("/<hostname>/group", methods=["PUT"])
+@login_required
 def update_host_group(hostname):
     data = request.get_json(force=True)
     group = data.get("group")

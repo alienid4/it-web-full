@@ -19,7 +19,17 @@
 <!-- 主內容 -->
 <div id="mainContent" style="display:none;">
 
-  <!-- GitHub 推送 -->
+  <!-- 變更 #48/#49: 5 個功能分 5 個 tab，順序: 開發者文件 → 檔案管理 → 備忘錄 → GitHub → 提交紀錄 -->
+  <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--c4);flex-wrap:wrap;">
+    <button class="super-tab-btn active" id="tab-btn-docs" onclick="showSuperTab('docs')" style="padding:10px 18px;border:none;background:transparent;cursor:pointer;font-size:14px;color:var(--g2);border-bottom:3px solid var(--g2);margin-bottom:-2px;font-weight:600;">📄 開發者文件</button>
+    <button class="super-tab-btn" id="tab-btn-files" onclick="showSuperTab('files')" style="padding:10px 18px;border:none;background:transparent;cursor:pointer;font-size:14px;color:var(--c3);border-bottom:3px solid transparent;margin-bottom:-2px;">📁 檔案管理</button>
+    <button class="super-tab-btn" id="tab-btn-notes" onclick="showSuperTab('notes')" style="padding:10px 18px;border:none;background:transparent;cursor:pointer;font-size:14px;color:var(--c3);border-bottom:3px solid transparent;margin-bottom:-2px;">📝 備忘錄</button>
+    <button class="super-tab-btn" id="tab-btn-git" onclick="showSuperTab('git')" style="padding:10px 18px;border:none;background:transparent;cursor:pointer;font-size:14px;color:var(--c3);border-bottom:3px solid transparent;margin-bottom:-2px;">🚀 GitHub 推送</button>
+    <button class="super-tab-btn" id="tab-btn-commits" onclick="showSuperTab('commits')" style="padding:10px 18px;border:none;background:transparent;cursor:pointer;font-size:14px;color:var(--c3);border-bottom:3px solid transparent;margin-bottom:-2px;">📜 提交紀錄</button><button class="super-tab-btn" id="tab-btn-features" onclick="showSuperTab('features')" style="padding:10px 18px;border:none;background:transparent;cursor:pointer;font-size:14px;color:var(--c3);border-bottom:3px solid transparent;margin-bottom:-2px;">🎛️ 模組管理</button>
+  </div>
+
+  <!-- Tab: GitHub 推送 -->
+  <div class="super-tab-content" id="tab-content-git" style="display:none;">
   <div class="card" style="padding:24px;margin-bottom:20px;">
     <h2 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
@@ -47,14 +57,18 @@
     <!-- 推送結果 -->
     <div id="pushResult" style="margin-top:12px;"></div>
   </div>
+  </div><!-- /tab-content-git -->
 
-  <!-- 最近 Commits -->
+  <!-- Tab 2: 最近提交紀錄 -->
+  <div class="super-tab-content" id="tab-content-commits" style="display:none;">
   <div class="card" style="padding:24px;">
     <h2 style="margin:0 0 16px 0;">最近提交紀錄</h2>
     <div id="commitLog" style="font-family:JetBrains Mono,monospace;font-size:12px;color:var(--c2);">載入中...</div>
   </div>
+  </div><!-- /tab-content-commits -->
 
-  <!-- 開發者文件 -->
+  <!-- Tab: 開發者文件（預設顯示）-->
+  <div class="super-tab-content" id="tab-content-docs">
   <div class="card" style="padding:24px;">
     <h2 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
@@ -62,8 +76,10 @@
     </h2>
     <div id="docsTable">載入中...</div>
   </div>
+  </div><!-- /tab-content-docs -->
 
-  <!-- 檔案管理 -->
+  <!-- Tab 4: 檔案管理 -->
+  <div class="super-tab-content" id="tab-content-files" style="display:none;">
   <div class="card" style="padding:24px;">
     <h2 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -76,8 +92,10 @@
     </div>
     <div id="fileList">載入中...</div>
   </div>
+  </div><!-- /tab-content-files -->
 
-  <!-- 備忘錄 -->
+  <!-- Tab 5: 備忘錄 -->
+  <div class="super-tab-content" id="tab-content-notes" style="display:none;">
   <div class="card" style="padding:24px;">
     <h2 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -92,6 +110,13 @@
     </div>
     <div id="notesList">載入中...</div>
   </div>
+  </div><!-- /tab-content-notes -->
+  <!-- 模組管理 -->
+  <div class="super-tab-content" id="tab-content-features" style="display:none;">
+    <div style="color:var(--c3);font-size:13px;margin-bottom:14px;">開關各功能模組。關閉: 前台 navbar 入口消失, 頁面跳「模組未開通」說明, API 回 402, admin 對應 tab/卡片同步隱藏。</div>
+    <div id="features-list">載入中...</div>
+  </div><!-- /tab-content-features -->
+
 
     <!-- 文件檢視 Modal -->
   <div class="modal-overlay" id="doc-modal">
@@ -113,6 +138,63 @@
 
 <script>
 document.addEventListener("DOMContentLoaded", checkAuth);
+
+// 變更 #48: 5 tab 切換
+
+function loadFeaturesTab() {
+  fetch("/api/superadmin/features/list").then(function(r){return r.json();}).then(function(res){
+    var target = document.getElementById("features-list");
+    if (!res.success) { target.innerHTML = '<div style="color:var(--red);">載入失敗: '+(res.error||"?")+'</div>'; return; }
+    var html = '<table class="data-table" style="width:100%;"><thead><tr><th>模組 key</th><th>名稱</th><th>說明</th><th style="text-align:center;">狀態</th></tr></thead><tbody>';
+    (res.data||[]).forEach(function(f){
+      var badge = f.enabled
+        ? '<span class="badge" style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;">啟用中</span>'
+        : '<span class="badge" style="background:#ffebee;color:#c62828;padding:2px 8px;border-radius:10px;">已關閉</span>';
+      html += '<tr>';
+      html += '<td><code style="font-size:11px;">'+f.key+'</code></td>';
+      html += '<td><strong>'+f.name+'</strong></td>';
+      html += '<td style="font-size:12px;color:var(--c3);">'+(f.description||"")+'</td>';
+      html += '<td style="text-align:center;"><label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;"><input type="checkbox" '+(f.enabled?"checked":"")+' onchange="toggleFeature(\''+f.key+'\',this.checked)"> '+badge+'</label></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    target.innerHTML = html;
+  });
+}
+function toggleFeature(key, enabled) {
+  if (!confirm((enabled?'啟用':'關閉')+'模組「'+key+'」？\n刷新頁面後生效。')) { loadFeaturesTab(); return; }
+  fetch("/api/superadmin/features/toggle", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({key:key, enabled:enabled}),
+  }).then(function(r){return r.json();}).then(function(res){
+    if (!res.success) { alert("切換失敗: "+(res.error||"?")); loadFeaturesTab(); return; }
+    loadFeaturesTab();
+  });
+}
+
+function showSuperTab(id) {
+  if (id === 'features' && typeof loadFeaturesTab === 'function') loadFeaturesTab();
+  var tabs = ['git', 'commits', 'docs', 'files', 'notes', 'features'];
+  tabs.forEach(function(t) {
+    var btn = document.getElementById('tab-btn-' + t);
+    var content = document.getElementById('tab-content-' + t);
+    if (t === id) {
+      btn.classList.add('active');
+      btn.style.color = 'var(--g2)';
+      btn.style.borderBottomColor = 'var(--g2)';
+      btn.style.fontWeight = '600';
+      content.style.display = 'block';
+    } else {
+      btn.classList.remove('active');
+      btn.style.color = 'var(--c3)';
+      btn.style.borderBottomColor = 'transparent';
+      btn.style.fontWeight = '400';
+      content.style.display = 'none';
+    }
+  });
+  // 懶載入：切到某 tab 才再打資料（避免每次切都打 API，保留最初全載入的結果）
+  // 這裡不做額外 loader，因為 checkAuth 成功後已經全載入完成
+}
 
 async function checkAuth() {
   try {
@@ -238,45 +320,86 @@ async function saveField(hash, field, input) {
   input.replaceWith(span);
 }
 
-async function downloadPackage() {  var btn=document.getElementById("btnDownload");  btn.textContent="打包中...";btn.disabled=true;  try {    var res=await fetch("/api/superadmin/download-package",{method:"POST",credentials:"include"});    var json=await res.json();    if(json.success){      btn.textContent="✓ "+json.filename+" ("+json.size_mb+"MB)";      window.open(json.download_url);      setTimeout(function(){btn.textContent="📦 下載部署包";btn.disabled=false;},3000);    }else{btn.textContent="✗ "+json.error;btn.disabled=false;}  }catch(e){btn.textContent="錯誤";btn.disabled=false;}}
+// Phase 2 #7B: async-feedback 標準化
+async function downloadPackage() {
+  var btn = document.getElementById("btnDownload");
+  var _origHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.style.opacity = "0.7";
+  btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 打包中';
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 180000);
+  try {
+    var res = await fetch("/api/superadmin/download-package", {
+      method: "POST", credentials: "include", signal: controller.signal
+    });
+    var json = await res.json();
+    if (json.success) {
+      btn.innerHTML = "\u2713 " + json.filename + " (" + json.size_mb + "MB)";
+      window.open(json.download_url);
+      if (typeof _dashToast === "function") _dashToast("\u2713 部署包已產生：" + json.filename, "success");
+      setTimeout(function(){ btn.innerHTML = _origHTML; btn.disabled = false; btn.style.opacity = ""; }, 3000);
+    } else {
+      btn.innerHTML = "\u2717 " + (json.error || "失敗");
+      if (typeof _dashToast === "function") _dashToast("\u2717 打包失敗：" + (json.error || "未知"), "error");
+      setTimeout(function(){ btn.innerHTML = _origHTML; btn.disabled = false; btn.style.opacity = ""; }, 3000);
+    }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "打包逾時（超過 180 秒）" : (e.message || "未知錯誤");
+    btn.innerHTML = "\u2717 " + emsg;
+    if (typeof _dashToast === "function") _dashToast("\u2717 打包失敗：" + emsg, "error");
+    setTimeout(function(){ btn.innerHTML = _origHTML; btn.disabled = false; btn.style.opacity = ""; }, 3000);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+// Phase 2 #7B: async-feedback 標準化
 async function gitPush() {
   var msg = document.getElementById("commitMsg").value.trim();
   var btn = document.getElementById("btnPush");
+  var _origHTML = btn.innerHTML;
   btn.disabled = true;
-  btn.textContent = "推送中...";
+  btn.style.opacity = "0.7";
+  btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 推送中';
   document.getElementById("pushResult").innerHTML = '<div style="color:var(--c3);">正在推送到 GitHub...</div>';
-
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 120000);
   try {
     var body = {};
     if (msg) body.message = msg;
-
     var res = await fetch("/api/superadmin/git/push", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(body)
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body), signal: controller.signal
     });
     var json = await res.json();
-
     if (json.success) {
       if (json.pushed) {
         document.getElementById("pushResult").innerHTML =
-          '<div style="background:#E8F5E9;border-radius:8px;padding:12px 16px;color:var(--g2);font-weight:600;">✓ '+json.message+'<br><span style="font-weight:400;font-size:12px;">Commit: '+json.commit_message+'</span></div>';
+          '<div style="background:#E8F5E9;border-radius:8px;padding:12px 16px;color:var(--g2);font-weight:600;">\u2713 '+json.message+'<br><span style="font-weight:400;font-size:12px;">Commit: '+json.commit_message+'</span></div>';
+        if (typeof _dashToast === "function") _dashToast("\u2713 已推送到 GitHub", "success");
       } else {
         document.getElementById("pushResult").innerHTML =
           '<div style="background:#FFF8E1;border-radius:8px;padding:12px 16px;color:var(--orange);">'+json.message+'</div>';
+        if (typeof _dashToast === "function") _dashToast("\u2139 " + json.message, "info");
       }
       document.getElementById("commitMsg").value = "";
       loadGitStatus();
     } else {
       document.getElementById("pushResult").innerHTML =
-        '<div style="background:#FFEBEE;border-radius:8px;padding:12px 16px;color:var(--red);">✗ '+json.error+'</div>';
+        '<div style="background:#FFEBEE;border-radius:8px;padding:12px 16px;color:var(--red);">\u2717 '+json.error+'</div>';
+      if (typeof _dashToast === "function") _dashToast("\u2717 推送失敗：" + (json.error||"未知"), "error");
     }
   } catch(e) {
+    var emsg = (e.name === "AbortError") ? "推送逾時（超過 120 秒）" : (e.message || "未知錯誤");
     document.getElementById("pushResult").innerHTML =
-      '<div style="background:#FFEBEE;border-radius:8px;padding:12px 16px;color:var(--red);">✗ '+e.message+'</div>';
+      '<div style="background:#FFEBEE;border-radius:8px;padding:12px 16px;color:var(--red);">\u2717 '+emsg+'</div>';
+    if (typeof _dashToast === "function") _dashToast("\u2717 推送失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    btn.disabled = false;
+    btn.style.opacity = "";
+    btn.innerHTML = _origHTML;
   }
-  btn.disabled = false;
-  btn.textContent = "推送到 GitHub";
 }
 
 // ========== Developer Docs ==========

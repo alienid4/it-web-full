@@ -1,13 +1,97 @@
 """Admin API Blueprint - /api/admin/*"""
 from flask import Blueprint, request, jsonify, session
-import sys, os, json, subprocess, glob, shutil, platform, re
+import sys, os, json, subprocess, glob, shutil, platform, re, time, threading
 from datetime import datetime, timedelta
+
+# Phase 2 #4: ping-all 結果 60 秒記憶體快取（變更 #39 改用 MongoDB 共享，保留 _ping_lock 做 process 內互斥）
+_ping_lock = threading.Lock()
+PING_CACHE_TTL = 60
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from decorators import login_required, admin_required
 from services.auth_service import verify_login, change_password, log_action, get_user
 from services.mongo_service import get_collection, get_all_settings, update_setting
 from config import INSPECTION_HOME, SETTINGS_FILE
+
+
+# ============================================================================
+# 變更 #39: MongoDB 共享儲存 helpers
+# 原本 _ping_cache / _fixingHosts 是 process-local 記憶體；換 Gunicorn 多 worker
+# 後各 worker 各自 cache 會失效、鎖會失效。改存 MongoDB 讓跨 worker 共享。
+# ============================================================================
+
+def _mongo_cache_get(key, ttl_sec):
+    """從 MongoDB cache collection 讀取；超過 TTL 回 None"""
+    try:
+        doc = get_collection("cache").find_one({"_id": key})
+        if not doc:
+            return None
+        updated = doc.get("updated_at")
+        if not updated:
+            return None
+        age = (datetime.utcnow() - updated).total_seconds()
+        if age > ttl_sec:
+            return None
+        return {"data": doc.get("data"), "age_sec": int(age)}
+    except Exception:
+        return None
+
+
+def _mongo_cache_set(key, data):
+    """寫入 MongoDB cache collection（upsert）"""
+    try:
+        get_collection("cache").update_one(
+            {"_id": key},
+            {"$set": {"data": data, "updated_at": datetime.utcnow()}},
+            upsert=True
+        )
+    except Exception:
+        pass
+
+
+def _mongo_try_lock_host(hostname, ttl_sec, locked_by="unknown"):
+    """嘗試取得主機修復鎖；已被其他 worker/user 鎖住且未過期則回 False
+
+    原子性：利用 MongoDB _id 唯一約束 + filter 「未上鎖或已過期」
+    """
+    from pymongo.errors import DuplicateKeyError
+    now = datetime.utcnow()
+    expires = now + timedelta(seconds=ttl_sec)
+    col = get_collection("fix_locks")
+    try:
+        # 嘗試把過期鎖搶過來（有 doc 且 expires_at < now），或 upsert 新 doc
+        result = col.update_one(
+            {"_id": hostname, "$or": [{"expires_at": {"$lt": now}}, {"expires_at": None}]},
+            {"$set": {"locked_at": now, "expires_at": expires, "locked_by": locked_by}},
+            upsert=True
+        )
+        return True
+    except DuplicateKeyError:
+        # _id 已存在且未過期 → 被別人鎖住
+        return False
+    except Exception:
+        return False  # 保守：拿不到鎖就拒絕
+
+
+def _mongo_release_lock_host(hostname):
+    try:
+        get_collection("fix_locks").delete_one({"_id": hostname})
+    except Exception:
+        pass
+
+
+def _mongo_extend_lock_host(hostname, ttl_sec, locked_by="unknown"):
+    """延長鎖到期時間（修復成功後背景 rescan 期間仍保持鎖）"""
+    try:
+        now = datetime.utcnow()
+        expires = now + timedelta(seconds=ttl_sec)
+        get_collection("fix_locks").update_one(
+            {"_id": hostname},
+            {"$set": {"expires_at": expires, "locked_by": locked_by}},
+            upsert=True
+        )
+    except Exception:
+        pass
 
 bp = Blueprint("api_admin", __name__, url_prefix="/api/admin")
 
@@ -337,6 +421,8 @@ def ack_alert(hostname, run_date, run_time):
 @admin_required
 def add_host():
     data = request.get_json(force=True)
+    if not data.get("hostname"):
+        return jsonify({"success": False, "error": "缺少 hostname 欄位"}), 400
     data["imported_at"] = datetime.now().isoformat()
     data["updated_at"] = datetime.now().isoformat()
     get_collection("hosts").update_one({"hostname": data["hostname"]}, {"$set": data}, upsert=True)
@@ -592,11 +678,75 @@ def export_csv():
 @bp.route("/hosts/template-csv", methods=["GET"])
 @admin_required
 def template_csv():
-    """下載 CSV 範本"""
+    """下載 CSV 範本 (BOM for Excel)"""
     from flask import Response
     template = "hostname,ip,os,os_group,status,environment,group,custodian,custodian_ad,department,division\nEXAMPLE-SVR01,10.0.0.1,Rocky Linux,rocky,使用中,正式,,林凱文,lin.kaiwen,資訊架構部,資訊管理處\n"
-    return Response(template, mimetype="text/csv",
+    bom = "\ufeff"
+    return Response(bom + template, mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition": "attachment;filename=hosts_template.csv"})
+
+@bp.route("/hosts/template-xlsx", methods=["GET"])
+@admin_required
+def template_xlsx():
+    """下載 Excel 範本"""
+    from flask import send_file
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    import io
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "主機清單"
+
+    headers = ["hostname", "ip", "os", "os_group", "status", "environment", "group", "custodian", "custodian_ad", "department", "division"]
+    header_cn = ["主機名稱", "IP位址", "作業系統", "OS分類", "狀態", "環境", "群組", "保管者", "AD帳號", "部門", "處"]
+    notes = ["必填", "必填", "Rocky Linux / Windows Server 2019 / AIX", "rhel / rocky / debian / windows / aix", "使用中", "正式 / 測試", "可空", "負責人姓名", "AD登入帳號", "部門名稱", "處名稱"]
+
+    # Style
+    hfont = Font(bold=True, color="FFFFFF", size=11)
+    hfill = PatternFill(start_color="4AB234", end_color="4AB234", fill_type="solid")
+    nfont = Font(italic=True, color="888888", size=9)
+    thin = Side(style="thin", color="CCCCCC")
+    border = Border(top=thin, bottom=thin, left=thin, right=thin)
+
+    # Row 1: English headers
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.font = hfont
+        cell.fill = hfill
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = border
+
+    # Row 2: Chinese description
+    for col, h in enumerate(header_cn, 1):
+        cell = ws.cell(row=2, column=col, value=h)
+        cell.font = Font(bold=True, color="333333", size=10)
+        cell.fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid")
+        cell.border = border
+
+    # Row 3: Notes
+    for col, n in enumerate(notes, 1):
+        cell = ws.cell(row=3, column=col, value=n)
+        cell.font = nfont
+        cell.border = border
+
+    # Row 4: Example
+    example = ["SECSVR019-032", "10.93.19.35", "Rocky Linux", "rhel", "使用中", "正式", "", "林凱文", "lin.kaiwen", "資訊架構部", "資訊管理處"]
+    for col, v in enumerate(example, 1):
+        cell = ws.cell(row=4, column=col, value=v)
+        cell.font = Font(color="999999")
+        cell.border = border
+
+    # Column widths
+    widths = [22, 16, 22, 12, 8, 8, 10, 10, 14, 14, 14]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True, download_name="hosts_template.xlsx")
 
 
 # ========== Account Audit ==========
@@ -794,6 +944,18 @@ def export_audit():
     from flask import Response
     return Response(output.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment;filename=account_audit_{datetime.now().strftime('%Y%m%d')}.csv"})
+
+
+@bp.route("/audit/settings", methods=["GET"])
+@admin_required
+def get_audit_settings():
+    """取得帳號盤點閾值"""
+    from services.mongo_service import get_all_settings
+    settings = get_all_settings()
+    return jsonify({"success": True, "data": {
+        "pw_days": settings.get("audit_password_days", 90),
+        "login_days": settings.get("audit_login_days", 90),
+    }})
 
 
 @bp.route("/audit/settings", methods=["PUT"])
@@ -1208,7 +1370,7 @@ def service_control(hostname):
         else:
             return jsonify({"success": False, "error": action_text + "失敗", "output": output}), 500
     except subprocess.TimeoutExpired:
-        return jsonify({"success": False, "error": "執行逾時（30秒）: %s @ %s" % (check_id, hostname), "hostname": hostname, "check_id": check_id}), 200
+        return jsonify({"success": False, "error": "執行逾時（30秒）: %s @ %s" % (service_name, hostname)}), 504
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -1419,6 +1581,15 @@ def twgcb_fix():
     if not check_id or not hostname:
         return jsonify({"success": False, "error": "缺少 check_id 或 hostname"}), 400
 
+    # 變更 #39: 後端同主機鎖（跨 worker/user 互斥，防止並行 remediation race）
+    # 前端 _fixingHosts 鎖只防同一使用者瀏覽器連點；後端鎖才能防多使用者 / multi-worker
+    if not _mongo_try_lock_host(hostname, ttl_sec=60, locked_by="fix:" + check_id):
+        return jsonify({
+            "success": False,
+            "error": "主機 %s 正在由其他使用者執行修復中，請稍候重試" % hostname,
+            "hostname": hostname, "check_id": check_id, "locked": True
+        }), 409
+
     from services.mongo_service import get_collection
     config = get_collection("twgcb_config").find_one({"check_id": check_id})
     remediation = ""
@@ -1462,7 +1633,13 @@ def twgcb_fix():
     try:
         r = subprocess.run(ansible_base + ["-a", cmd], capture_output=True, text=True, timeout=30)
         output = (r.stdout + "\n" + r.stderr).strip()
-        ok = r.returncode == 0
+        # 變更 #36 Bug A: rc=0 不等於 remediation 真的成功
+        # 許多 remediation 尾部 echo OK 會吞掉錯誤；加字串檢查抓真正失敗
+        failure_markers = ["| FAILED", "UNREACHABLE", "Failed to mask",
+                           "Failed to enable", "Failed to disable",
+                           "Authentication failed", "Permission denied"]
+        has_failure = any(m in output for m in failure_markers)
+        ok = r.returncode == 0 and not has_failure
         log_action(session.get("username", "unknown"), "twgcb_fix",
             "%s: %s %s — %s" % (hostname, check_id, ( config.get("description","") if config else check_id ), "成功" if ok else "失敗"),
             request.remote_addr)
@@ -1476,10 +1653,48 @@ def twgcb_fix():
         if not ok:
             result["error"] = "修復失敗: %s @ %s" % (check_id, hostname)
             result["detail"] = output
+
+        # 變更 #36 Bug B: 修復成功時背景重跑 scan + import，讓 UI 刷新看到新狀態
+        # 不讓使用者按「執行修復」要等 30~60 秒 ansible 掃描完才有回應
+        if ok and not is_windows:
+            def _bg_rescan(_hostname=hostname, _inventory=inventory, _vault=vault_file):
+                try:
+                    playbook = os.path.join(INSPECTION_HOME, "ansible/playbooks/twgcb_scan.yml")
+                    subprocess.run(
+                        ["ansible-playbook", "-i", _inventory, "--vault-password-file", _vault,
+                         playbook, "--limit", _hostname],
+                        capture_output=True, text=True, timeout=180
+                    )
+                    # 把 JSON 寫回 MongoDB（複製 api_twgcb._import_results 邏輯，避免循環 import）
+                    from services.mongo_service import get_collection
+                    report_path = os.path.join(INSPECTION_HOME, "data/reports", "twgcb_%s.json" % _hostname)
+                    if os.path.exists(report_path):
+                        with open(report_path) as fh:
+                            scan_data = json.load(fh)
+                        if scan_data.get("hostname"):
+                            scan_data["imported_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            get_collection("twgcb_results").update_one(
+                                {"hostname": _hostname}, {"$set": scan_data}, upsert=True
+                            )
+                except Exception:
+                    pass  # 背景任務失敗不影響主回應
+                finally:
+                    # 變更 #39: 背景 rescan 結束後釋放鎖
+                    _mongo_release_lock_host(_hostname)
+            # 變更 #39: 延長鎖到背景 rescan 結束（最多 180s + 緩衝）
+            _mongo_extend_lock_host(hostname, ttl_sec=200, locked_by="bg_rescan:" + check_id)
+            threading.Thread(target=_bg_rescan, daemon=True).start()
+            result["rescan_pending"] = True
+        else:
+            # 失敗或 Windows：立即釋放鎖
+            _mongo_release_lock_host(hostname)
+
         return jsonify(result), 200
     except subprocess.TimeoutExpired:
+        _mongo_release_lock_host(hostname)
         return jsonify({"success": False, "error": "執行逾時（30秒）: %s @ %s" % (check_id, hostname), "hostname": hostname, "check_id": check_id}), 200
     except Exception as e:
+        _mongo_release_lock_host(hostname)
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -1520,7 +1735,28 @@ def twgcb_restore():
             "%s: 還原 %s — %s" % (hostname, str(backup_files), "成功" if ok else "失敗"),
             request.remote_addr)
         if ok:
-            return jsonify({"success": True, "message": "還原成功", "output": output})
+            # 變更 #45: 還原成功後背景 rescan，讓 UI 20 秒後顯示真實狀態
+            def _bg_rescan(_hostname=hostname, _inventory=inventory, _vault=vault_file):
+                try:
+                    playbook = os.path.join(INSPECTION_HOME, "ansible/playbooks/twgcb_scan.yml")
+                    subprocess.run(
+                        ["ansible-playbook", "-i", _inventory, "--vault-password-file", _vault,
+                         playbook, "--limit", _hostname],
+                        capture_output=True, text=True, timeout=180
+                    )
+                    report_path = os.path.join(INSPECTION_HOME, "data/reports", "twgcb_%s.json" % _hostname)
+                    if os.path.exists(report_path):
+                        with open(report_path) as fh:
+                            scan_data = json.load(fh)
+                        if scan_data.get("hostname"):
+                            scan_data["imported_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            get_collection("twgcb_results").update_one(
+                                {"hostname": _hostname}, {"$set": scan_data}, upsert=True
+                            )
+                except Exception:
+                    pass
+            threading.Thread(target=_bg_rescan, daemon=True).start()
+            return jsonify({"success": True, "message": "還原成功", "output": output, "rescan_pending": True})
         else:
             return jsonify({"success": False, "error": "還原失敗", "output": output}), 500
     except Exception as e:
@@ -1531,33 +1767,66 @@ def twgcb_restore():
 
 @bp.route("/hosts/ping-all", methods=["GET"])
 def ping_all_hosts():
-    """批次 ping 所有主機，回傳連線狀態（不需登入，公開 API）"""
-    import subprocess, threading
-    from services.mongo_service import get_collection
+    """批次 ping 所有主機，回傳連線狀態（不需登入，公開 API）
 
-    hosts = list(get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1}))
-    results = {}
+    Phase 2 #4: 60 秒記憶體快取；?force=1 可強制刷新。
+    變更 #39: 改用 MongoDB cache collection，為 Gunicorn multi-worker 做準備。
+    """
+    force = request.args.get("force", "").strip() in ("1", "true", "yes")
 
-    def do_ping(hostname, ip):
-        try:
-            r = subprocess.run(
-                ["ping", "-c", "1", "-W", "2", ip],
-                capture_output=True, text=True, timeout=5
-            )
-            results[hostname] = {"reachable": r.returncode == 0, "ip": ip}
-        except Exception:
-            results[hostname] = {"reachable": False, "ip": ip}
+    # 快取命中：直接回（MongoDB 共享快取，跨 worker 有效）
+    if not force:
+        cached = _mongo_cache_get("ping_all", PING_CACHE_TTL)
+        if cached is not None:
+            return jsonify({
+                "success": True,
+                "data": cached["data"],
+                "cached": True,
+                "age_sec": cached["age_sec"],
+            })
 
-    threads = []
-    for h in hosts:
-        t = threading.Thread(target=do_ping, args=(h["hostname"], h.get("ip", "")))
-        t.start()
-        threads.append(t)
+    # process 內 lock 防止單 worker 自己並發重跑；跨 worker 由 MongoDB double-check 擋
+    with _ping_lock:
+        if not force:
+            cached = _mongo_cache_get("ping_all", PING_CACHE_TTL)
+            if cached is not None:
+                return jsonify({
+                    "success": True,
+                    "data": cached["data"],
+                    "cached": True,
+                    "age_sec": cached["age_sec"],
+                })
 
-    for t in threads:
-        t.join(timeout=6)
+        hosts = list(get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1}))
+        results = {}
 
-    return jsonify({"success": True, "data": results})
+        def do_ping(hostname, ip):
+            try:
+                r = subprocess.run(
+                    ["ping", "-c", "1", "-W", "2", ip],
+                    capture_output=True, text=True, timeout=5
+                )
+                results[hostname] = {"reachable": r.returncode == 0, "ip": ip}
+            except Exception:
+                results[hostname] = {"reachable": False, "ip": ip}
+
+        threads = []
+        for h in hosts:
+            t = threading.Thread(target=do_ping, args=(h["hostname"], h.get("ip", "")))
+            t.start()
+            threads.append(t)
+
+        for t in threads:
+            t.join(timeout=6)
+
+        _mongo_cache_set("ping_all", results)
+
+    return jsonify({
+        "success": True,
+        "data": results,
+        "cached": False,
+        "age_sec": 0,
+    })
 
 
 # ===== 帳號鎖定/解鎖/重設 API =====
@@ -1627,9 +1896,18 @@ def twgcb_fix_all():
     if not hostname:
         return jsonify({"success": False, "error": "缺少 hostname"}), 400
 
+    # 變更 #39: 後端同主機鎖（全修可能跑數十秒，需要較長 TTL）
+    if not _mongo_try_lock_host(hostname, ttl_sec=300, locked_by="fix_all"):
+        return jsonify({
+            "success": False,
+            "error": "主機 %s 正在由其他使用者執行修復中，請稍候重試" % hostname,
+            "hostname": hostname, "locked": True
+        }), 409
+
     from services.mongo_service import get_collection
     host = get_collection("hosts").find_one({"hostname": hostname})
     if not host:
+        _mongo_release_lock_host(hostname)
         return jsonify({"success": False, "error": "找不到主機"}), 404
 
     # 記錄修復開始狀態
@@ -1650,11 +1928,26 @@ def twgcb_fix_all():
     # 取該主機的掃描結果，找出所有 FAIL 項
     result_doc = get_collection("twgcb_results").find_one({"hostname": hostname})
     if not result_doc:
+        _mongo_release_lock_host(hostname)
         return jsonify({"success": False, "error": "無掃描結果"}), 404
 
     fail_checks = [c for c in result_doc.get("checks", []) if c.get("status") == "FAIL"]
+
+    # 變更 #42: 跳過已標記例外的 check_id（例外=已批准不修復，全修不該動它）
+    excepted_ids = {e["check_id"] for e in get_collection("twgcb_exceptions").find(
+        {"hostname": hostname}, {"check_id": 1, "_id": 0}
+    )}
+    skipped_exceptions = [c for c in fail_checks if c.get("id") in excepted_ids]
+    fail_checks = [c for c in fail_checks if c.get("id") not in excepted_ids]
+
     if not fail_checks:
-        return jsonify({"success": True, "message": "無需修復，所有項目已通過", "fixed": 0, "total": 0})
+        msg = "無需修復，所有項目已通過" if not skipped_exceptions else \
+              f"無需修復（{len(skipped_exceptions)} 項已標記例外，未動）"
+        _mongo_release_lock_host(hostname)
+        return jsonify({
+            "success": True, "message": msg, "fixed": 0, "total": 0,
+            "skipped_exceptions": len(skipped_exceptions)
+        })
 
     # 從 config 取 remediation 指令
     configs = {c["check_id"]: c for c in get_collection("twgcb_config").find({}, {"_id": 0})}
@@ -1699,7 +1992,12 @@ def twgcb_fix_all():
                 + ([] if is_windows else ["-u", "ansible_svc", "--become"]),
                 capture_output=True, text=True, timeout=30
             )
-            ok = r.returncode == 0
+            _fix_output = (r.stdout or "") + (r.stderr or "")
+            # 變更 #36 Bug A: rc=0 不等於 remediation 真的成功（echo OK 會吞錯誤）
+            _failure_markers = ["| FAILED", "UNREACHABLE", "Failed to mask",
+                                "Failed to enable", "Failed to disable",
+                                "Authentication failed", "Permission denied"]
+            ok = r.returncode == 0 and not any(m in _fix_output for m in _failure_markers)
             if ok:
                 fixed += 1
                 # 立即重啟受影響的服務
@@ -1743,6 +2041,41 @@ def twgcb_fix_all():
         "%s: 一鍵全修 %d/%d 成功" % (hostname, fixed, len(fail_checks)),
         request.remote_addr)
 
+    # 變更 #36 Bug B: 不再「作弊」直接把 twgcb_results 的 status 改 PASS
+    # （那做法只是「看起來成功」，實機沒驗證，rescan 後還是 FAIL 會誤導使用者）
+    # 改為背景重跑 scan + import，讓前端 20 秒後拿到真實狀態
+    rescan_pending = False
+    if fixed > 0 and not is_windows:
+        def _bg_rescan(_hostname=hostname, _inventory=inventory, _vault=vault_file):
+            try:
+                playbook = os.path.join(INSPECTION_HOME, "ansible/playbooks/twgcb_scan.yml")
+                subprocess.run(
+                    ["ansible-playbook", "-i", _inventory, "--vault-password-file", _vault,
+                     playbook, "--limit", _hostname],
+                    capture_output=True, text=True, timeout=180
+                )
+                report_path = os.path.join(INSPECTION_HOME, "data/reports", "twgcb_%s.json" % _hostname)
+                if os.path.exists(report_path):
+                    with open(report_path) as fh:
+                        scan_data = json.load(fh)
+                    if scan_data.get("hostname"):
+                        scan_data["imported_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        get_collection("twgcb_results").update_one(
+                            {"hostname": _hostname}, {"$set": scan_data}, upsert=True
+                        )
+            except Exception:
+                pass
+            finally:
+                # 變更 #39: 背景 rescan 結束後釋放鎖
+                _mongo_release_lock_host(_hostname)
+        # 變更 #39: 延長鎖到背景 rescan 結束（rescan 最多 180s + 緩衝）
+        _mongo_extend_lock_host(hostname, ttl_sec=220, locked_by="fix_all:bg_rescan")
+        threading.Thread(target=_bg_rescan, daemon=True).start()
+        rescan_pending = True
+    else:
+        # 沒有要背景 rescan：立即釋放鎖
+        _mongo_release_lock_host(hostname)
+
     # 記錄修復完成狀態
     fix_msg = "修復完成: %d 成功 / %d 失敗 / %d 跳過" % (fixed, failed, len(fail_checks) - fixed - failed)
     fix_col.update_one({"hostname": hostname}, {"$set": {
@@ -1760,6 +2093,9 @@ def twgcb_fix_all():
         "total": len(fail_checks), "fixed": fixed, "failed": failed,
         "results": results,
         "restart": restart_output,
+        "rescan_pending": rescan_pending,
+        # 變更 #42: 前端可顯示「已跳過 N 項例外」
+        "skipped_exceptions": len(skipped_exceptions),
     })
 
 
@@ -1839,6 +2175,33 @@ def twgcb_restore_all():
             "%s: 全部還原 %d/%d 檔案" % (hostname, restored, len(bak_files)),
             request.remote_addr)
 
+        # 變更 #45: 移除舊的 fixed_at hack（#36 之後 fix-all 不再寫 fixed_at
+        # 所以 array_filters 永遠 match 不到 → UI 不會更新）
+        # 改用跟 fix-all 一致的背景 rescan pattern，拿實機真實狀態
+        rescan_pending = False
+        if not is_windows:
+            def _bg_rescan(_hostname=hostname, _inventory=inventory, _vault=vault_file):
+                try:
+                    playbook = os.path.join(INSPECTION_HOME, "ansible/playbooks/twgcb_scan.yml")
+                    subprocess.run(
+                        ["ansible-playbook", "-i", _inventory, "--vault-password-file", _vault,
+                         playbook, "--limit", _hostname],
+                        capture_output=True, text=True, timeout=180
+                    )
+                    report_path = os.path.join(INSPECTION_HOME, "data/reports", "twgcb_%s.json" % _hostname)
+                    if os.path.exists(report_path):
+                        with open(report_path) as fh:
+                            scan_data = json.load(fh)
+                        if scan_data.get("hostname"):
+                            scan_data["imported_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            get_collection("twgcb_results").update_one(
+                                {"hostname": _hostname}, {"$set": scan_data}, upsert=True
+                            )
+                except Exception:
+                    pass
+            threading.Thread(target=_bg_rescan, daemon=True).start()
+            rescan_pending = True
+
         return jsonify({
             "success": True,
             "message": "還原完成: %d 個檔案已還原" % restored,
@@ -1847,6 +2210,744 @@ def twgcb_restore_all():
             "files": bak_files,
             "output": output,
             "restart": r3.stdout.strip(),
+            "rescan_pending": rescan_pending,
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ========== SSH Key Management ==========
+
+@bp.route("/ssh/status", methods=["GET"])
+@admin_required
+def ssh_status():
+    """Get local SSH key status + all hosts SSH connectivity"""
+    import subprocess, os
+    key_path = os.path.expanduser("~/.ssh/id_ed25519")
+    pub_path = key_path + ".pub"
+
+    key_info = {"exists": False, "fingerprint": "", "public_key": "", "created_by": "", "created_at": ""}
+    if os.path.exists(pub_path):
+        key_info["exists"] = True
+        with open(pub_path) as f:
+            pub_content = f.read().strip()
+            key_info["public_key"] = pub_content
+            # 從 public key 的 comment 欄位解析建立者
+            parts = pub_content.split()
+            if len(parts) >= 3:
+                comment = parts[2]  # e.g. "itagent-by-superadmin"
+                if comment.startswith("itagent-by-"):
+                    key_info["created_by"] = comment.replace("itagent-by-", "")
+                else:
+                    key_info["created_by"] = comment
+        try:
+            r = subprocess.run(["ssh-keygen", "-lf", pub_path], capture_output=True, text=True, timeout=5)
+            key_info["fingerprint"] = r.stdout.strip()
+        except:
+            pass
+        # 從 audit log 撈建立時間
+        try:
+            log = get_collection("audit_log").find_one(
+                {"action": "ssh_generate_key"}, sort=[("timestamp", -1)]
+            )
+            if log:
+                key_info["created_at"] = str(log.get("timestamp", ""))
+                if not key_info["created_by"]:
+                    key_info["created_by"] = log.get("username", "")
+        except:
+            pass
+
+    hosts = list(get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1, "os_group": 1, "ssh_key_records": 1}))
+    return jsonify({"success": True, "data": {"key": key_info, "hosts": hosts}})
+
+
+@bp.route("/ssh/generate-key", methods=["POST"])
+@admin_required
+def ssh_generate_key():
+    """Generate new ed25519 SSH key pair"""
+    import subprocess, os
+    key_path = os.path.expanduser("~/.ssh/id_ed25519")
+    pub_path = key_path + ".pub"
+
+    if os.path.exists(key_path):
+        return jsonify({"success": False, "error": "Key already exists. Delete first if you want to regenerate."}), 400
+
+    os.makedirs(os.path.expanduser("~/.ssh"), mode=0o700, exist_ok=True)
+    try:
+        r = subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-C", "itagent-by-{}".format(session["username"]), "-f", key_path, "-N", ""],
+            capture_output=True, text=True, timeout=10
+        )
+        if r.returncode != 0:
+            return jsonify({"success": False, "error": r.stderr}), 500
+
+        with open(pub_path) as f:
+            pub = f.read().strip()
+        fp = subprocess.run(["ssh-keygen", "-lf", pub_path], capture_output=True, text=True, timeout=5)
+
+        log_action(session["username"], "ssh_generate_key", "Generated new SSH key", request.remote_addr)
+        return jsonify({"success": True, "data": {"public_key": pub, "fingerprint": fp.stdout.strip()}})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@bp.route("/ssh/send-key", methods=["POST"])
+@admin_required
+def ssh_send_key():
+    """Send SSH key to a remote host using password"""
+    import subprocess, os
+    data = request.get_json()
+    ip = data.get("ip", "").strip()
+    password = data.get("password", "")
+    user = data.get("user", "root")
+
+    if not ip or not password:
+        return jsonify({"success": False, "error": "IP and password required"}), 400
+
+    pub_path = os.path.expanduser("~/.ssh/id_ed25519.pub")
+    if not os.path.exists(pub_path):
+        return jsonify({"success": False, "error": "No SSH key. Generate one first."}), 400
+
+    try:
+        r = subprocess.run(
+            ["sshpass", "-p", password, "ssh-copy-id", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}"],
+            capture_output=True, text=True, timeout=30
+        )
+        if r.returncode == 0:
+            log_action(session["username"], "ssh_send_key", f"Sent SSH key to {user}@{ip}", request.remote_addr)
+            return jsonify({"success": True, "message": f"Key sent to {user}@{ip}"})
+        else:
+            err = r.stderr.strip()
+            if "Permission denied" in err or "assword" in err:
+                return jsonify({"success": False, "error": "Password incorrect"}), 401
+            return jsonify({"success": False, "error": err}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({"success": False, "error": "Connection timeout"}), 504
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@bp.route("/ssh/test", methods=["POST"])
+@admin_required
+def ssh_test():
+    """Test SSH connectivity to one or all hosts, try each user"""
+    import subprocess
+    data = request.get_json() or {}
+    target_ip = data.get("ip", "")
+    default_users = ["sysinfra", "root"]
+
+    if target_ip:
+        # Single host test
+        host_doc = get_collection("hosts").find_one({"ip": target_ip}, {"_id": 0, "hostname": 1, "ip": 1, "ssh_key_records": 1}) or {}
+        hosts = [{"ip": target_ip, "hostname": data.get("hostname", host_doc.get("hostname", target_ip)), "ssh_key_records": host_doc.get("ssh_key_records", {})}]
+    else:
+        # All hosts
+        hosts = list(get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1, "ssh_key_records": 1}))
+
+    results = []
+    for h in hosts:
+        ip = h.get("ip", "")
+        hostname = h.get("hostname", ip)
+        if not ip:
+            results.append({"hostname": hostname, "ip": ip, "status": "error", "ssh_user": "", "message": "No IP"})
+            continue
+        # 從 ssh_key_records 取得已部署帳號，合併預設帳號（去重）
+        records = h.get("ssh_key_records", {})
+        host_users = list(records.keys()) if records else []
+        for du in default_users:
+            if du not in host_users:
+                host_users.append(du)
+
+        # 每個帳號都測試
+        user_results = {}
+        def _parse_err(err):
+            if "Permission denied" in err: return "Key 認證失敗"
+            if "Connection refused" in err: return "連線被拒"
+            if "No route to host" in err: return "主機不可達"
+            if "Connection timed out" in err: return "連線逾時"
+            if "Host key verification" in err: return "Host key 驗證失敗"
+            if err == "Timeout": return "連線逾時"
+            return err if err else "未知錯誤"
+
+        for u in host_users:
+            try:
+                r = subprocess.run(
+                    ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5",
+                     "-o", "BatchMode=yes", f"{u}@{ip}", "hostname"],
+                    capture_output=True, text=True, timeout=10
+                )
+                if r.returncode == 0:
+                    user_results[u] = "ok"
+                else:
+                    err = r.stderr.strip()
+                    user_results[u] = _parse_err(err)
+                    log_action(session["username"], "ssh_test_fail",
+                        f"{u}@{ip}({hostname}) FAIL: {err}",
+                        request.remote_addr)
+            except subprocess.TimeoutExpired:
+                user_results[u] = "連線逾時"
+                log_action(session["username"], "ssh_test_fail",
+                    f"{u}@{ip}({hostname}) FAIL: Timeout",
+                    request.remote_addr)
+            except Exception as e:
+                user_results[u] = str(e)
+                log_action(session["username"], "ssh_test_fail",
+                    f"{u}@{ip}({hostname}) FAIL: {e}",
+                    request.remote_addr)
+
+        has_ok = any(v == "ok" for v in user_results.values())
+        results.append({
+            "hostname": hostname, "ip": ip,
+            "status": "ok" if has_ok else "error",
+            "user_results": user_results
+        })
+
+    return jsonify({"success": True, "data": results})
+
+
+@bp.route("/ssh/batch-deploy", methods=["POST"])
+@admin_required
+def ssh_batch_deploy():
+    """Batch deploy SSH key to all Linux hosts for specified users via Ansible"""
+    import subprocess, os
+    from datetime import datetime
+
+    data = request.get_json() or {}
+    users = data.get("users", ["root", "sysinfra"])
+    if isinstance(users, str):
+        users = [u.strip() for u in users.split(",") if u.strip()]
+
+    pub_path = os.path.expanduser("~/.ssh/id_ed25519.pub")
+    if not os.path.exists(pub_path):
+        return jsonify({"success": False, "error": "No SSH key. Generate one first."}), 400
+
+    with open(pub_path) as f:
+        pub_key = f.read().strip()
+
+    inventory = "/opt/inspection/ansible/inventory/hosts.yml"
+    if not os.path.exists(inventory):
+        return jsonify({"success": False, "error": "Ansible inventory not found"}), 500
+
+    # 逐台逐帳號執行，精確回報
+    results = []
+    linux_hosts = [h for h in get_collection("hosts").find({"os_group": {"$in": ["linux", "Linux"]}}, {"_id": 0, "hostname": 1, "ip": 1}) if h.get("ip")]
+    if not linux_hosts:
+        # fallback: 用 os 欄位判斷
+        linux_hosts = [h for h in get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1})
+                       if h.get("ip") and h.get("os", "").lower() not in ["windows", ""] and "windows" not in h.get("os", "").lower()]
+
+    for host in linux_hosts:
+        hostname = host.get("hostname", host.get("ip"))
+        ip = host.get("ip")
+        host_result = {"hostname": hostname, "ip": ip, "users": {}}
+        deployed_users = []
+
+        for u in users:
+            # 先檢查帳號是否存在，不存在就建立
+            try:
+                chk = subprocess.run(
+                    ["ansible", "-i", inventory, hostname, "-b", "-m", "shell",
+                     "-a", f"getent passwd {u}"],
+                    capture_output=True, text=True, timeout=15
+                )
+                if chk.returncode != 0 or "FAILED" in chk.stdout:
+                    # 帳號不存在，自動建立
+                    create_cmd = f"useradd -m -s /bin/bash {u} && echo '{u}:P@ssw0rd' | chpasswd"
+                    cr = subprocess.run(
+                        ["ansible", "-i", inventory, hostname, "-b", "-m", "shell",
+                         "-a", create_cmd],
+                        capture_output=True, text=True, timeout=20
+                    )
+                    if cr.returncode == 0 and "FAILED" not in cr.stdout:
+                        host_result["users"][u] = "created"
+                        log_action(session["username"], "ssh_create_user",
+                            f"Auto created user {u} on {hostname}",
+                            request.remote_addr)
+                    else:
+                        host_result["users"][u] = "create_fail"
+                        continue
+            except:
+                host_result["users"][u] = "check_error"
+                continue
+
+            # 帳號存在或剛建立，部署 key
+            try:
+                dep = subprocess.run(
+                    ["ansible", "-i", inventory, hostname, "-b", "-m", "authorized_key",
+                     "-a", f"user={u} key='{pub_key}' state=present"],
+                    capture_output=True, text=True, timeout=30
+                )
+                if dep.returncode == 0 and "FAILED" not in dep.stdout:
+                    prev = host_result["users"].get(u, "")
+                    host_result["users"][u] = "created_ok" if prev == "created" else "ok"
+                    deployed_users.append(u)
+                else:
+                    host_result["users"][u] = "deploy_fail"
+            except:
+                host_result["users"][u] = "deploy_error"
+
+        host_result["status"] = "ok" if deployed_users else "error"
+        host_result["deployed_users"] = deployed_users
+        results.append(host_result)
+
+        # 更新 MongoDB — 每個帳號獨立記錄部署時間
+        if deployed_users:
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            try:
+                host_doc = get_collection("hosts").find_one({"hostname": hostname}, {"ssh_key_records": 1}) or {}
+                records = host_doc.get("ssh_key_records", {})
+                for du in deployed_users:
+                    records[du] = now
+                get_collection("hosts").update_one(
+                    {"hostname": hostname},
+                    {"$set": {"ssh_key_records": records}}
+                )
+            except:
+                pass
+
+    log_action(session["username"], "ssh_batch_deploy",
+        f"Batch deploy key to users={users}, results={len(results)} hosts",
+        request.remote_addr)
+
+    return jsonify({"success": True, "data": results})
+
+
+@bp.route("/ssh/batch-remove", methods=["POST"])
+@admin_required
+def ssh_batch_remove():
+    """Batch remove SSH key from all Linux hosts for specified users via Ansible"""
+    import subprocess, os
+    from datetime import datetime
+
+    data = request.get_json() or {}
+    users = data.get("users", ["root", "sysinfra"])
+    if isinstance(users, str):
+        users = [u.strip() for u in users.split(",") if u.strip()]
+
+    pub_path = os.path.expanduser("~/.ssh/id_ed25519.pub")
+    if not os.path.exists(pub_path):
+        return jsonify({"success": False, "error": "No SSH key found to remove"}), 400
+
+    with open(pub_path) as f:
+        pub_key = f.read().strip()
+
+    inventory = "/opt/inspection/ansible/inventory/hosts.yml"
+
+    selected = data.get("hosts", []) if isinstance(data.get("hosts"), list) else []
+    host_filter = {"hostname": {"$in": selected}} if selected else {"os_group": {"$in": ["linux", "Linux"]}}
+    linux_hosts = [h for h in get_collection("hosts").find(host_filter, {"_id": 0, "hostname": 1, "ip": 1}) if h.get("ip")]
+    if not linux_hosts and not selected:
+        linux_hosts = [h for h in get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1})
+                       if h.get("ip") and "windows" not in h.get("os", "").lower()]
+
+    results = []
+    for host in linux_hosts:
+        hostname = host.get("hostname", host.get("ip"))
+        host_result = {"hostname": hostname, "users": {}}
+        removed_users = []
+        for u in users:
+            try:
+                chk = subprocess.run(
+                    ["ansible", "-i", inventory, hostname, "-b", "-m", "shell",
+                     "-a", f"getent passwd {u}"],
+                    capture_output=True, text=True, timeout=15
+                )
+                if chk.returncode != 0 or "FAILED" in chk.stdout:
+                    host_result["users"][u] = "no_user"
+                    continue
+            except:
+                host_result["users"][u] = "check_error"
+                continue
+
+            try:
+                dep = subprocess.run(
+                    ["ansible", "-i", inventory, hostname, "-b", "-m", "authorized_key",
+                     "-a", f"user={u} key='{pub_key}' state=absent"],
+                    capture_output=True, text=True, timeout=30
+                )
+                if dep.returncode == 0 and "FAILED" not in dep.stdout:
+                    host_result["users"][u] = "ok"
+                    removed_users.append(u)
+                else:
+                    host_result["users"][u] = "remove_fail"
+            except:
+                host_result["users"][u] = "remove_error"
+
+        host_result["status"] = "ok" if removed_users else "error"
+        results.append(host_result)
+
+        if removed_users:
+            try:
+                host_doc = get_collection("hosts").find_one({"hostname": hostname}, {"ssh_key_records": 1}) or {}
+                records = host_doc.get("ssh_key_records", {})
+                for ru in removed_users:
+                    records.pop(ru, None)
+                if records:
+                    get_collection("hosts").update_one(
+                        {"hostname": hostname},
+                        {"$set": {"ssh_key_records": records}}
+                    )
+                else:
+                    get_collection("hosts").update_one(
+                        {"hostname": hostname},
+                        {"$unset": {"ssh_key_records": ""}}
+                    )
+            except:
+                pass
+
+    log_action(session["username"], "ssh_batch_remove",
+        f"Batch remove key from users={users}, results={len(results)} hosts",
+        request.remote_addr)
+
+    return jsonify({"success": True, "data": results})
+
+
+@bp.route("/ssh/delete-key", methods=["POST"])
+@admin_required
+def ssh_delete_key():
+    """Delete existing SSH key pair (for regeneration)"""
+    import os
+    key_path = os.path.expanduser("~/.ssh/id_ed25519")
+    pub_path = key_path + ".pub"
+    deleted = []
+    for p in [key_path, pub_path]:
+        if os.path.exists(p):
+            os.remove(p)
+            deleted.append(p)
+    log_action(session["username"], "ssh_delete_key", f"Deleted SSH key: {deleted}", request.remote_addr)
+    return jsonify({"success": True, "message": f"Deleted: {deleted}"})
+
+# ========== END SSH Key Management ==========
+# ========== Remote Tools ==========
+
+# 異動指令黑名單
+MODIFY_KEYWORDS = [
+    "systemctl", "service ", "kill", "rm ", "rmdir", "mv ", "dd ",
+    "reboot", "shutdown", "halt", "poweroff",
+    "useradd", "userdel", "usermod", "passwd",
+    "chmod", "chown", "chgrp",
+    "mkdir", "touch",
+    "iptables", "firewall-cmd", "ufw",
+    " > ", " >> ", "sed -i", "tee ", "echo >",
+]
+
+def _is_modify_cmd(cmd):
+    low = " " + cmd.lower() + " "
+    for kw in MODIFY_KEYWORDS:
+        if kw in low:
+            return True, kw.strip()
+    return False, ""
+
+def _in_business_hours():
+    from datetime import datetime
+    now = datetime.now()
+    return 9 <= now.hour < 15
+
+def _run_ansible(hostname, module, args, become=True, timeout=60, exec_user=None):
+    """統一執行 ansible 指令，回傳 (ok, stdout, stderr)"""
+    import subprocess
+    inventory = "/opt/inspection/ansible/inventory/hosts.yml"
+    cmd = ["ansible", "-i", inventory, hostname, "-m", module, "-a", args]
+    if exec_user:
+        cmd.extend(["-u", exec_user])
+    if become:
+        cmd.insert(-2, "-b")
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return (r.returncode == 0 and "FAILED" not in r.stdout and "UNREACHABLE" not in r.stdout), r.stdout, r.stderr
+    except subprocess.TimeoutExpired:
+        return False, "", "Timeout"
+    except Exception as e:
+        return False, "", str(e)
+
+
+@bp.route("/remote/hosts", methods=["GET"])
+@admin_required
+def remote_hosts_list():
+    """List all Linux hosts for remote tools"""
+    hosts = list(get_collection("hosts").find(
+        {}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1, "os_group": 1, "ssh_key_records": 1}
+    ))
+    linux_hosts = [h for h in hosts if h.get("ip") and "windows" not in (h.get("os","") + h.get("os_group","")).lower()]
+    # 整理 key_users 清單方便前端使用
+    for h in linux_hosts:
+        records = h.get("ssh_key_records", {}) or {}
+        h["key_users"] = list(records.keys())
+    return jsonify({"success": True, "data": linux_hosts})
+
+
+@bp.route("/remote/check-space", methods=["POST"])
+@admin_required
+def remote_check_space():
+    """Check disk space usage after hypothetical upload"""
+    import subprocess
+    data = request.get_json() or {}
+    hostnames = data.get("hosts", [])
+    target_path = data.get("target_path", "/tmp")
+    file_size_mb = float(data.get("file_size_mb", 0))
+
+    results = []
+    for hostname in hostnames:
+        ok, stdout, stderr = _run_ansible(hostname, "shell",
+            f"df -m {target_path} | tail -1 | awk '{{print $2,$3,$4,$5}}'",
+            become=False, timeout=20)
+        if not ok:
+            results.append({"hostname": hostname, "status": "error", "message": stderr or "check failed"})
+            continue
+        # 從 ansible 輸出取最後一行（有效資料）
+        lines = [l.strip() for l in stdout.strip().splitlines() if l.strip()]
+        last = lines[-1] if lines else ""
+        parts = last.split()
+        try:
+            total_mb = int(parts[0]); used_mb = int(parts[1]); avail_mb = int(parts[2])
+            used_after = used_mb + file_size_mb
+            pct_after = (used_after / total_mb) * 100 if total_mb else 0
+            warn = pct_after > 85
+            results.append({
+                "hostname": hostname, "status": "ok",
+                "total_mb": total_mb, "used_mb": used_mb, "avail_mb": avail_mb,
+                "pct_after": round(pct_after, 1), "warn": warn
+            })
+        except Exception as e:
+            results.append({"hostname": hostname, "status": "error", "message": f"parse error: {last}"})
+    return jsonify({"success": True, "data": results})
+
+
+@bp.route("/remote/upload", methods=["POST"])
+@admin_required
+def remote_upload():
+    """Upload file to multiple hosts /tmp or specified path"""
+    import os, tempfile
+    from datetime import datetime
+
+    f = request.files.get("file")
+    hostnames = request.form.get("hosts", "").split(",")
+    hostnames = [h.strip() for h in hostnames if h.strip()]
+    target_path = request.form.get("target_path", "/tmp").strip() or "/tmp"
+    force = request.form.get("force", "false").lower() == "true"
+    exec_user = (request.form.get("exec_user", "") or "sysinfra").strip()
+
+    if not f or not hostnames:
+        return jsonify({"success": False, "error": "file and hosts required"}), 400
+
+    # 存成暫存檔
+    fd, tmp_path = tempfile.mkstemp(prefix="upload_")
+    try:
+        f.save(tmp_path)
+        fname = os.path.basename(f.filename)
+        dest = os.path.join(target_path, fname)
+
+        results = []
+        for hostname in hostnames:
+            ok, stdout, stderr = _run_ansible(hostname, "copy",
+                f"src={tmp_path} dest={dest} mode=0644",
+                become=True, timeout=120, exec_user=exec_user)
+            results.append({
+                "hostname": hostname,
+                "status": "ok" if ok else "error",
+                "dest": dest,
+                "message": "上傳成功" if ok else (stderr or stdout[:200])
+            })
+
+        log_action(session["username"], "remote_upload",
+            f"Upload {fname} to {len(hostnames)} hosts at {target_path}, force={force}",
+            request.remote_addr)
+
+        return jsonify({"success": True, "data": results, "filename": fname, "dest_dir": target_path})
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+
+@bp.route("/remote/download", methods=["POST"])
+@admin_required
+def remote_download():
+    """Download file from multiple hosts to local /tmp/tmp_<ts>/<hostname>/"""
+    import os, shutil, zipfile
+    from datetime import datetime
+
+    data = request.get_json() or {}
+    hostnames = data.get("hosts", [])
+    remote_path = data.get("remote_path", "").strip()
+    exec_user = (data.get("exec_user", "") or "sysinfra").strip()
+
+    if not remote_path or not hostnames:
+        return jsonify({"success": False, "error": "remote_path and hosts required"}), 400
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_dir = f"/tmp/tmp_{ts}"
+    os.makedirs(session_dir, exist_ok=True)
+
+    results = []
+    for hostname in hostnames:
+        host_dir = os.path.join(session_dir, hostname)
+        os.makedirs(host_dir, exist_ok=True)
+        # 用 ansible fetch module
+        ok, stdout, stderr = _run_ansible(hostname, "fetch",
+            f"src={remote_path} dest={host_dir}/ flat=yes",
+            become=True, timeout=120, exec_user=exec_user)
+        if ok:
+            # 檢查檔案實際存在
+            fname = os.path.basename(remote_path)
+            local_file = os.path.join(host_dir, fname)
+            if os.path.exists(local_file):
+                size = os.path.getsize(local_file)
+                results.append({"hostname": hostname, "status": "ok", "local_file": local_file, "size": size})
+            else:
+                results.append({"hostname": hostname, "status": "error", "message": "檔案未取得"})
+        else:
+            full_err = (stderr.strip() + chr(10) + stdout.strip()).strip() or "fetch failed"
+            results.append({"hostname": hostname, "status": "error", "message": full_err[:2000]})
+
+    # 打包 zip
+    zip_path = f"{session_dir}.zip"
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(session_dir):
+                for fn in files:
+                    fp = os.path.join(root, fn)
+                    zf.write(fp, os.path.relpath(fp, session_dir))
+    except Exception as e:
+        pass
+
+    log_action(session["username"], "remote_download",
+        f"Download {remote_path} from {len(hostnames)} hosts to {session_dir}",
+        request.remote_addr)
+
+    return jsonify({
+        "success": True,
+        "data": results,
+        "session_dir": session_dir,
+        "zip_path": zip_path,
+        "session_id": f"tmp_{ts}"
+    })
+
+
+@bp.route("/remote/download-zip/<session_id>", methods=["GET"])
+@admin_required
+def remote_download_zip(session_id):
+    """Send zip file to browser"""
+    import os
+    from flask import send_file
+    # 安全檢查：只允許 tmp_ 開頭且無路徑穿越
+    if not session_id.startswith("tmp_") or "/" in session_id or ".." in session_id:
+        return jsonify({"success": False, "error": "invalid session"}), 400
+    zip_path = f"/tmp/{session_id}.zip"
+    if not os.path.exists(zip_path):
+        return jsonify({"success": False, "error": "zip not found"}), 404
+    return send_file(zip_path, as_attachment=True, download_name=f"{session_id}.zip")
+
+
+@bp.route("/remote/downloads-list", methods=["GET"])
+@admin_required
+def remote_downloads_list():
+    """List all download sessions in /tmp"""
+    import os
+    from datetime import datetime
+    sessions = []
+    try:
+        for item in sorted(os.listdir("/tmp"), reverse=True):
+            if item.startswith("tmp_") and os.path.isdir(f"/tmp/{item}"):
+                path = f"/tmp/{item}"
+                zip_exists = os.path.exists(f"{path}.zip")
+                # 統計檔案數
+                file_count = 0
+                total_size = 0
+                for root, dirs, files in os.walk(path):
+                    for fn in files:
+                        file_count += 1
+                        try:
+                            total_size += os.path.getsize(os.path.join(root, fn))
+                        except: pass
+                mtime = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M:%S")
+                sessions.append({
+                    "session_id": item, "path": path,
+                    "file_count": file_count, "size": total_size,
+                    "mtime": mtime, "zip_exists": zip_exists
+                })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    return jsonify({"success": True, "data": sessions})
+
+
+@bp.route("/remote/clear-downloads", methods=["POST"])
+@admin_required
+def remote_clear_downloads():
+    """Clear all download sessions"""
+    import os, shutil
+    cleared = []
+    try:
+        for item in os.listdir("/tmp"):
+            if item.startswith("tmp_"):
+                p = f"/tmp/{item}"
+                try:
+                    if os.path.isdir(p):
+                        shutil.rmtree(p)
+                    else:
+                        os.unlink(p)
+                    cleared.append(item)
+                except: pass
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    log_action(session["username"], "remote_clear_downloads",
+        f"Cleared {len(cleared)} download sessions", request.remote_addr)
+    return jsonify({"success": True, "cleared": cleared, "count": len(cleared)})
+
+
+@bp.route("/remote/exec", methods=["POST"])
+@admin_required
+def remote_exec():
+    """Execute command on multiple hosts"""
+    data = request.get_json() or {}
+    hostnames = data.get("hosts", [])
+    command = data.get("command", "").strip()
+    oa_ref = data.get("oa_ref", "").strip()
+    applied = data.get("applied", False)
+    exec_user = (data.get("exec_user", "") or "sysinfra").strip()
+
+    if not command or not hostnames:
+        return jsonify({"success": False, "error": "command and hosts required"}), 400
+
+    is_modify, kw = _is_modify_cmd(command)
+    in_bh = _in_business_hours()
+
+    # 營業時間 + 異動指令 → 需申請
+    if is_modify and in_bh:
+        if not applied or not oa_ref:
+            return jsonify({
+                "success": False,
+                "error": f"罞️ 營業時間 (09:00-15:00) 禁止實行異動指令！檢測到關鍵字: '{kw}'。如需執行請勾選「已申請」並填寫 OA 單號/備註。",
+                "need_oa": True
+            }), 403
+
+    results = []
+    for hostname in hostnames:
+        ok, stdout, stderr = _run_ansible(hostname, "shell", command, become=False, timeout=60, exec_user=exec_user)
+        # ansible shell 輸出會包含 hostname | STATUS | ... 前綴，取 stdout 內容
+        output = stdout
+        if " | " in stdout:
+            # 尋找實際輸出開始位置（第一個 >>）
+            idx = stdout.find(">>")
+            if idx >= 0:
+                output = stdout[idx+2:].strip()
+        results.append({
+            "hostname": hostname,
+            "status": "ok" if ok else "error",
+            "output": output[:5000],
+            "stderr": stderr[:2000] if stderr else ""
+        })
+
+    log_action(session["username"], "remote_exec",
+        f"exec '{command}' on {len(hostnames)} hosts, modify={is_modify}, oa={oa_ref}, applied={applied}",
+        request.remote_addr)
+
+    return jsonify({
+        "success": True,
+        "data": results,
+        "is_modify": is_modify,
+        "in_business_hours": in_bh,
+        "keyword": kw,
+        "exec_user": exec_user
+    })
+
+# ========== END Remote Tools ==========

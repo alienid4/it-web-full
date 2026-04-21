@@ -1,0 +1,27 @@
+---
+# 移除 nmon cron (不移除 binary, 不刪歷史資料)
+# 用於 nmon schedule 套用時, 對未勾選但曾啟用的主機清 cron
+# Usage: ansible-playbook remove_nmon.yml --limit "hostA,hostB"
+
+- name: Remove nmon cron - Linux
+  hosts: "all:!windows"
+  gather_facts: false
+  become: yes
+  tasks:
+    - name: "nmon - remove cron (new name)"
+      cron:
+        name: "nmon sampling (collect_nmon)"
+        state: absent
+        user: root
+      ignore_errors: true
+
+    - name: "nmon - remove cron (legacy name)"
+      cron:
+        name: "nmon daily snapshot (collect_nmon)"
+        state: absent
+        user: root
+      ignore_errors: true
+
+    - name: "nmon - summary"
+      debug:
+        msg: "{{ inventory_hostname }}: nmon cron removed (historic .nmon files kept)"

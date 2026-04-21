@@ -1,0 +1,57 @@
+---
+# 網路健康檢查: MTU / PMTUD / tcp_mtu_probing
+# 輸出: /opt/inspection/data/reports/network_<hostname>.json
+
+- name: "net - 網卡 MTU"
+  shell: |
+    IFACE=$(ip route show default | awk '/default/ {print $5; exit}')
+    MTU=$(ip link show "$IFACE" 2>/dev/null | grep -oP 'mtu \K\d+')
+    echo "${IFACE:-unknown}|${MTU:-0}"
+  register: net_iface
+  changed_when: false
+  become: true
+
+- name: "net - PMTUD 探測 (對 8.8.8.8 由大到小掃)"
+  shell: |
+    TARGET=8.8.8.8
+    BEST=0
+    for SIZE in 1500 1492 1460 1400 1300 1280; do
+      if ping -M do -s $((SIZE-28)) -c 1 -W 2 "$TARGET" >/dev/null 2>&1; then
+        BEST=$SIZE
+        break
+      fi
+    done
+    echo "$BEST"
+  register: net_pmtu
+  changed_when: false
+  become: true
+  ignore_errors: true
+
+- name: "net - tcp_mtu_probing 狀態"
+  shell: "sysctl -n net.ipv4.tcp_mtu_probing 2>/dev/null || echo -1"
+  register: net_tcp_probing
+  changed_when: false
+  become: true
+
+- name: "net - 壓縮成結果"
+  set_fact:
+    network_result:
+      hostname: "{{ inventory_hostname }}"
+      checked_at: "{{ '%Y-%m-%d %H:%M:%S' | strftime }}"
+      default_iface: "{{ (net_iface.stdout | default('|')).split('|')[0] }}"
+      iface_mtu: "{{ ((net_iface.stdout | default('|')).split('|')[1] | default('0')) | int }}"
+      path_mtu_internet: "{{ (net_pmtu.stdout | default('0')) | int }}"
+      tcp_mtu_probing: "{{ (net_tcp_probing.stdout | default('-1')) | int }}"
+      mtu_mismatch: "{{ ((net_iface.stdout | default('|')).split('|')[1] | default('0') | int) > ((net_pmtu.stdout | default('0')) | int) and ((net_pmtu.stdout | default('0')) | int) > 0 }}"
+      status: "{{ 'WARN' if (((net_iface.stdout | default('|')).split('|')[1] | default('0') | int) > ((net_pmtu.stdout | default('0')) | int) and ((net_pmtu.stdout | default('0')) | int) > 0) else ('WARN' if (net_tcp_probing.stdout | default('0') | int) != 1 else 'OK') }}"
+
+- name: "net - 存 JSON"
+  copy:
+    content: "{{ network_result | to_nice_json }}"
+    dest: "/opt/inspection/data/reports/network_{{ inventory_hostname }}.json"
+  delegate_to: localhost
+  become: false
+
+- name: "net - summary"
+  debug:
+    msg: "{{ inventory_hostname }}: iface={{ network_result.default_iface }} mtu={{ network_result.iface_mtu }} path_mtu={{ network_result.path_mtu_internet }} probing={{ network_result.tcp_mtu_probing }} status={{ network_result.status }}"

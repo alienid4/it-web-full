@@ -12,7 +12,7 @@
   </div>
   <div style="display:flex;gap:10px;align-items:center;">
     <div id="rateDisplay" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;"></div>
-    <a href="/twgcb/harden/{{ hostname }}" class="btn btn-primary" style="text-decoration:none;padding:12px 24px;font-size:15px;">進入強化管理</a> <button class="btn btn-primary" onclick="scanHost()">重新掃描</button>
+    <a href="/twgcb/harden/{{ hostname }}" class="btn btn-primary" style="text-decoration:none;padding:12px 24px;font-size:15px;">進入強化管理</a> <button class="btn btn-primary" onclick="scanHost(this)">重新掃描</button>
   </div>
 </div>
 
@@ -202,53 +202,67 @@ function escapeHtml(s) {
   return s.replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
+// Phase 2 #7B: async-feedback 標準化
 async function remediate(checkId, cmd) {
   if (!confirm(`確定要在 ${hostname} 執行修復 ${checkId}？\n\n指令: ${cmd}`)) return;
-
   const actionEl = document.getElementById('action-' + checkId);
   actionEl.innerHTML = '<div class="spinner" style="width:16px;height:16px;"></div>';
-
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 90000);
   try {
     const res = await fetch('/api/twgcb/remediate', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({hostname, check_id: checkId, remediation: cmd})
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({hostname, check_id: checkId, remediation: cmd}),
+      signal: controller.signal
     });
     const json = await res.json();
-
     if (json.success) {
-      actionEl.innerHTML = `<button class="btn-fixed">已修復</button>
-        <div class="fix-result fix-ok">&#10003; 成功</div>`;
+      actionEl.innerHTML = `<button class="btn-fixed">已修復</button><div class="fix-result fix-ok">&#10003; 成功</div>`;
+      if (typeof _dashToast === 'function') _dashToast('\u2713 已修復 ' + checkId, 'success');
     } else {
-      actionEl.innerHTML = `<button class="btn-fix" onclick="remediate('${checkId}','${escapeHtml(cmd)}')">重試</button>
-        <div class="fix-result fix-err">&#10007; ${json.error||json.output||'失敗'}</div>`;
+      actionEl.innerHTML = `<button class="btn-fix" onclick="remediate('${checkId}','${escapeHtml(cmd)}')">重試</button><div class="fix-result fix-err">&#10007; ${json.error||json.output||'失敗'}</div>`;
+      if (typeof _dashToast === 'function') _dashToast('\u2717 ' + checkId + ' 修復失敗：' + (json.error||'未知'), 'error');
     }
   } catch(e) {
-    actionEl.innerHTML = `<button class="btn-fix" onclick="remediate('${checkId}','${escapeHtml(cmd)}')">重試</button>
-      <div class="fix-result fix-err">&#10007; ${e.message}</div>`;
+    const emsg = (e.name === 'AbortError') ? '修復逾時（超過 90 秒）' : (e.message || '未知');
+    actionEl.innerHTML = `<button class="btn-fix" onclick="remediate('${checkId}','${escapeHtml(cmd)}')">重試</button><div class="fix-result fix-err">&#10007; ${emsg}</div>`;
+    if (typeof _dashToast === 'function') _dashToast('\u2717 ' + checkId + ' 修復失敗：' + emsg, 'error');
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
-async function scanHost() {
+// Phase 2 #7B: async-feedback 標準化
+async function scanHost(btn) {
+  const _origHTML = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 掃描中'; }
   const prog = document.getElementById('actionProgress');
   prog.style.display = 'block';
   document.getElementById('actionMsg').textContent = `正在掃描 ${hostname}...`;
-
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
   try {
     const res = await fetch('/api/twgcb/scan', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({target: hostname})
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({target: hostname}),
+      signal: controller.signal
     });
     const json = await res.json();
     if (json.success) {
-      document.getElementById('actionMsg').textContent = '&#10003; ' + json.message + '，重新載入...';
+      document.getElementById('actionMsg').textContent = '\u2713 ' + json.message + '，重新載入...';
+      if (typeof _dashToast === 'function') _dashToast('\u2713 掃描完成', 'success');
       setTimeout(() => { prog.style.display = 'none'; loadData(); }, 1500);
     } else {
-      document.getElementById('actionMsg').textContent = '&#10007; 掃描失敗: ' + json.error;
+      document.getElementById('actionMsg').textContent = '\u2717 掃描失敗: ' + json.error;
+      if (typeof _dashToast === 'function') _dashToast('\u2717 掃描失敗：' + (json.error||'未知'), 'error');
     }
   } catch(e) {
-    document.getElementById('actionMsg').textContent = '&#10007; ' + e.message;
+    const emsg = (e.name === 'AbortError') ? '掃描逾時（超過 120 秒）' : (e.message || '未知');
+    document.getElementById('actionMsg').textContent = '\u2717 ' + emsg;
+    if (typeof _dashToast === 'function') _dashToast('\u2717 掃描失敗：' + emsg, 'error');
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = _origHTML; }
   }
 }
 </script>

@@ -1,13 +1,14 @@
 /* Admin Panel Styles - Dropdown Navigation */
 .admin-nav {
   display: flex;
-  gap: 0;
+  gap: 32px;
+  justify-content: center;
   margin-bottom: 24px;
   border-bottom: 2px solid #e0e0e0;
 }
 .admin-nav-group {
   position: relative;
-  flex: 1;
+  flex: 0 0 auto;
 }
 .admin-nav-title {
   padding: 12px 20px;

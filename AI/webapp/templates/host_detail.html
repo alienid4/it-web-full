@@ -487,89 +487,132 @@ function confirmSvc(name, action) {
   document.getElementById("svc-modal").classList.add("active");
 }
 
-function rescanThisHost() {
+// Phase 2 #7A: async-feedback 標準化
+async function rescanThisHost() {
   if (typeof requirePermission === "function" && !requirePermission("admin")) return;
   var btn = document.getElementById("rescan-host-btn");
-  btn.textContent = "掃描中..."; btn.disabled = true;
-  fetch("/api/admin/system/run-inspection", {
-    method: "POST", credentials: "include",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({hostname: hostname})
-  }).then(function(r){ return r.json(); }).then(function(res) {
+  var _origHTML = btn ? btn.innerHTML : null;
+  var _origBg = btn ? btn.style.background : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 掃描中';
+  }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 120000);
+  try {
+    var r = await fetch("/api/admin/system/run-inspection", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({hostname: hostname}),
+      signal: controller.signal
+    });
+    var res = await r.json();
     if (res.success) {
-      btn.textContent = "✓ 已觸發掃描";
-      btn.style.background = "var(--g1)";
+      if (btn) { btn.innerHTML = "✓ 已觸發掃描"; btn.style.background = "var(--g1)"; btn.style.opacity = ""; }
+      if (typeof _dashToast === "function") _dashToast("已觸發 " + hostname + " 巡檢，8 秒後自動刷新", "success");
       setTimeout(function(){ location.reload(); }, 8000);
     } else {
-      btn.textContent = "✗ " + (res.error || "失敗");
-      btn.style.background = "var(--red)";
-      setTimeout(function(){ btn.textContent = "🔄 重新掃描此主機"; btn.style.background = "var(--g2)"; btn.disabled = false; }, 3000);
+      if (typeof _dashToast === "function") _dashToast("觸發失敗：" + (res.error || "未知錯誤"), "error");
+      if (btn) { btn.innerHTML = _origHTML; btn.style.background = _origBg; btn.disabled = false; btn.style.opacity = ""; }
     }
-  }).catch(function(e) {
-    btn.textContent = "錯誤"; btn.disabled = false;
-  });
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "觸發逾時（超過 120 秒）" : (e.message || "未知錯誤");
+    if (typeof _dashToast === "function") _dashToast("觸發失敗：" + emsg, "error");
+    if (btn) { btn.innerHTML = _origHTML; btn.style.background = _origBg; btn.disabled = false; btn.style.opacity = ""; }
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
-function faillockAction(user, action) {
+async function faillockAction(user, action) {
   if (typeof requirePermission === "function" && !requirePermission("admin")) return;
   var actionText = {"unlock":"解除鎖定","reset":"重設計數","lock":"鎖定"}[action];
   if (!confirm("確定要對 " + hostname + " 的帳號 " + user + " 執行「" + actionText + "」？")) return;
-  fetch("/api/admin/hosts/" + hostname + "/faillock", {
-    method: "POST", credentials: "include",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({user: user, action: action})
-  }).then(function(r){ return r.json(); }).then(function(res) {
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 30000);
+  try {
+    var r = await fetch("/api/admin/hosts/" + hostname + "/faillock", {
+      method: "POST", credentials: "include",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({user: user, action: action}),
+      signal: controller.signal
+    });
+    var res = await r.json();
     if (res.success) {
-      alert("✓ " + res.message);
+      if (typeof _dashToast === "function") _dashToast("\u2713 " + (res.message || actionText + "成功"), "success");
+      else alert("\u2713 " + res.message);
     } else {
-      alert("✗ " + (res.error || "失敗") + "\n" + (res.output || ""));
+      if (typeof _dashToast === "function") _dashToast("\u2717 " + actionText + "失敗：" + (res.error || "未知錯誤"), "error");
+      else alert("\u2717 " + (res.error || "失敗") + "\n" + (res.output || ""));
     }
-  }).catch(function(e) { alert("錯誤: " + e.message); });
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? actionText + "逾時（超過 30 秒）" : (e.message || "未知錯誤");
+    if (typeof _dashToast === "function") _dashToast("\u2717 " + emsg, "error");
+    else alert("錯誤: " + emsg);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function closeSvcModal() {
   document.getElementById("svc-modal").classList.remove("active");
 }
 
-function execService() {
+// Phase 2 #7A: async-feedback 標準化
+async function execService() {
   var btn = document.getElementById("svc-modal-confirm");
-  btn.disabled = true;
-  btn.textContent = "執行中...";
+  var _origHTML = btn ? btn.innerHTML : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:12px;height:12px;border-width:2px;vertical-align:middle;"></span> 執行中';
+  }
   var resultDiv = document.getElementById("svc-modal-result");
-  resultDiv.style.display = "none";
-
-  fetch("/api/admin/hosts/" + hostname + "/service", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    credentials: "include",
-    body: JSON.stringify({service: _svcName, action: _svcAction})
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(res) {
-    resultDiv.style.display = "block";
+  if (resultDiv) resultDiv.style.display = "none";
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 30000);
+  try {
+    var r = await fetch("/api/admin/hosts/" + hostname + "/service", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      credentials: "include",
+      body: JSON.stringify({service: _svcName, action: _svcAction}),
+      signal: controller.signal
+    });
+    var res = await r.json();
+    if (resultDiv) resultDiv.style.display = "block";
     if (res.success) {
-      resultDiv.style.background = "#e8f5e9";
-      resultDiv.style.color = "var(--g-text)";
-      resultDiv.innerHTML = '<strong>✓ ' + res.message + '</strong>';
-      // 3 秒後關閉 modal 並重新載入頁面
+      if (resultDiv) {
+        resultDiv.style.background = "#e8f5e9";
+        resultDiv.style.color = "var(--g-text)";
+        resultDiv.innerHTML = '<strong>\u2713 ' + res.message + '</strong>';
+      }
+      if (typeof _dashToast === "function") _dashToast("\u2713 " + res.message, "success");
       setTimeout(function() { location.reload(); }, 2000);
     } else {
+      if (resultDiv) {
+        resultDiv.style.background = "#ffeaea";
+        resultDiv.style.color = "var(--red)";
+        resultDiv.innerHTML = '<strong>\u2717 ' + (res.error||"執行失敗") + '</strong>' +
+          (res.output ? '<pre style="margin-top:8px;font-size:11px;white-space:pre-wrap;max-height:150px;overflow:auto;">' + res.output + '</pre>' : '');
+      }
+      if (typeof _dashToast === "function") _dashToast("\u2717 服務操作失敗：" + (res.error || "未知錯誤"), "error");
+      if (btn) { btn.innerHTML = _origHTML; btn.disabled = false; btn.style.opacity = ""; }
+    }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "操作逾時（超過 30 秒）" : (e.message || "未知錯誤");
+    if (resultDiv) {
+      resultDiv.style.display = "block";
       resultDiv.style.background = "#ffeaea";
       resultDiv.style.color = "var(--red)";
-      resultDiv.innerHTML = '<strong>✗ ' + (res.error||"執行失敗") + '</strong>' +
-        (res.output ? '<pre style="margin-top:8px;font-size:11px;white-space:pre-wrap;max-height:150px;overflow:auto;">' + res.output + '</pre>' : '');
-      btn.textContent = "確定執行";
-      btn.disabled = false;
+      resultDiv.innerHTML = '<strong>\u2717 ' + emsg + '</strong>';
     }
-  })
-  .catch(function(e) {
-    resultDiv.style.display = "block";
-    resultDiv.style.background = "#ffeaea";
-    resultDiv.style.color = "var(--red)";
-    resultDiv.innerHTML = '<strong>✗ 網路錯誤：' + e.message + '</strong>';
-    btn.textContent = "確定執行";
-    btn.disabled = false;
-  });
+    if (typeof _dashToast === "function") _dashToast("\u2717 " + emsg, "error");
+    if (btn) { btn.innerHTML = _origHTML; btn.disabled = false; btn.style.opacity = ""; }
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 </script>
 {% endblock %}

@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from decorators import login_required
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from services.mongo_service import get_all_settings, update_setting
@@ -7,12 +8,14 @@ bp = Blueprint("api_settings", __name__, url_prefix="/api/settings")
 
 
 @bp.route("", methods=["GET"])
+@login_required
 def list_settings():
     data = get_all_settings()
     return jsonify({"success": True, "data": data})
 
 
 @bp.route("/<key>", methods=["PUT"])
+@login_required
 def edit_setting(key):
     data = request.get_json(force=True)
     value = data.get("value")

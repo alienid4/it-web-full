@@ -38,7 +38,7 @@
   <div class="form-grid">
     <div class="form-group">
       <label>公司名稱</label>
-      <input type="text" id="rptCompany" class="input-field" value="Example Corp">
+      <input type="text" id="rptCompany" class="input-field" value="">
     </div>
     <div class="form-group">
       <label>部門</label>
@@ -57,7 +57,7 @@
       <input type="text" id="rptDirector" class="input-field" value="">
     </div>
   </div>
-  <button class="btn btn-primary" onclick="saveReportConfig()" style="margin-top:16px;">儲存報表設定</button>
+  <button class="btn btn-primary" onclick="saveReportConfig(this)" style="margin-top:16px;">儲存報表設定</button>
   <span id="rptMsg" style="margin-left:12px;font-size:13px;"></span>
 </div>
 
@@ -79,7 +79,7 @@
       <input type="text" id="editExceptions" class="input-field" style="width:100%;" placeholder="host1,host2">
     </div>
     <div style="display:flex;gap:10px;margin-top:16px;">
-      <button class="btn btn-primary" onclick="saveEdit()">儲存</button>
+      <button class="btn btn-primary" onclick="saveEdit(this)">儲存</button>
       <button class="btn btn-secondary" onclick="closeEdit()">取消</button>
     </div>
   </div>
@@ -188,20 +188,38 @@ function closeEdit() {
   editingId = null;
 }
 
-async function saveEdit() {
+// Phase 2 #7B: async-feedback 標準化
+async function saveEdit(btn) {
   if (!editingId) return;
   const threshold = document.getElementById('editThreshold').value.trim();
   const remediation = document.getElementById('editRemediation').value.trim();
   const exceptions = document.getElementById('editExceptions').value.trim();
   const exception_hosts = exceptions ? exceptions.split(',').map(h=>h.trim()).filter(Boolean) : [];
-
-  await fetch('/api/twgcb/config/' + editingId, {
-    method: 'PUT',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({threshold, expected: threshold, remediation, exception_hosts})
-  });
-  closeEdit();
-  loadConfigs();
+  const _origHTML = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 儲存中'; }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  try {
+    const res = await fetch('/api/twgcb/config/' + editingId, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({threshold, expected: threshold, remediation, exception_hosts}),
+      signal: controller.signal
+    });
+    const json = await res.json();
+    if (json.success) {
+      if (typeof _dashToast === 'function') _dashToast('\u2713 已儲存設定', 'success');
+      closeEdit();
+      loadConfigs();
+    } else {
+      if (typeof _dashToast === 'function') _dashToast('\u2717 儲存失敗：' + (json.error||'未知'), 'error');
+    }
+  } catch(e) {
+    const emsg = (e.name === 'AbortError') ? '儲存逾時（超過 30 秒）' : (e.message || '未知錯誤');
+    if (typeof _dashToast === 'function') _dashToast('\u2717 儲存失敗：' + emsg, 'error');
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = _origHTML; }
+  }
 }
 
 async function loadReportConfig() {
@@ -216,21 +234,36 @@ async function loadReportConfig() {
   document.getElementById('rptDirector').value = d.director || '';
 }
 
-async function saveReportConfig() {
-  const res = await fetch('/api/twgcb/report-config', {
-    method: 'PUT',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({
-      company_name: document.getElementById('rptCompany').value,
-      department: document.getElementById('rptDept').value,
-      handler: document.getElementById('rptHandler').value,
-      section_chief: document.getElementById('rptChief').value,
-      director: document.getElementById('rptDirector').value
-    })
-  });
-  const json = await res.json();
-  document.getElementById('rptMsg').textContent = json.success ? '✓ 已儲存' : '✗ 儲存失敗';
-  setTimeout(() => document.getElementById('rptMsg').textContent = '', 3000);
+// Phase 2 #7B: async-feedback 標準化
+async function saveReportConfig(btn) {
+  const _origHTML = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 儲存中'; }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  try {
+    const res = await fetch('/api/twgcb/report-config', {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        company_name: document.getElementById('rptCompany').value,
+        department: document.getElementById('rptDept').value,
+        handler: document.getElementById('rptHandler').value,
+        section_chief: document.getElementById('rptChief').value,
+        director: document.getElementById('rptDirector').value
+      }),
+      signal: controller.signal
+    });
+    const json = await res.json();
+    document.getElementById('rptMsg').textContent = json.success ? '✓ 已儲存' : '✗ 儲存失敗';
+    setTimeout(() => document.getElementById('rptMsg').textContent = '', 3000);
+    if (typeof _dashToast === 'function') _dashToast(json.success ? '\u2713 報表設定已儲存' : '\u2717 儲存失敗：' + (json.error||'未知'), json.success ? 'success' : 'error');
+  } catch(e) {
+    const emsg = (e.name === 'AbortError') ? '儲存逾時（超過 30 秒）' : (e.message || '未知錯誤');
+    document.getElementById('rptMsg').textContent = '✗ ' + emsg;
+    if (typeof _dashToast === 'function') _dashToast('\u2717 儲存失敗：' + emsg, 'error');
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = _origHTML; }
+  }
 }
 
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeEdit(); });

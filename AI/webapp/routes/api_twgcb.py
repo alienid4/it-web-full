@@ -44,22 +44,99 @@ def import_results():
 
 @bp.route("/api/twgcb/results", methods=["GET"])
 def get_results():
-    """取得所有主機的 TWGCB 結果（含例外狀態）"""
+    """取得 TWGCB 結果（server-side filter + pagination，支援 500+ 主機）
+
+    Query params:
+      os_type: linux|windows|aix|as400
+      fail_only: 1/true → 只回有 FAIL 的主機
+      ap_owner: 精確比對負責人
+      tier: 金|銀|銅
+      system: 系統別（regex 模糊比對）
+      search: 搜尋 hostname / system_name / ap_owner / custodian（regex）
+      limit: 分頁大小（預設 30，最大 100；傳 0 = 不分頁）
+      offset: 分頁位移（預設 0）
+    回傳：{success, data, total, limit, offset, count}
+    """
     db = get_db()
     os_type = request.args.get("os_type", "")
+    ap_owner = request.args.get("ap_owner", "").strip()
+    tier = request.args.get("tier", "").strip()
+    system = request.args.get("system", "").strip()
+    search = request.args.get("search", "").strip()
+    fail_only = request.args.get("fail_only", "").lower() in ("1", "true", "yes")
+    try:
+        limit = int(request.args.get("limit", "30"))
+    except ValueError:
+        limit = 30
+    try:
+        offset = max(int(request.args.get("offset", "0")), 0)
+    except ValueError:
+        offset = 0
+    if limit < 0:
+        limit = 30
+    if limit > 100:
+        limit = 100  # 硬性上限，防前端誤傳大值拖爆
+
+    # 1. 主機中繼資料篩選 → 在 db.hosts 算出 hostname 白名單
+    host_meta_query = {}
+    if ap_owner:
+        host_meta_query["ap_owner"] = ap_owner
+    if tier:
+        host_meta_query["tier"] = tier
+    if system:
+        host_meta_query["system_name"] = {"$regex": system, "$options": "i"}
+    if search:
+        host_meta_query["$or"] = [
+            {"hostname": {"$regex": search, "$options": "i"}},
+            {"system_name": {"$regex": search, "$options": "i"}},
+            {"ap_owner": {"$regex": search, "$options": "i"}},
+            {"custodian": {"$regex": search, "$options": "i"}},
+        ]
+    matching_hostnames = None
+    if host_meta_query:
+        matching_hostnames = [h["hostname"] for h in db.hosts.find(host_meta_query, {"hostname": 1, "_id": 0})]
+        if not matching_hostnames:
+            return jsonify({"success": True, "data": [], "total": 0, "limit": limit, "offset": offset, "count": 0})
+
+    # 2. 組 twgcb_results 查詢
     query = {}
     if os_type == "linux":
-        query["os"] = {"$regex": "(?i)(rocky|rhel|red hat|centos|debian|ubuntu|suse|oracle linux)"}
+        # 變更 #46: 補 "linux" 字面 match，避免 ansible_distribution fallback 成 "Linux" 時主機被漏掉
+        query["os"] = {"$regex": "(?i)(rocky|rhel|red hat|centos|debian|ubuntu|suse|oracle linux|linux)"}
     elif os_type == "windows":
         query["os"] = {"$regex": "(?i)windows"}
     elif os_type == "aix":
         query["os"] = {"$regex": "(?i)aix"}
     elif os_type == "as400":
         query["os"] = {"$regex": "(?i)(as.?400|ibm.?i)"}
-    results = list(db.twgcb_results.find(query, {"_id": 0}).sort("hostname", 1))
+    if matching_hostnames is not None:
+        query["hostname"] = {"$in": matching_hostnames}
+    if fail_only:
+        query["checks.status"] = "FAIL"
 
-    # 帶入主機負責人
-    hosts_info = {h["hostname"]: h for h in db.hosts.find({}, {"_id": 0, "hostname": 1, "custodian": 1, "department": 1, "os_group": 1, "system_name": 1, "ap_owner": 1, "tier": 1})}
+    # 3. 總數（供前端顯示分頁）
+    total = db.twgcb_results.count_documents(query)
+
+    # 4. 分頁抓取
+    cursor = db.twgcb_results.find(query, {"_id": 0}).sort("hostname", 1).skip(offset)
+    if limit > 0:
+        cursor = cursor.limit(limit)
+    results = list(cursor)
+
+    # 5. 只針對本頁 hostnames 拉中繼 + 例外（500 台 → 只動 30 個，避免全量 scan）
+    hostnames_in_page = [r.get("hostname", "") for r in results if r.get("hostname")]
+    if hostnames_in_page:
+        hosts_info = {h["hostname"]: h for h in db.hosts.find(
+            {"hostname": {"$in": hostnames_in_page}},
+            {"_id": 0, "hostname": 1, "custodian": 1, "department": 1, "os_group": 1, "system_name": 1, "ap_owner": 1, "tier": 1}
+        )}
+        exc_map = {}
+        for e in db.twgcb_exceptions.find({"hostname": {"$in": hostnames_in_page}}, {"_id": 0}):
+            exc_map[(e["hostname"], e["check_id"])] = e
+    else:
+        hosts_info = {}
+        exc_map = {}
+
     for r in results:
         h = hosts_info.get(r.get("hostname"), {})
         r["custodian"] = h.get("custodian", "")
@@ -67,15 +144,6 @@ def get_results():
         r["system_name"] = h.get("system_name", "")
         r["ap_owner"] = h.get("ap_owner", "")
         r["tier"] = h.get("tier", "")
-
-    # 帶入例外資訊
-    all_exceptions = list(db.twgcb_exceptions.find({}, {"_id": 0}))
-    exc_map = {}
-    for e in all_exceptions:
-        key = (e["hostname"], e["check_id"])
-        exc_map[key] = e
-
-    for r in results:
         hostname = r.get("hostname", "")
         for check in r.get("checks", []):
             cid = check.get("id")
@@ -88,7 +156,14 @@ def get_results():
             else:
                 check["exception"] = False
 
-    return jsonify({"success": True, "data": results, "count": len(results)})
+    return jsonify({
+        "success": True,
+        "data": results,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "count": len(results),
+    })
 
 
 @bp.route("/api/twgcb/results/<hostname>", methods=["GET"])
@@ -112,6 +187,23 @@ def get_host_result(hostname):
             check["exception"] = False
 
     return jsonify({"success": True, "data": result})
+
+
+@bp.route("/api/twgcb/filter-options", methods=["GET"])
+def get_filter_options():
+    """回傳 distinct 系統別 / AP 負責人 / 級別，供前端 dropdown 一次載滿
+    目的：避免分頁後 filter dropdown 只看到當前頁的系統別（500 台規模會踩到）
+    """
+    db = get_db()
+    systems = sorted([s for s in db.hosts.distinct("system_name") if s])
+    ap_owners = sorted([a for a in db.hosts.distinct("ap_owner") if a])
+    tiers = sorted([t for t in db.hosts.distinct("tier") if t])
+    return jsonify({
+        "success": True,
+        "systems": systems,
+        "ap_owners": ap_owners,
+        "tiers": tiers,
+    })
 
 
 @bp.route("/api/twgcb/summary", methods=["GET"])
@@ -251,13 +343,18 @@ def remediate():
             return jsonify({"success": False, "error": f"拒絕執行危險指令: {d}"}), 403
 
     # 透過 Ansible 在目標主機執行修復
+    # -b (become): TWGCB 修復多為 systemctl/rpm/sysctl，需要 root 權限，必加 sudo
     vault_arg = f"--vault-password-file {VAULT_PASS}" if os.path.exists(VAULT_PASS) else ""
-    cmd = f'cd {ANSIBLE_DIR} && ansible {hostname} -i inventory/hosts.yml -m shell -a "{remediation}" {vault_arg}'
+    cmd = f'cd {ANSIBLE_DIR} && ansible {hostname} -i inventory/hosts.yml -b -m shell -a "{remediation}" {vault_arg}'
 
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
         output = result.stdout + result.stderr
-        success = result.returncode == 0
+        # Ansible shell module 成功輸出格式: "<host> | CHANGED | rc=0 >>" 或 "| SUCCESS |"
+        # 失敗時: "| FAILED |" / "| UNREACHABLE!"
+        success = (result.returncode == 0
+                   and "| FAILED" not in result.stdout
+                   and "UNREACHABLE" not in result.stdout)
 
         return jsonify({
             "success": success,
@@ -531,7 +628,8 @@ def export_excel():
     os_type = request.args.get("os_type", "")
     query = {}
     if os_type == "linux":
-        query["os"] = {"$regex": "(?i)(rocky|rhel|red hat|centos|debian|ubuntu|suse|oracle linux)"}
+        # 變更 #46: 補 "linux" 字面 match，避免 ansible_distribution fallback 成 "Linux" 時主機被漏掉
+        query["os"] = {"$regex": "(?i)(rocky|rhel|red hat|centos|debian|ubuntu|suse|oracle linux|linux)"}
     elif os_type == "windows":
         query["os"] = {"$regex": "(?i)windows"}
     elif os_type == "aix":
@@ -718,3 +816,71 @@ def import_excel():
         count += 1
 
     return jsonify({"success": True, "message": f"匯入 {count} 台主機，共 {rows_read} 筆檢查項"})
+
+@bp.route("/api/twgcb/stats", methods=["GET"])
+def get_twgcb_stats():
+    """TWGCB 統計: 總覽 / 按主機 / 按分類 / FAIL 項排行"""
+    db = get_db()
+    results = list(db.twgcb_results.find({}, {"_id": 0}))
+    # 主機統計
+    by_host = []
+    total_pass, total_fail = 0, 0
+    cat_stats = {}  # category → {pass, fail}
+    fail_counter = {}  # (id, name) → count
+
+    for r in results:
+        h = r.get("hostname", "")
+        os_name = r.get("os", "")
+        checks = r.get("checks", [])
+        p = sum(1 for c in checks if c.get("status") == "PASS")
+        f = sum(1 for c in checks if c.get("status") == "FAIL")
+        total = p + f
+        by_host.append({
+            "hostname": h,
+            "os": os_name,
+            "pass": p, "fail": f, "total": total,
+            "rate": round(p / total * 100, 1) if total else 0,
+        })
+        total_pass += p
+        total_fail += f
+        for c in checks:
+            cat = c.get("category", "其他")
+            if cat not in cat_stats:
+                cat_stats[cat] = {"pass": 0, "fail": 0}
+            if c.get("status") == "PASS":
+                cat_stats[cat]["pass"] += 1
+            elif c.get("status") == "FAIL":
+                cat_stats[cat]["fail"] += 1
+                key = (c.get("id"), c.get("name", ""))
+                fail_counter[key] = fail_counter.get(key, 0) + 1
+
+    # 分類整理
+    by_category = []
+    for cat, s in cat_stats.items():
+        t = s["pass"] + s["fail"]
+        by_category.append({
+            "category": cat,
+            "pass": s["pass"], "fail": s["fail"], "total": t,
+            "rate": round(s["pass"] / t * 100, 1) if t else 0,
+        })
+    by_category.sort(key=lambda x: x["rate"])
+
+    # FAIL 熱點 Top 10
+    top_fails = sorted(fail_counter.items(), key=lambda x: -x[1])[:10]
+    top_fails = [{"id": k[0], "name": k[1], "count": v} for k, v in top_fails]
+
+    overall = {
+        "total": total_pass + total_fail,
+        "pass": total_pass,
+        "fail": total_fail,
+        "rate": round(total_pass / (total_pass + total_fail) * 100, 1) if (total_pass + total_fail) else 0,
+        "host_count": len(results),
+    }
+
+    return jsonify({
+        "success": True,
+        "overall": overall,
+        "by_host": by_host,
+        "by_category": by_category,
+        "top_fails": top_fails,
+    })

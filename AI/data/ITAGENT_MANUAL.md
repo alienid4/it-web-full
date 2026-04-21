@@ -1,6 +1,6 @@
 # ITAgent 服務管理手冊
 
-> 最後更新：2026-04-14 | 版本：v3.4.0.0
+> 最後更新：2026-04-18 | 版本：v3.4.6.0
 
 ---
 
@@ -316,3 +316,25 @@ systemctl restart itagent-tunnel    # 會產生新網址
 | 2026-04-12 | v3.2.1.0 | 建立 systemd 服務管理 + itagent 管理腳本 + 開機自啟 |
 | 2026-04-12 | v3.6.0.0 | 加入 itagent-tunnel 服務 + Tunnel Web 管理 + 三級權限 + RWD |
 | 2026-04-14 | v3.4.0.0 | Tunnel改Named Tunnel固定域名it.94alien.com + 稽核專區 + Linux初始化工具 + 在線使用者追蹤 |
+
+## 十一、已知行為與排錯
+
+### Flask 手動啟動 vs systemd 管理
+
+若 Flask 是以 `nohup python3 app.py &` 手動啟動（舊版安裝流程），
+`itagent restart` 透過 `systemctl` 控制 `itagent-web.service`，**不會殺掉手動啟動的 Flask**。
+
+**徵狀：** `itagent restart` 回報「Flask 已停止 / Flask 已啟動」但 PID 不變。
+
+**排錯：**
+```bash
+# 確認是否為 systemd 管理
+systemctl status itagent-web
+ps -ef | grep "python3 app.py" | grep -v grep
+
+# 若 PID 無對應 systemd cgroup，代表手動啟動 — 需 kill 後用 systemctl 接管
+kill <PID>
+systemctl restart itagent-web
+```
+
+v3.4.6.0 已驗證：使用 `systemctl restart itagent-web` 後由 systemd 統一管理即可避免此問題。

@@ -3,10 +3,11 @@
 
 # A-01: 禁止 IP 轉發
 - name: "TWGCB-01-008-0108 Check ip_forward"
-  shell: sysctl -n net.ipv4.ip_forward
+  shell: cat /proc/sys/net/ipv4/ip_forward 2>/dev/null
   register: check_ip_forward
   changed_when: false
   ignore_errors: true
+  become: true
 
 # A-09: /etc/crontab 權限
 - name: "TWGCB-01-008-0194 Check crontab permission"
@@ -14,6 +15,7 @@
   register: check_crontab_perm
   changed_when: false
   ignore_errors: true
+  become: true
 
 # A-15: /etc/cron.allow 存在
 - name: "TWGCB-01-008-0205 Check cron.allow"
@@ -27,6 +29,7 @@
   register: check_cron_allow
   changed_when: false
   ignore_errors: true
+  become: true
 
 # A-18: /etc/issue 登入橫幅
 - name: "TWGCB-01-008-0039 Check login banner"
@@ -46,6 +49,7 @@
   register: check_banner
   changed_when: false
   ignore_errors: true
+  become: true
 
 # A-21: Core Dump 限制
 - name: "TWGCB-01-008-0042 Check core dump"
@@ -62,11 +66,343 @@
   register: check_core_dump
   changed_when: false
   ignore_errors: true
+  become: true
 
 # B-03: SSH MaxAuthTries
 - name: "TWGCB-01-008-0274 Check SSH MaxAuthTries"
   shell: sshd -T 2>/dev/null | grep -i maxauthtries | awk '{print $2}'
   register: check_ssh_maxauth
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+# B-04: SSH IgnoreRhosts
+- name: "TWGCB-01-008-0275 Check SSH IgnoreRhosts"
+  shell: sshd -T 2>/dev/null | grep -i '^ignorerhosts' | awk '{print $2}'
+  register: check_ssh_ignorerhosts
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+# B-05: SSH PermitEmptyPasswords
+- name: "TWGCB-01-008-0278 Check SSH PermitEmptyPasswords"
+  shell: sshd -T 2>/dev/null | grep -i '^permitemptypasswords' | awk '{print $2}'
+  register: check_ssh_permitempty
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+# B-06: SSH ClientAliveInterval
+- name: "TWGCB-01-008-0280a Check SSH ClientAliveInterval"
+  shell: sshd -T 2>/dev/null | grep -i '^clientaliveinterval' | awk '{print $2}'
+  register: check_ssh_alive_interval
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+# B-07: SSH ClientAliveCountMax
+- name: "TWGCB-01-008-0280b Check SSH ClientAliveCountMax"
+  shell: sshd -T 2>/dev/null | grep -i '^clientalivecountmax' | awk '{print $2}'
+  register: check_ssh_alive_countmax
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pwquality retry"
+  shell: |
+    { cat /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; } | grep -E '^[[:space:]]*retry[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_pw_retry
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pwquality minlen"
+  shell: |
+    { cat /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; } | grep -E '^[[:space:]]*minlen[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_pw_minlen
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pwquality dcredit"
+  shell: |
+    { cat /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; } | grep -E '^[[:space:]]*dcredit[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_pw_dcredit
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pwquality ucredit"
+  shell: |
+    { cat /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; } | grep -E '^[[:space:]]*ucredit[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_pw_ucredit
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pwquality lcredit"
+  shell: |
+    { cat /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; } | grep -E '^[[:space:]]*lcredit[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_pw_lcredit
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pwquality ocredit"
+  shell: |
+    { cat /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; } | grep -E '^[[:space:]]*ocredit[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_pw_ocredit
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pwquality difok"
+  shell: |
+    { cat /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; } | grep -E '^[[:space:]]*difok[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_pw_difok
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pwquality maxclassrepeat"
+  shell: |
+    { cat /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; } | grep -E '^[[:space:]]*maxclassrepeat[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_pw_maxclassrepeat
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pwquality maxrepeat"
+  shell: |
+    { cat /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; } | grep -E '^[[:space:]]*maxrepeat[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_pw_maxrepeat
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pwquality dictcheck"
+  shell: |
+    { cat /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf 2>/dev/null; } | grep -E '^[[:space:]]*dictcheck[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_pw_dictcheck
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check faillock deny"
+  shell: |
+    { cat /etc/security/faillock.conf 2>/dev/null; } | grep -E '^[[:space:]]*deny[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_faillock_deny
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check faillock unlock_time"
+  shell: |
+    { cat /etc/security/faillock.conf 2>/dev/null; } | grep -E '^[[:space:]]*unlock_time[[:space:]]*=' | tail -1 | awk -F= '{print $2}' | tr -d ' '
+  register: check_faillock_unlock
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check PASS_MIN_DAYS"
+  shell: grep -E '^[[:space:]]*PASS_MIN_DAYS' /etc/login.defs | awk '{print $2}'
+  register: check_pass_min_days
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pam_pwhistory remember"
+  shell: |
+    grep -rhE 'pam_pwhistory\.so' /etc/pam.d/ 2>/dev/null | grep -oE 'remember=[0-9]+' | head -1 | cut -d= -f2
+  register: check_pw_history
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+# === Batch 3: Audit + Logging (16 項) ===
+- name: "Check auditd installed"
+  shell: (command -v auditctl >/dev/null && command -v auditd >/dev/null) && echo yes || echo no
+  register: chk_auditd_installed
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check auditd enabled"
+  shell: systemctl is-enabled auditd 2>&1 | head -1
+  register: chk_auditd_enabled
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check auditd.conf owner"
+  shell: stat -c '%U:%G' /etc/audit/auditd.conf 2>/dev/null || echo missing
+  register: chk_auditd_conf_owner
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check audit.log perm"
+  shell: stat -c '%a' /var/log/audit/audit.log 2>/dev/null || echo missing
+  register: chk_audit_log_perm
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check audit log dir owner"
+  shell: stat -c '%U:%G' /var/log/audit 2>/dev/null || echo missing
+  register: chk_audit_dir_owner
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check audit log dir perm"
+  shell: stat -c '%a' /var/log/audit 2>/dev/null || echo missing
+  register: chk_audit_dir_perm
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check audit rules perm"
+  shell: stat -c '%a' /etc/audit/rules.d 2>/dev/null || echo missing
+  register: chk_audit_rules_perm
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check auditd.conf perm"
+  shell: stat -c '%a' /etc/audit/auditd.conf 2>/dev/null || echo missing
+  register: chk_auditd_conf_perm
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check audit tool owner"
+  shell: |
+    for f in /sbin/auditctl /sbin/auditd /usr/sbin/auditctl /usr/sbin/auditd; do
+      [ -f "$f" ] && stat -c '%U:%G' "$f" && exit
+    done
+    echo missing
+  register: chk_audit_tool_owner
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check audit login rules"
+  shell: auditctl -l 2>/dev/null | grep -cE '/var/log/lastlog|/var/run/faillock' || true
+  register: chk_audit_login
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check pam_faillock enabled"
+  shell: grep -rh 'pam_faillock' /etc/pam.d/ 2>/dev/null | grep -c '^auth' || true
+  register: chk_pam_faillock
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check rsyslog installed"
+  shell: command -v rsyslogd >/dev/null && echo yes || echo no
+  register: chk_rsyslog_installed
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check rsyslog enabled"
+  shell: systemctl is-enabled rsyslog 2>&1 | head -1
+  register: chk_rsyslog_enabled
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check rsyslog rules"
+  shell: grep -rhE '^(auth,authpriv|\*\.\*|authpriv\.)' /etc/rsyslog.conf /etc/rsyslog.d/ 2>/dev/null | wc -l
+  register: chk_rsyslog_rules
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check messages owner"
+  shell: |
+    for f in /var/log/messages /var/log/syslog; do
+      [ -f "$f" ] && stat -c '%U:%G' "$f" && exit
+    done
+    echo missing
+  register: chk_messages_owner
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check /var/log dir owner"
+  shell: stat -c '%U:%G' /var/log 2>/dev/null
+  register: chk_varlog_owner
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+# === Batch 4: System Hardening (7 項) ===
+- name: "Check /bin perms"
+  shell: stat -c '%a' /usr/bin 2>/dev/null
+  register: chk_bin_perm
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check systemd ctrl-alt-del disabled"
+  shell: systemctl is-enabled ctrl-alt-del.target 2>&1 | head -1
+  register: chk_cad_sysd
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check systemd ctrl-alt-del target"
+  shell: systemctl show ctrl-alt-del.target -p LoadState,UnitFileState 2>/dev/null | grep -E 'masked|not-found' | head -1 | cut -d= -f2
+  register: chk_cad_target
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check chrony port"
+  shell: |
+    for f in /etc/chrony.conf /etc/chrony/chrony.conf; do
+      [ -f "$f" ] && grep -E '^[[:space:]]*port[[:space:]]' "$f" | awk '{print $2}' && exit
+    done
+    echo unset
+  register: chk_chrony_port
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check chrony cmdport"
+  shell: |
+    for f in /etc/chrony.conf /etc/chrony/chrony.conf; do
+      [ -f "$f" ] && grep -E '^[[:space:]]*cmdport[[:space:]]' "$f" | awk '{print $2}' && exit
+    done
+    echo unset
+  register: chk_chrony_cmdport
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check chronyd not root"
+  shell: |
+    pgrep -af chronyd | grep -vE 'grep|pgrep' | head -1 | awk '{print $1}' | xargs -I{} ps -o user= -p {} 2>/dev/null || echo unknown
+  register: chk_chronyd_user
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Check sendmail not installed"
+  # 用 exit code 判斷，避免中文 locale 下 rpm/dpkg 的訊息文字被 grep 誤判
+  shell: |
+    if rpm -q sendmail >/dev/null 2>&1; then
+      echo installed
+    elif dpkg -l sendmail 2>/dev/null | grep -q '^ii '; then
+      echo installed
+    else
+      echo notinstalled
+    fi
+  register: chk_sendmail
   changed_when: false
   ignore_errors: true
 
@@ -76,6 +412,7 @@
   register: check_pass_max_days
   changed_when: false
   ignore_errors: true
+  become: true
 
 # D-08: Audit 帳號修改規則
 - name: "TWGCB-01-008-0156 Check audit account rules"
@@ -93,27 +430,29 @@
   register: check_audit_account
   changed_when: false
   ignore_errors: true
+  become: true
 
 # 彙整結果
 - name: "Compile TWGCB results"
   set_fact:
     twgcb_result:
       hostname: "{{ inventory_hostname }}"
-      scan_time: "{{ ansible_date_time.iso8601 }}"
-      os: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+      scan_time: "{{ ansible_date_time.iso8601 | default('') }}"
+      # 變更 #46: ansible_distribution 在某些 Debian 版本下 gather 不到 → 加 default 避免 playbook fatal
+      os: "{{ ansible_distribution | default('Linux') }} {{ ansible_distribution_version | default('') }}"
       checks:
         - id: "TWGCB-01-008-0108"
           category: "網路參數"
-          name: "禁止 IP 轉發"
+          name: "禁止 IP 轉發 (ip_forward=0)"
           level: "A"
           expected: "0"
           actual: "{{ check_ip_forward.stdout | default('unknown') | trim }}"
           status: "{{ 'PASS' if (check_ip_forward.stdout | default('') | trim) == '0' else 'FAIL' }}"
           detail: "net.ipv4.ip_forward = {{ check_ip_forward.stdout | default('unknown') | trim }}"
-          remediation: "sysctl -w net.ipv4.ip_forward=0 && echo 'net.ipv4.ip_forward=0' >> /etc/sysctl.d/99-twgcb.conf"
+          remediation: 'F=/etc/sysctl.d/99-twgcb.conf; mkdir -p /etc/sysctl.d; touch $F; sed -i -E ''/^[[:space:]]*#?[[:space:]]*net\.ipv4\.ip_forward[[:space:]]*=/d'' $F; echo ''net.ipv4.ip_forward = 0'' >> $F; echo 0 > /proc/sys/net/ipv4/ip_forward; echo OK'
         - id: "TWGCB-01-008-0194"
           category: "檔案權限"
-          name: "/etc/crontab 權限"
+          name: "/etc/crontab 權限正確"
           level: "A"
           expected: "600"
           actual: "{{ check_crontab_perm.stdout | default('unknown') | trim }}"
@@ -122,7 +461,7 @@
           remediation: "chmod 600 /etc/crontab"
         - id: "TWGCB-01-008-0205"
           category: "存取控制"
-          name: "/etc/cron.allow 存在"
+          name: "/etc/cron.allow 存在且可用"
           level: "A"
           expected: "exists"
           actual: "{{ (check_cron_allow.stdout | default('missing|')).split('|')[0] }}"
@@ -131,7 +470,7 @@
           remediation: "echo root > /etc/cron.allow && chmod 600 /etc/cron.allow"
         - id: "TWGCB-01-008-0039"
           category: "登入橫幅"
-          name: "/etc/issue 警告橫幅"
+          name: "/etc/issue 警告橫幅內容"
           level: "A"
           expected: "configured"
           actual: "{{ (check_banner.stdout | default('missing|')).split('|')[0] }}"
@@ -140,7 +479,7 @@
           remediation: "echo 'Authorized users only. All activity may be monitored.' > /etc/issue"
         - id: "TWGCB-01-008-0042"
           category: "日誌與安全"
-          name: "禁止 Core Dump"
+          name: "禁止 Core Dump 產生"
           level: "A"
           expected: "restricted"
           actual: "{{ (check_core_dump.stdout | default('unrestricted|')).split('|')[0] }}"
@@ -149,16 +488,388 @@
           remediation: "echo '* hard core 0' > /etc/security/limits.d/99-twgcb.conf && sysctl -w fs.suid_dumpable=0"
         - id: "TWGCB-01-008-0274"
           category: "SSH 加固"
-          name: "SSH MaxAuthTries"
+          name: "SSH 連線最大嘗試次數 (<=4)"
           level: "B"
-          expected: "4"
+          expected: "<=4"
           actual: "{{ check_ssh_maxauth.stdout | default('unknown') | trim }}"
           status: "{{ 'PASS' if (check_ssh_maxauth.stdout | default('99') | trim | int) <= 4 else 'FAIL' }}"
           detail: "MaxAuthTries = {{ check_ssh_maxauth.stdout | default('unknown') | trim }}"
-          remediation: "sed -i 's/^#*MaxAuthTries.*/MaxAuthTries 4/' /etc/ssh/sshd_config && systemctl restart sshd"
+          remediation: 'SVC=sshd; systemctl list-unit-files sshd.service 2>/dev/null | grep -q ''^sshd\.service'' || SVC=ssh; grep -qE ''^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d'' /etc/ssh/sshd_config || sed -i ''1i Include /etc/ssh/sshd_config.d/*.conf'' /etc/ssh/sshd_config; mkdir -p /etc/ssh/sshd_config.d; chmod 0755 /etc/ssh/sshd_config.d; DROPIN=/etc/ssh/sshd_config.d/99-twgcb.conf; touch $DROPIN; chmod 0644 $DROPIN; cp -p $DROPIN $DROPIN.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*MaxAuthTries([[:space:]]|=|$)/d'' $DROPIN; echo ''MaxAuthTries 4'' >> $DROPIN; mkdir -p /run/sshd; chmod 0755 /run/sshd; if ! sshd -t 2>&1; then cp -p $DROPIN.bak $DROPIN; echo ROLLBACK_ON_VALIDATE_FAIL; exit 2; fi; if ! systemctl reload $SVC 2>&1; then if ! systemctl restart $SVC 2>&1; then cp -p $DROPIN.bak $DROPIN; systemctl restart $SVC 2>&1; echo ROLLBACK_ON_RESTART_FAIL; exit 3; fi; fi; sleep 1; if ! systemctl is-active --quiet $SVC; then cp -p $DROPIN.bak $DROPIN; systemctl start $SVC 2>&1; echo ROLLBACK_ON_POST_FAIL; exit 4; fi; echo OK'
+        - id: "TWGCB-01-008-0275"
+          category: "SSH 加固"
+          name: "SSH 忽略 .rhosts 檔案 (IgnoreRhosts=yes)"
+          level: "B"
+          expected: "yes"
+          actual: "{{ check_ssh_ignorerhosts.stdout | default('unknown') | trim }}"
+          status: "{{ 'PASS' if (check_ssh_ignorerhosts.stdout | default('') | trim | lower) == 'yes' else 'FAIL' }}"
+          detail: "IgnoreRhosts = {{ check_ssh_ignorerhosts.stdout | default('unknown') | trim }}"
+          remediation: 'SVC=sshd; systemctl list-unit-files sshd.service 2>/dev/null | grep -q ''^sshd\.service'' || SVC=ssh; grep -qE ''^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d'' /etc/ssh/sshd_config || sed -i ''1i Include /etc/ssh/sshd_config.d/*.conf'' /etc/ssh/sshd_config; mkdir -p /etc/ssh/sshd_config.d; chmod 0755 /etc/ssh/sshd_config.d; DROPIN=/etc/ssh/sshd_config.d/99-twgcb.conf; touch $DROPIN; chmod 0644 $DROPIN; cp -p $DROPIN $DROPIN.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*IgnoreRhosts([[:space:]]|=|$)/d'' $DROPIN; echo ''IgnoreRhosts yes'' >> $DROPIN; mkdir -p /run/sshd; chmod 0755 /run/sshd; if ! sshd -t 2>&1; then cp -p $DROPIN.bak $DROPIN; echo ROLLBACK_ON_VALIDATE_FAIL; exit 2; fi; if ! systemctl reload $SVC 2>&1; then if ! systemctl restart $SVC 2>&1; then cp -p $DROPIN.bak $DROPIN; systemctl restart $SVC 2>&1; echo ROLLBACK_ON_RESTART_FAIL; exit 3; fi; fi; sleep 1; if ! systemctl is-active --quiet $SVC; then cp -p $DROPIN.bak $DROPIN; systemctl start $SVC 2>&1; echo ROLLBACK_ON_POST_FAIL; exit 4; fi; echo OK'
+        - id: "TWGCB-01-008-0278"
+          category: "SSH 加固"
+          name: "SSH 禁止空密碼登入 (PermitEmptyPasswords=no)"
+          level: "B"
+          expected: "no"
+          actual: "{{ check_ssh_permitempty.stdout | default('unknown') | trim }}"
+          status: "{{ 'PASS' if (check_ssh_permitempty.stdout | default('') | trim | lower) == 'no' else 'FAIL' }}"
+          detail: "PermitEmptyPasswords = {{ check_ssh_permitempty.stdout | default('unknown') | trim }}"
+          remediation: 'SVC=sshd; systemctl list-unit-files sshd.service 2>/dev/null | grep -q ''^sshd\.service'' || SVC=ssh; grep -qE ''^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d'' /etc/ssh/sshd_config || sed -i ''1i Include /etc/ssh/sshd_config.d/*.conf'' /etc/ssh/sshd_config; mkdir -p /etc/ssh/sshd_config.d; chmod 0755 /etc/ssh/sshd_config.d; DROPIN=/etc/ssh/sshd_config.d/99-twgcb.conf; touch $DROPIN; chmod 0644 $DROPIN; cp -p $DROPIN $DROPIN.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*PermitEmptyPasswords([[:space:]]|=|$)/d'' $DROPIN; echo ''PermitEmptyPasswords no'' >> $DROPIN; mkdir -p /run/sshd; chmod 0755 /run/sshd; if ! sshd -t 2>&1; then cp -p $DROPIN.bak $DROPIN; echo ROLLBACK_ON_VALIDATE_FAIL; exit 2; fi; if ! systemctl reload $SVC 2>&1; then if ! systemctl restart $SVC 2>&1; then cp -p $DROPIN.bak $DROPIN; systemctl restart $SVC 2>&1; echo ROLLBACK_ON_RESTART_FAIL; exit 3; fi; fi; sleep 1; if ! systemctl is-active --quiet $SVC; then cp -p $DROPIN.bak $DROPIN; systemctl start $SVC 2>&1; echo ROLLBACK_ON_POST_FAIL; exit 4; fi; echo OK'
+        - id: "TWGCB-01-008-0280a"
+          category: "SSH 加固"
+          name: "SSH 閒置連線檢查間隔 (<=600s)"
+          level: "B"
+          expected: "<=600"
+          actual: "{{ check_ssh_alive_interval.stdout | default('unknown') | trim }}"
+          status: "{{ 'PASS' if (check_ssh_alive_interval.stdout | default('9999') | trim | int) <= 600 and (check_ssh_alive_interval.stdout | default('0') | trim | int) > 0 else 'FAIL' }}"
+          detail: "ClientAliveInterval = {{ check_ssh_alive_interval.stdout | default('unknown') | trim }}"
+          remediation: 'SVC=sshd; systemctl list-unit-files sshd.service 2>/dev/null | grep -q ''^sshd\.service'' || SVC=ssh; grep -qE ''^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d'' /etc/ssh/sshd_config || sed -i ''1i Include /etc/ssh/sshd_config.d/*.conf'' /etc/ssh/sshd_config; mkdir -p /etc/ssh/sshd_config.d; chmod 0755 /etc/ssh/sshd_config.d; DROPIN=/etc/ssh/sshd_config.d/99-twgcb.conf; touch $DROPIN; chmod 0644 $DROPIN; cp -p $DROPIN $DROPIN.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*ClientAliveInterval([[:space:]]|=|$)/d'' $DROPIN; echo ''ClientAliveInterval 600'' >> $DROPIN; mkdir -p /run/sshd; chmod 0755 /run/sshd; if ! sshd -t 2>&1; then cp -p $DROPIN.bak $DROPIN; echo ROLLBACK_ON_VALIDATE_FAIL; exit 2; fi; if ! systemctl reload $SVC 2>&1; then if ! systemctl restart $SVC 2>&1; then cp -p $DROPIN.bak $DROPIN; systemctl restart $SVC 2>&1; echo ROLLBACK_ON_RESTART_FAIL; exit 3; fi; fi; sleep 1; if ! systemctl is-active --quiet $SVC; then cp -p $DROPIN.bak $DROPIN; systemctl start $SVC 2>&1; echo ROLLBACK_ON_POST_FAIL; exit 4; fi; echo OK'
+        - id: "TWGCB-01-008-0280b"
+          category: "SSH 加固"
+          name: "SSH 閒置連線最大檢查次數"
+          level: "B"
+          expected: ">=0"
+          actual: "{{ check_ssh_alive_countmax.stdout | default('unknown') | trim }}"
+          status: "{{ 'PASS' if (check_ssh_alive_countmax.stdout | default('-1') | trim | int) >= 0 else 'FAIL' }}"
+          detail: "ClientAliveCountMax = {{ check_ssh_alive_countmax.stdout | default('unknown') | trim }}"
+          remediation: 'SVC=sshd; systemctl list-unit-files sshd.service 2>/dev/null | grep -q ''^sshd\.service'' || SVC=ssh; grep -qE ''^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d'' /etc/ssh/sshd_config || sed -i ''1i Include /etc/ssh/sshd_config.d/*.conf'' /etc/ssh/sshd_config; mkdir -p /etc/ssh/sshd_config.d; chmod 0755 /etc/ssh/sshd_config.d; DROPIN=/etc/ssh/sshd_config.d/99-twgcb.conf; touch $DROPIN; chmod 0644 $DROPIN; cp -p $DROPIN $DROPIN.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*ClientAliveCountMax([[:space:]]|=|$)/d'' $DROPIN; echo ''ClientAliveCountMax 3'' >> $DROPIN; mkdir -p /run/sshd; chmod 0755 /run/sshd; if ! sshd -t 2>&1; then cp -p $DROPIN.bak $DROPIN; echo ROLLBACK_ON_VALIDATE_FAIL; exit 2; fi; if ! systemctl reload $SVC 2>&1; then if ! systemctl restart $SVC 2>&1; then cp -p $DROPIN.bak $DROPIN; systemctl restart $SVC 2>&1; echo ROLLBACK_ON_RESTART_FAIL; exit 3; fi; fi; sleep 1; if ! systemctl is-active --quiet $SVC; then cp -p $DROPIN.bak $DROPIN; systemctl start $SVC 2>&1; echo ROLLBACK_ON_POST_FAIL; exit 4; fi; echo OK'
+        - id: "TWGCB-01-008-0208"
+          category: "密碼策略"
+          name: "密碼輸入錯誤最多重試次數 (<=3)"
+          level: "C"
+          expected: "<=3"
+          actual: "{{ check_pw_retry.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_retry.stdout | default('0') | trim | int) <= 3 and (check_pw_retry.stdout | default('0') | trim | int) > 0 else 'FAIL' }}"
+          detail: "retry = {{ check_pw_retry.stdout | default('unset') | trim }}"
+          remediation: 'DIR=/etc/security/pwquality.conf.d; mkdir -p $DIR; chmod 0755 $DIR; F=/etc/security/pwquality.conf.d/99-twgcb.conf; touch $F; chmod 0644 $F; cp -p $F $F.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*retry[[:space:]]*=/d'' $F; echo ''retry = 3'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0210"
+          category: "密碼策略"
+          name: "密碼最短長度 (>=12)"
+          level: "C"
+          expected: ">=12"
+          actual: "{{ check_pw_minlen.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_minlen.stdout | default('0') | trim | int) >= 12 else 'FAIL' }}"
+          detail: "minlen = {{ check_pw_minlen.stdout | default('unset') | trim }}"
+          remediation: 'DIR=/etc/security/pwquality.conf.d; mkdir -p $DIR; chmod 0755 $DIR; F=/etc/security/pwquality.conf.d/99-twgcb.conf; touch $F; chmod 0644 $F; cp -p $F $F.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*minlen[[:space:]]*=/d'' $F; echo ''minlen = 12'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0212"
+          category: "密碼策略"
+          name: "密碼至少包含 1 個數字"
+          level: "C"
+          expected: "<=-1"
+          actual: "{{ check_pw_dcredit.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_dcredit.stdout | default('0') | trim | int) <= -1 else 'FAIL' }}"
+          detail: "dcredit = {{ check_pw_dcredit.stdout | default('unset') | trim }}"
+          remediation: 'DIR=/etc/security/pwquality.conf.d; mkdir -p $DIR; chmod 0755 $DIR; F=/etc/security/pwquality.conf.d/99-twgcb.conf; touch $F; chmod 0644 $F; cp -p $F $F.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*dcredit[[:space:]]*=/d'' $F; echo ''dcredit = -1'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0213"
+          category: "密碼策略"
+          name: "密碼至少包含 1 個大寫字母"
+          level: "C"
+          expected: "<=-1"
+          actual: "{{ check_pw_ucredit.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_ucredit.stdout | default('0') | trim | int) <= -1 else 'FAIL' }}"
+          detail: "ucredit = {{ check_pw_ucredit.stdout | default('unset') | trim }}"
+          remediation: 'DIR=/etc/security/pwquality.conf.d; mkdir -p $DIR; chmod 0755 $DIR; F=/etc/security/pwquality.conf.d/99-twgcb.conf; touch $F; chmod 0644 $F; cp -p $F $F.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*ucredit[[:space:]]*=/d'' $F; echo ''ucredit = -1'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0214"
+          category: "密碼策略"
+          name: "密碼至少包含 1 個小寫字母"
+          level: "C"
+          expected: "<=-1"
+          actual: "{{ check_pw_lcredit.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_lcredit.stdout | default('0') | trim | int) <= -1 else 'FAIL' }}"
+          detail: "lcredit = {{ check_pw_lcredit.stdout | default('unset') | trim }}"
+          remediation: 'DIR=/etc/security/pwquality.conf.d; mkdir -p $DIR; chmod 0755 $DIR; F=/etc/security/pwquality.conf.d/99-twgcb.conf; touch $F; chmod 0644 $F; cp -p $F $F.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*lcredit[[:space:]]*=/d'' $F; echo ''lcredit = -1'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0215"
+          category: "密碼策略"
+          name: "密碼至少包含 1 個特殊字元"
+          level: "C"
+          expected: "<=-1"
+          actual: "{{ check_pw_ocredit.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_ocredit.stdout | default('0') | trim | int) <= -1 else 'FAIL' }}"
+          detail: "ocredit = {{ check_pw_ocredit.stdout | default('unset') | trim }}"
+          remediation: 'DIR=/etc/security/pwquality.conf.d; mkdir -p $DIR; chmod 0755 $DIR; F=/etc/security/pwquality.conf.d/99-twgcb.conf; touch $F; chmod 0644 $F; cp -p $F $F.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*ocredit[[:space:]]*=/d'' $F; echo ''ocredit = -1'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0216"
+          category: "密碼策略"
+          name: "新舊密碼相異字元數 (>=3)"
+          level: "C"
+          expected: ">=3"
+          actual: "{{ check_pw_difok.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_difok.stdout | default('0') | trim | int) >= 3 else 'FAIL' }}"
+          detail: "difok = {{ check_pw_difok.stdout | default('unset') | trim }}"
+          remediation: 'DIR=/etc/security/pwquality.conf.d; mkdir -p $DIR; chmod 0755 $DIR; F=/etc/security/pwquality.conf.d/99-twgcb.conf; touch $F; chmod 0644 $F; cp -p $F $F.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*difok[[:space:]]*=/d'' $F; echo ''difok = 3'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0217"
+          category: "密碼策略"
+          name: "同類別字元連續次數 (<=4)"
+          level: "C"
+          expected: "<=4"
+          actual: "{{ check_pw_maxclassrepeat.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_maxclassrepeat.stdout | default('99') | trim | int) <= 4 and (check_pw_maxclassrepeat.stdout | default('0') | trim | int) > 0 else 'FAIL' }}"
+          detail: "maxclassrepeat = {{ check_pw_maxclassrepeat.stdout | default('unset') | trim }}"
+          remediation: 'DIR=/etc/security/pwquality.conf.d; mkdir -p $DIR; chmod 0755 $DIR; F=/etc/security/pwquality.conf.d/99-twgcb.conf; touch $F; chmod 0644 $F; cp -p $F $F.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*maxclassrepeat[[:space:]]*=/d'' $F; echo ''maxclassrepeat = 4'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0218"
+          category: "密碼策略"
+          name: "相同字元連續次數 (<=3)"
+          level: "C"
+          expected: "<=3"
+          actual: "{{ check_pw_maxrepeat.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_maxrepeat.stdout | default('99') | trim | int) <= 3 and (check_pw_maxrepeat.stdout | default('0') | trim | int) > 0 else 'FAIL' }}"
+          detail: "maxrepeat = {{ check_pw_maxrepeat.stdout | default('unset') | trim }}"
+          remediation: 'DIR=/etc/security/pwquality.conf.d; mkdir -p $DIR; chmod 0755 $DIR; F=/etc/security/pwquality.conf.d/99-twgcb.conf; touch $F; chmod 0644 $F; cp -p $F $F.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*maxrepeat[[:space:]]*=/d'' $F; echo ''maxrepeat = 3'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0219"
+          category: "密碼策略"
+          name: "密碼禁止使用字典單字"
+          level: "C"
+          expected: "=1"
+          actual: "{{ check_pw_dictcheck.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_dictcheck.stdout | default('0') | trim | int) == 1 else 'FAIL' }}"
+          detail: "dictcheck = {{ check_pw_dictcheck.stdout | default('unset') | trim }}"
+          remediation: 'DIR=/etc/security/pwquality.conf.d; mkdir -p $DIR; chmod 0755 $DIR; F=/etc/security/pwquality.conf.d/99-twgcb.conf; touch $F; chmod 0644 $F; cp -p $F $F.bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*dictcheck[[:space:]]*=/d'' $F; echo ''dictcheck = 1'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0220"
+          category: "帳號鎖定"
+          name: "登入失敗鎖定次數 (<=5)"
+          level: "C"
+          expected: "<=5"
+          actual: "{{ check_faillock_deny.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_faillock_deny.stdout | default('99') | trim | int) <= 5 and (check_faillock_deny.stdout | default('0') | trim | int) > 0 else 'FAIL' }}"
+          detail: "deny = {{ check_faillock_deny.stdout | default('unset') | trim }}"
+          remediation: 'F=/etc/security/faillock.conf; if [ ! -f $F ]; then (command -v apt-get >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y libpam-modules 2>&1 || true); mkdir -p /etc/security; touch $F; chmod 0644 $F; fi; cp -p $F $F.twgcb_bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*deny[[:space:]]*=/d'' $F; echo ''deny = 3'' >> $F; echo OK'
+        - id: "TWGCB-01-008-0225"
+          category: "密碼策略"
+          name: "密碼最短使用天數 (>=1)"
+          level: "C"
+          expected: ">=1"
+          actual: "{{ check_pass_min_days.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pass_min_days.stdout | default('0') | trim | int) >= 1 else 'FAIL' }}"
+          detail: "PASS_MIN_DAYS = {{ check_pass_min_days.stdout | default('unset') | trim }}"
+          remediation: 'F=/etc/login.defs; cp -p $F $F.twgcb_bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*PASS_MIN_DAYS([[:space:]]|$)/d'' $F; printf ''PASS_MIN_DAYS\t1\n'' >> $F; echo OK'
+        - id: "FCB-0024"
+          category: "帳號鎖定"
+          name: "帳號鎖定後不自動解除 (unlock_time=0)"
+          level: "A"
+          expected: "=0"
+          actual: "{{ check_faillock_unlock.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_faillock_unlock.stdout | default('-1') | trim | int) == 0 else 'FAIL' }}"
+          detail: "unlock_time = {{ check_faillock_unlock.stdout | default('unset') | trim }}"
+          remediation: 'F=/etc/security/faillock.conf; if [ ! -f $F ]; then (command -v apt-get >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y libpam-modules 2>&1 || true); mkdir -p /etc/security; touch $F; chmod 0644 $F; fi; cp -p $F $F.twgcb_bak; sed -i -E ''/^[[:space:]]*#?[[:space:]]*unlock_time[[:space:]]*=/d'' $F; echo ''unlock_time = 0'' >> $F; echo OK'
+        - id: "FCB-0025"
+          category: "密碼策略"
+          name: "禁止重複使用近期密碼 (remember>=3)"
+          level: "A"
+          expected: ">=3"
+          actual: "{{ check_pw_history.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (check_pw_history.stdout | default('0') | trim | int) >= 3 else 'FAIL' }}"
+          detail: "remember = {{ check_pw_history.stdout | default('unset') | trim }}"
+          remediation: 'for f in /etc/pam.d/common-password /etc/pam.d/system-auth /etc/pam.d/password-auth; do [ -f $f ] || continue; cp -p $f $f.twgcb_bak; if ! grep -q pam_pwhistory.so $f; then sed -i ''/pam_unix.so/i password required pam_pwhistory.so remember=3 use_authtok'' $f; else sed -i -E ''s/(pam_pwhistory.so[^ ]*remember=)[0-9]+/\13/'' $f; fi; done; echo OK'
+
+        - id: "TWGCB-01-008-0132"
+          category: "稽核"
+          name: "必須安裝 auditd"
+          level: "A"
+          expected: "yes"
+          actual: "{{ chk_auditd_installed.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_auditd_installed.stdout | default('no') | trim) == 'yes' else 'FAIL' }}"
+          detail: "auditd_installed = {{ chk_auditd_installed.stdout | default('unset') | trim }}"
+          remediation: '(command -v apt-get >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y auditd audispd-plugins 2>&1) || (command -v yum >/dev/null && yum install -y audit 2>&1) || (command -v dnf >/dev/null && dnf install -y audit 2>&1); systemctl enable --now auditd 2>&1; echo OK'
+        - id: "TWGCB-01-008-0133"
+          category: "稽核"
+          name: "必須啟用 auditd 服務"
+          level: "A"
+          expected: "enabled"
+          actual: "{{ chk_auditd_enabled.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_auditd_enabled.stdout | default('disabled') | trim) == 'enabled' else 'FAIL' }}"
+          detail: "auditd_state = {{ chk_auditd_enabled.stdout | default('unset') | trim }}"
+          remediation: 'systemctl enable --now auditd 2>&1; echo OK'
+        - id: "TWGCB-01-008-0137"
+          category: "稽核"
+          name: "auditd.conf 擁有者 root:root"
+          level: "A"
+          expected: "root:root"
+          actual: "{{ chk_auditd_conf_owner.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_auditd_conf_owner.stdout | default('') | trim) == 'root:root' else 'FAIL' }}"
+          detail: "auditd.conf_owner = {{ chk_auditd_conf_owner.stdout | default('unset') | trim }}"
+          remediation: 'chown root:root /etc/audit/auditd.conf && echo OK'
+        - id: "TWGCB-01-008-0138"
+          category: "稽核"
+          name: "audit.log 權限 <=600"
+          level: "A"
+          expected: "<=600"
+          actual: "{{ chk_audit_log_perm.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_audit_log_perm.stdout | default('999') | trim | int) <= 600 else 'FAIL' }}"
+          detail: "audit.log_perm = {{ chk_audit_log_perm.stdout | default('unset') | trim }}"
+          remediation: 'sed -i ''s/^log_group.*/log_group = root/'' /etc/audit/auditd.conf; (grep -q ^log_file_mode /etc/audit/auditd.conf && sed -i ''s/^log_file_mode.*/log_file_mode = 0600/'' /etc/audit/auditd.conf) || echo ''log_file_mode = 0600'' >> /etc/audit/auditd.conf; systemctl restart auditd 2>/dev/null || service auditd restart 2>/dev/null; chmod 600 /var/log/audit/audit.log 2>/dev/null; echo OK'
+        - id: "TWGCB-01-008-0139"
+          category: "稽核"
+          name: "稽核日誌目錄擁有者 root:root"
+          level: "A"
+          expected: "root:root"
+          actual: "{{ chk_audit_dir_owner.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_audit_dir_owner.stdout | default('') | trim) == 'root:root' else 'FAIL' }}"
+          detail: "audit_dir_owner = {{ chk_audit_dir_owner.stdout | default('unset') | trim }}"
+          remediation: 'sed -i ''s/^log_group.*/log_group = root/'' /etc/audit/auditd.conf; systemctl restart auditd 2>/dev/null || service auditd restart 2>/dev/null; chown root:root /var/log/audit; echo OK'
+        - id: "TWGCB-01-008-0140"
+          category: "稽核"
+          name: "稽核日誌目錄權限 <=700"
+          level: "A"
+          expected: "<=700"
+          actual: "{{ chk_audit_dir_perm.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_audit_dir_perm.stdout | default('999') | trim | int) <= 700 else 'FAIL' }}"
+          detail: "audit_dir_perm = {{ chk_audit_dir_perm.stdout | default('unset') | trim }}"
+          remediation: 'sed -i ''s/^log_group.*/log_group = root/'' /etc/audit/auditd.conf; systemctl restart auditd 2>/dev/null || service auditd restart 2>/dev/null; chmod 700 /var/log/audit; echo OK'
+        - id: "TWGCB-01-008-0141"
+          category: "稽核"
+          name: "稽核規則目錄權限 <=600"
+          level: "A"
+          expected: "<=600"
+          actual: "{{ chk_audit_rules_perm.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_audit_rules_perm.stdout | default('999') | trim | int) <= 750 else 'FAIL' }}"
+          detail: "rules.d_perm = {{ chk_audit_rules_perm.stdout | default('unset') | trim }}"
+          remediation: 'chmod 750 /etc/audit/rules.d && echo OK'
+        - id: "TWGCB-01-008-0142"
+          category: "稽核"
+          name: "auditd.conf 權限 <=640"
+          level: "A"
+          expected: "<=640"
+          actual: "{{ chk_auditd_conf_perm.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_auditd_conf_perm.stdout | default('999') | trim | int) <= 640 else 'FAIL' }}"
+          detail: "auditd.conf_perm = {{ chk_auditd_conf_perm.stdout | default('unset') | trim }}"
+          remediation: 'chmod 640 /etc/audit/auditd.conf && echo OK'
+        - id: "TWGCB-01-008-0144"
+          category: "稽核"
+          name: "稽核工具擁有者 root:root"
+          level: "A"
+          expected: "root:root"
+          actual: "{{ chk_audit_tool_owner.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_audit_tool_owner.stdout | default('') | trim) == 'root:root' else 'FAIL' }}"
+          detail: "audit_tool_owner = {{ chk_audit_tool_owner.stdout | default('unset') | trim }}"
+          remediation: 'for f in /sbin/auditctl /sbin/auditd /usr/sbin/auditctl /usr/sbin/auditd; do [ -f $f ] && chown root:root $f; done; echo OK'
+        - id: "TWGCB-01-008-0149"
+          category: "稽核"
+          name: "記錄登入事件 (lastlog/faillock)"
+          level: "B"
+          expected: ">=2"
+          actual: "{{ chk_audit_login.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_audit_login.stdout | default('0') | trim | int) >= 2 else 'FAIL' }}"
+          detail: "login_rules = {{ chk_audit_login.stdout | default('unset') | trim }}"
+          remediation: 'mkdir -p /etc/audit/rules.d; F=/etc/audit/rules.d/twgcb.rules; touch $F; grep -q ''^-w /var/log/lastlog -p wa -k logins'' $F || printf ''%s\n%s\n'' ''-w /var/log/lastlog -p wa -k logins'' ''-w /var/run/faillock -p wa -k logins'' >> $F; (augenrules --load 2>&1 || auditctl -R $F 2>&1); echo OK'
+        - id: "TWGCB-01-008-0171"
+          category: "稽核"
+          name: "啟用 pam_faillock 記錄"
+          level: "B"
+          expected: ">=1"
+          actual: "{{ chk_pam_faillock.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_pam_faillock.stdout | default('0') | trim | int) >= 1 else 'FAIL' }}"
+          detail: "pam_faillock = {{ chk_pam_faillock.stdout | default('unset') | trim }}"
+          remediation: 'for f in /etc/pam.d/common-auth /etc/pam.d/system-auth /etc/pam.d/password-auth; do [ -f $f ] || continue; cp -p $f $f.twgcb_bak; grep -q pam_faillock.so $f || sed -i ''1s|^|auth required pam_faillock.so preauth silent deny=3 unlock_time=0\n|'' $f; done; echo OK'
+        - id: "TWGCB-01-008-0174"
+          category: "日誌"
+          name: "必須安裝 rsyslog"
+          level: "A"
+          expected: "yes"
+          actual: "{{ chk_rsyslog_installed.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_rsyslog_installed.stdout | default('no') | trim) == 'yes' else 'FAIL' }}"
+          detail: "rsyslog_installed = {{ chk_rsyslog_installed.stdout | default('unset') | trim }}"
+          remediation: '(command -v apt-get >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y rsyslog 2>&1) || (command -v yum >/dev/null && yum install -y rsyslog 2>&1) || (command -v dnf >/dev/null && dnf install -y rsyslog 2>&1); systemctl enable --now rsyslog 2>&1; echo OK'
+        - id: "TWGCB-01-008-0175"
+          category: "日誌"
+          name: "啟用 rsyslog 服務"
+          level: "A"
+          expected: "enabled"
+          actual: "{{ chk_rsyslog_enabled.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_rsyslog_enabled.stdout | default('') | trim) == 'enabled' else 'FAIL' }}"
+          detail: "rsyslog_state = {{ chk_rsyslog_enabled.stdout | default('unset') | trim }}"
+          remediation: 'systemctl enable --now rsyslog 2>&1; echo OK'
+        - id: "TWGCB-01-008-0177"
+          category: "日誌"
+          name: "rsyslog 系統與認證規則"
+          level: "B"
+          expected: ">=1"
+          actual: "{{ chk_rsyslog_rules.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_rsyslog_rules.stdout | default('0') | trim | int) >= 1 else 'FAIL' }}"
+          detail: "rsyslog_rules = {{ chk_rsyslog_rules.stdout | default('unset') | trim }}"
+          remediation: 'F=/etc/rsyslog.d/99-twgcb.conf; mkdir -p /etc/rsyslog.d; touch $F; grep -q ''^auth,authpriv'' $F || echo ''auth,authpriv.*    /var/log/secure'' >> $F; systemctl reload rsyslog 2>&1 || systemctl restart rsyslog 2>&1; echo OK'
+        - id: "TWGCB-01-008-0178"
+          category: "日誌"
+          name: "messages/syslog 擁有者 root"
+          level: "A"
+          expected: "root:*"
+          actual: "{{ chk_messages_owner.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_messages_owner.stdout | default('') | trim).startswith('root') else 'FAIL' }}"
+          detail: "messages_owner = {{ chk_messages_owner.stdout | default('unset') | trim }}"
+          remediation: 'for f in /var/log/messages /var/log/syslog; do [ -f $f ] && chown root:root $f; done; echo OK'
+        - id: "TWGCB-01-008-0179"
+          category: "日誌"
+          name: "/var/log 目錄擁有者 root"
+          level: "A"
+          expected: "root:*"
+          actual: "{{ chk_varlog_owner.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_varlog_owner.stdout | default('') | trim).startswith('root') else 'FAIL' }}"
+          detail: "varlog_owner = {{ chk_varlog_owner.stdout | default('unset') | trim }}"
+          remediation: 'chown root:root /var/log && echo OK'
+
+        - id: "TWGCB-01-008-0066"
+          category: "系統"
+          name: "系統命令目錄權限 (/bin <=755)"
+          level: "B"
+          expected: "<=755"
+          actual: "{{ chk_bin_perm.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_bin_perm.stdout | default('999') | trim | int) <= 755 else 'FAIL' }}"
+          detail: "/bin_perm = {{ chk_bin_perm.stdout | default('unset') | trim }}"
+          remediation: 'chmod 755 /bin /sbin /usr/bin /usr/sbin 2>&1; echo OK'
+        - id: "FCB-0015"
+          category: "系統"
+          name: "停用 Ctrl-Alt-Delete"
+          level: "A"
+          expected: "masked"
+          actual: "{{ chk_cad_sysd.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_cad_sysd.stdout | default('') | trim) in ['masked','disabled','alias'] else 'FAIL' }}"
+          detail: "cad_state = {{ chk_cad_sysd.stdout | default('unset') | trim }}"
+          remediation: 'rm -f /etc/systemd/system/ctrl-alt-del.target; systemctl mask ctrl-alt-del.target 2>&1; systemctl daemon-reload; echo OK'
+        - id: "FCB-0017"
+          category: "系統"
+          name: "systemd Ctrl-Alt-Delete target masked"
+          level: "A"
+          expected: "masked"
+          actual: "{{ chk_cad_target.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_cad_target.stdout | default('') | trim) in ['masked','not-found'] else 'FAIL' }}"
+          detail: "cad_loadstate = {{ chk_cad_target.stdout | default('unset') | trim }}"
+          remediation: 'rm -f /etc/systemd/system/ctrl-alt-del.target; systemctl mask ctrl-alt-del.target 2>&1; systemctl daemon-reload; echo OK'
+        - id: "FCB-0004"
+          category: "系統"
+          name: "chrony port=0 (不對外)"
+          level: "A"
+          expected: "=0"
+          actual: "{{ chk_chrony_port.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_chrony_port.stdout | default('9999') | trim | int) == 0 else 'FAIL' }}"
+          detail: "chrony_port = {{ chk_chrony_port.stdout | default('unset') | trim }}"
+          remediation: 'for f in /etc/chrony.conf /etc/chrony/chrony.conf; do [ -f $f ] || continue; cp -p $f $f.twgcb_bak; sed -i -E ''/^[[:space:]]*port[[:space:]]/d'' $f; echo ''port 0'' >> $f; done; systemctl restart chronyd 2>/dev/null || systemctl restart chrony 2>/dev/null; echo OK'
+        - id: "FCB-0005"
+          category: "系統"
+          name: "chrony cmdport=0 (不遠端管理)"
+          level: "A"
+          expected: "=0"
+          actual: "{{ chk_chrony_cmdport.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_chrony_cmdport.stdout | default('9999') | trim | int) == 0 else 'FAIL' }}"
+          detail: "chrony_cmdport = {{ chk_chrony_cmdport.stdout | default('unset') | trim }}"
+          remediation: 'for f in /etc/chrony.conf /etc/chrony/chrony.conf; do [ -f $f ] || continue; cp -p $f $f.twgcb_bak; sed -i -E ''/^[[:space:]]*cmdport[[:space:]]/d'' $f; echo ''cmdport 0'' >> $f; done; systemctl restart chronyd 2>/dev/null || systemctl restart chrony 2>/dev/null; echo OK'
+        - id: "FCB-0022"
+          category: "系統"
+          name: "chronyd 以非 root 執行"
+          level: "A"
+          expected: "!=root"
+          actual: "{{ chk_chronyd_user.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_chronyd_user.stdout | default('root') | trim) not in ['root','unknown'] else 'FAIL' }}"
+          detail: "chronyd_user = {{ chk_chronyd_user.stdout | default('unset') | trim }}"
+          remediation: 'for f in /etc/chrony.conf /etc/chrony/chrony.conf; do [ -f $f ] || continue; cp -p $f $f.twgcb_bak.u; grep -q ''^user '' $f || echo ''user _chrony'' >> $f; done; systemctl restart chronyd 2>/dev/null || systemctl restart chrony 2>/dev/null; echo OK'
+        - id: "FCB-0006"
+          category: "系統"
+          name: "不得安裝 sendmail"
+          level: "A"
+          expected: "notinstalled"
+          actual: "{{ chk_sendmail.stdout | default('unset') | trim }}"
+          status: "{{ 'PASS' if (chk_sendmail.stdout | default('') | trim) == 'notinstalled' else 'FAIL' }}"
+          detail: "sendmail = {{ chk_sendmail.stdout | default('unset') | trim }}"
+          remediation: '(command -v apt-get >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get purge -y sendmail sendmail-base sendmail-bin sendmail-cf 2>&1 || true); (command -v yum >/dev/null && yum remove -y sendmail 2>&1 || true); (command -v dnf >/dev/null && dnf remove -y sendmail 2>&1 || true); echo OK'
+
         - id: "TWGCB-01-008-0227"
           category: "密碼策略"
-          name: "密碼最長使用天數"
+          name: "密碼最長使用天數 (<=90)"
           level: "C"
           expected: "90"
           actual: "{{ check_pass_max_days.stdout | default('unknown') | trim }}"
@@ -167,13 +878,16 @@
           remediation: "sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS 90/' /etc/login.defs"
         - id: "TWGCB-01-008-0156"
           category: "Audit 規則"
-          name: "稽核帳號檔案修改"
+          name: "稽核帳號檔案修改 (passwd/shadow/group)"
           level: "D"
           expected: "configured"
           actual: "{{ (check_audit_account.stdout | default('missing|')).split('|')[0] }}"
           status: "{{ 'PASS' if (check_audit_account.stdout | default('missing|')).split('|')[0] == 'configured' else 'FAIL' }}"
           detail: "{{ check_audit_account.stdout | default('unknown') }}"
-          remediation: "auditctl -w /etc/passwd -p wa -k account && auditctl -w /etc/shadow -p wa -k account"
+          remediation: 'if [ ! -d /etc/audit/rules.d ]; then (command -v apt-get >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y auditd audispd-plugins 2>&1) || (command -v yum >/dev/null && yum install -y audit 2>&1) || (command -v dnf >/dev/null && dnf install -y audit 2>&1); systemctl enable --now auditd 2>/dev/null; fi; mkdir -p /etc/audit/rules.d; F=/etc/audit/rules.d/twgcb.rules; touch $F; cp -p $F $F.bak; grep -q ''^-w /etc/group -p wa -k identity'' $F || printf ''%s
+%s
+%s
+'' ''-w /etc/group -p wa -k identity'' ''-w /etc/passwd -p wa -k identity'' ''-w /etc/shadow -p wa -k identity'' >> $F; (augenrules --load 2>&1 || auditctl -R $F 2>&1); echo OK'
 
 - name: "Save TWGCB result to JSON"
   copy:

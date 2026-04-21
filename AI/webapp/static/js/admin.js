@@ -48,12 +48,14 @@ function loadTab(tab) {
     "hosts": loadHostsTab,
     "alerts": loadAlertsTab,
     "scheduler": loadSchedulerTab,
+    "perf-mgmt": function(){ if (typeof loadNmonSchedule === "function") loadNmonSchedule(); },
     "reports": function(){},
     "audit": loadAuditTab,
     "acctmgmt": loadAcctMgmtTab,
     "worklog": loadWorklogTab,
     "security-audit": loadSecurityAuditTab,
     "linux-init": loadLinuxInitTab,
+    "ssh-keys": loadSSHKeysTab,
   };
   if (loaders[tab]) loaders[tab]();
 }
@@ -62,11 +64,37 @@ function doLogout() {
   fetch("/api/admin/logout", {method:"POST"}).then(function(){ location.href = "/login"; });
 }
 
-function adminAction(url, method, confirmMsg) {
+// Phase 2 #7B: async-feedback 標準化
+// 通用 admin 後端操作 helper（全站 28+ 顆按鈕共用，改這裡一次修全部）
+async function adminAction(url, method, confirmMsg) {
   if (confirmMsg && !confirm(confirmMsg)) return;
-  fetch(url, {method: method, headers:{"Content-Type":"application/json"}, body: JSON.stringify({})})
-    .then(function(r){return r.json();})
-    .then(function(res){ alert(res.message || res.output || JSON.stringify(res)); _tabLoaded = {}; });
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 60000);
+  try {
+    var r = await fetch(url, {
+      method: method,
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({}),
+      signal: controller.signal
+    });
+    var res = await r.json();
+    var okText = res.message || res.output || "完成";
+    if (res.success === false || res.error) {
+      var errText = res.error || res.message || "執行失敗";
+      if (typeof _dashToast === "function") _dashToast("\u2717 " + errText, "error");
+      else alert("\u2717 " + errText);
+    } else {
+      if (typeof _dashToast === "function") _dashToast("\u2713 " + okText, "success");
+      else alert("\u2713 " + okText);
+    }
+    _tabLoaded = {};
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "請求逾時（超過 60 秒）" : (e.message || "未知錯誤");
+    if (typeof _dashToast === "function") _dashToast("\u2717 " + emsg, "error");
+    else alert("\u2717 " + emsg);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // === Dashboard Tab ===
@@ -643,3 +671,213 @@ function loadWorklogTab() {
     document.getElementById("worklog-content").innerHTML = html;
   });
 }
+
+
+// ===== nmon Schedule (v3.9.4.0: per-host interval) =====
+var _nmonHosts = [];
+var _nmonDefaultInterval = 5;
+var _INTERVAL_LABELS = {1:"每 1 分鐘", 5:"每 5 分鐘", 15:"每 15 分鐘", 30:"每 30 分鐘", 60:"每 1 小時", 1440:"每 24 小時"};
+
+function loadNmonSchedule() {
+  var container = document.getElementById("nmon-sched-hosts");
+  if (!container) return;
+  container.innerHTML = '載入中...';
+  fetch("/api/nmon/schedule").then(function(r){return r.json();}).then(function(res){
+    if (!res.success) { container.innerHTML = '<div style="color:var(--red);">載入失敗: '+(res.error||'?')+'</div>'; return; }
+    _nmonHosts = res.data.hosts || [];
+    _nmonDefaultInterval = res.data.current_interval_min || 5;
+    document.getElementById("nmon-sched-interval").value = String(_nmonDefaultInterval);
+    renderNmonHosts();
+  });
+}
+
+function _intervalOptionsHTML(selected) {
+  var opts = [1,5,15,30,60,1440];
+  return opts.map(function(v){
+    return '<option value="'+v+'"'+(v==selected?' selected':'')+'>'+_INTERVAL_LABELS[v]+'</option>';
+  }).join('');
+}
+
+function renderNmonHosts() {
+  var q = (document.getElementById("nmon-sched-search").value||"").toLowerCase();
+  var showAll = document.getElementById("nmon-sched-show-all").checked;
+  var container = document.getElementById("nmon-sched-hosts");
+  var visible = _nmonHosts.filter(function(h){
+    if (!showAll && !h.nmon_supported) return false;
+    if (!q) return true;
+    return (h.hostname||"").toLowerCase().indexOf(q)>=0 ||
+           (h.ip||"").toLowerCase().indexOf(q)>=0 ||
+           (h.os||"").toLowerCase().indexOf(q)>=0;
+  });
+  if (visible.length === 0) {
+    container.innerHTML = '<div style="color:var(--c3);padding:12px;">無符合主機</div>';
+    document.getElementById("nmon-sched-count").textContent = "(0 台)";
+    return;
+  }
+  var enabledCount = _nmonHosts.filter(function(h){return h.nmon_enabled;}).length;
+  document.getElementById("nmon-sched-count").textContent = "(顯示 "+visible.length+" / 共 "+_nmonHosts.length+" 台，已啟用 "+enabledCount+" 台)";
+
+  var html = '';
+  visible.forEach(function(h){
+    var disabled = !h.nmon_supported;
+    var hostInterval = h.nmon_interval_min || _nmonDefaultInterval;
+    var tierBadge = h.tier ? '<span style="font-size:10px;margin-left:4px;color:var(--c4);">['+h.tier+']</span>' : '';
+    var deployInfo = '';
+    if (h.nmon_enabled && h.nmon_deployed_at) {
+      deployInfo = '<div style="font-size:10px;color:var(--g1);margin-top:4px;">✓ '+h.nmon_deployed_at.substring(5,16)+'</div>';
+    } else if (!h.nmon_supported) {
+      deployInfo = '<div style="font-size:10px;color:var(--red);margin-top:4px;">不支援 ('+(h.os_group||'?')+')</div>';
+    }
+    html += '<div class="nmon-card" data-host="'+h.hostname+'" style="display:inline-flex;flex-direction:column;align-items:flex-start;border:1px solid #ddd;border-radius:6px;padding:8px 12px;background:#fff;opacity:'+(disabled?'0.45':'1')+';min-width:240px;">';
+    html += '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:'+(disabled?'not-allowed':'pointer')+';">';
+    html += '<input type="checkbox" class="nmon-host-cb" value="'+h.hostname+'" '+(h.nmon_enabled?'checked':'')+' '+(disabled?'disabled':'')+' onchange="updateNmonCount()">';
+    html += '<strong>'+h.hostname+'</strong>';
+    html += tierBadge;
+    html += '</label>';
+    html += '<div style="font-size:11px;color:var(--c3);margin-top:2px;">'+(h.ip||'-')+' · '+(h.os||'-')+(h.system_name?' · '+h.system_name:'')+'</div>';
+    // per-host interval dropdown
+    if (!disabled) {
+      html += '<div style="margin-top:6px;font-size:11px;color:var(--c3);display:flex;align-items:center;gap:4px;">頻率 <select class="nmon-host-iv" data-host="'+h.hostname+'" style="font-size:11px;padding:2px 4px;">';
+      html += _intervalOptionsHTML(hostInterval);
+      html += '</select></div>';
+    }
+    html += deployInfo;
+    html += '</div>';
+  });
+  container.innerHTML = html;
+  updateNmonCount();
+}
+
+function toggleAllNmon() {
+  var checked = document.getElementById("nmon-sched-all").checked;
+  document.querySelectorAll(".nmon-host-cb:not([disabled])").forEach(function(cb){ cb.checked = checked; });
+  updateNmonCount();
+}
+
+function updateNmonCount() {
+  var n = document.querySelectorAll(".nmon-host-cb:checked").length;
+  var total = document.querySelectorAll(".nmon-host-cb:not([disabled])").length;
+  document.getElementById("nmon-sched-all").checked = (n > 0 && n === total);
+}
+
+// 批次套用: 把頂部頻率下拉套到所有「勾選中」的 host 下拉
+function applyBatchInterval() {
+  var iv = document.getElementById("nmon-sched-interval").value;
+  var checked = document.querySelectorAll(".nmon-host-cb:checked");
+  var applied = 0;
+  checked.forEach(function(cb){
+    var hn = cb.value;
+    var sel = document.querySelector('.nmon-host-iv[data-host="'+hn+'"]');
+    if (sel) { sel.value = iv; applied++; }
+  });
+  var statusEl = document.getElementById("nmon-sched-status");
+  statusEl.innerHTML = '<span style="color:var(--g1);">批次設 '+applied+' 台為 '+_INTERVAL_LABELS[iv]+'（記得按「套用」生效）</span>';
+}
+
+function _collectHostConfigs() {
+  var cfgs = [];
+  document.querySelectorAll(".nmon-host-cb:checked").forEach(function(cb){
+    var hn = cb.value;
+    var sel = document.querySelector('.nmon-host-iv[data-host="'+hn+'"]');
+    var iv = sel ? parseInt(sel.value,10) : _nmonDefaultInterval;
+    cfgs.push({hostname: hn, interval_min: iv});
+  });
+  return cfgs;
+}
+
+function saveNmonSchedule() {
+  var configs = _collectHostConfigs();
+  // preview
+  fetch("/api/nmon/schedule/preview", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({host_configs: configs}),
+  }).then(function(r){return r.json();}).then(function(res){
+    if (!res.success) { alert("預覽失敗: "+(res.error||"?")); return; }
+    var d = res.data;
+    // 組 Modal
+    var msg = '套用 nmon 排程\n\n';
+    if (d.groups && d.groups.length) {
+      msg += '▶ 將啟用 (依頻率分組):\n';
+      d.groups.forEach(function(g){
+        msg += '  ['+_INTERVAL_LABELS[g.interval_min]+'] '+g.count+' 台: '+g.hosts.slice(0,5).join(', ');
+        if (g.hosts.length > 5) msg += ' ... +'+(g.hosts.length-5);
+        msg += '\n';
+      });
+    } else {
+      msg += '▶ 無啟用主機\n';
+    }
+    if (d.to_disable && d.to_disable.length) {
+      msg += '\n▶ 將停用 ('+d.to_disable.length+' 台, 僅清 cron, 歷史資料保留):\n';
+      msg += '  '+d.to_disable.slice(0,10).join(', ');
+      if (d.to_disable.length > 10) msg += ' ... +'+(d.to_disable.length-10);
+      msg += '\n';
+    }
+    if (d.skipped_windows && d.skipped_windows.length) {
+      msg += '\n⚠ 忽略 Windows: '+d.skipped_windows.join(', ');
+    }
+    msg += '\n\n確定套用？';
+    if (!confirm(msg)) return;
+
+    // apply
+    var btn = document.getElementById("nmon-sched-apply-btn") || document.querySelector("button[onclick='saveNmonSchedule()']");
+    var origText = btn ? btn.textContent : '套用';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ 部署中...'; }
+    var statusEl = document.getElementById("nmon-sched-status");
+    statusEl.textContent = '背景部署中...';
+
+    fetch("/api/nmon/schedule", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({host_configs: configs, confirm: true}),
+    }).then(function(r){return r.json();}).then(function(res2){
+      if (!res2.success) {
+        statusEl.innerHTML = '<span style="color:var(--red);">失敗: '+(res2.error||'?')+'</span>';
+        alert('套用失敗: '+(res2.error||'?'));
+      } else {
+        statusEl.innerHTML = '<span style="color:var(--g1);">✓ '+res2.data.message+'</span>';
+        setTimeout(loadNmonSchedule, 30000);
+      }
+    }).catch(function(e){
+      statusEl.innerHTML = '<span style="color:var(--red);">網路錯誤: '+e+'</span>';
+    }).finally(function(){
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
+    });
+  });
+}
+// ===== nmon Schedule end =====
+// ===== Feature Flag UI Filter (v3.10.1.0) =====
+// 根據 window.FEATURES 隱藏 data-feature 標記的 tab 按鈕/panel,
+// 且如果整個 admin-nav-group 底下所有 tab 都被藏, 整組也藏
+(function(){
+  function applyFeatureFilter() {
+    var FEATURES = window.FEATURES || {};
+    // 隱藏 data-feature 對應 false 的元素
+    document.querySelectorAll("[data-feature]").forEach(function(el){
+      var key = el.getAttribute("data-feature");
+      if (FEATURES[key] === false) {
+        el.style.display = "none";
+        el.setAttribute("data-hidden-by-feature", "1");
+      }
+    });
+    // 收摺 admin-nav-group: 子項全被藏就隱藏整組
+    document.querySelectorAll(".admin-nav-group").forEach(function(g){
+      var tabs = g.querySelectorAll(".admin-tab");
+      if (tabs.length === 0) return;
+      var visible = Array.from(tabs).filter(function(t){ return t.style.display !== "none"; });
+      if (visible.length === 0) {
+        g.style.display = "none";
+      }
+    });
+    // 如果當前 active tab 剛好被藏, 自動切第一個還看得到的 tab
+    var active = document.querySelector(".admin-tab.active");
+    if (active && active.style.display === "none") {
+      var firstVisible = document.querySelector(".admin-tab:not([style*='display: none'])");
+      if (firstVisible) firstVisible.click();
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", applyFeatureFilter);
+  } else {
+    applyFeatureFilter();
+  }
+})();
+// ===== end =====

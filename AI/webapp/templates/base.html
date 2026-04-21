@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Example Corp監控系統{% endblock %}</title>
-  <link rel="stylesheet" href="/static/css/example.css">
+  <title>{% block title %}IT 監控系統{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/example.css?v={{ APP_VER }}">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   {% block head %}{% endblock %}
 </head>
@@ -12,7 +12,7 @@
   <nav class="navbar" style="height:auto;flex-direction:column;padding:0;">
     <!-- Row 1: Brand + Search + User -->
     <div style="display:flex;align-items:center;width:100%;padding:8px 24px;border-bottom:1px solid rgba(0,0,0,0.04);">
-      <a href="/" class="navbar-brand" style="margin-right:auto;"><img src="/static/img/example_logo_nav.png" alt="Example" style="height:28px;margin-right:6px;vertical-align:middle;">Example Corp</a>
+      <a href="/" class="navbar-brand" style="margin-right:auto;font-weight:600;color:var(--c2);">IT 監控系統</a>
       <div style="display:flex;align-items:center;gap:12px;">
         <div style="position:relative;" id="search-wrap">
           <input type="text" id="global-search" placeholder="搜尋功能..." oninput="globalSearch(this.value)" onfocus="globalSearch(this.value)" autocomplete="off"
@@ -20,6 +20,8 @@
           <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--c4);">&#128269;</span>
           <div id="search-results" style="display:none;position:absolute;top:100%;right:0;background:white;border:1px solid #e0e0e0;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.12);margin-top:4px;max-height:360px;overflow-y:auto;z-index:300;min-width:280px;"></div>
         </div>
+        <span id="nav-version" style="font-size:11px;color:var(--c4);font-family:JetBrains Mono,monospace;white-space:nowrap;"></span>
+        <span style="color:var(--c4);">|</span>
         <div id="nav-user-status" style="font-size:12px;color:var(--c3);white-space:nowrap;display:flex;align-items:center;gap:6px;">
           {% if session.get("username") %}
             <span style="color:var(--c2);">{{ session.get("display_name", session.get("username")) }} ({{ session.get("role") }})</span>
@@ -40,11 +42,14 @@
       </button>
       <ul class="nav-links" style="gap:0;">
         <li><a href="/" id="nav-dashboard">Dashboard</a></li>
+        {% if session.get("role") in ["admin", "superadmin"] %}<li><a href="/executive" id="nav-executive" style="color:var(--g2);font-weight:600;">👔 主管儀表板</a></li>{% endif %}
         <li><a href="/report" id="nav-report">今日報告</a></li>
         <li><a href="/history" id="nav-history">歷史查詢</a></li>
-        <li><a href="/summary" id="nav-summary">異常總結</a></li>
-        <li><a href="/audit" id="nav-audit">帳號盤點</a></li>
-        <li><a href="/twgcb" id="nav-twgcb">TWGCB合規</a></li>
+        {% if FEATURES.summary %}<li><a href="/summary" id="nav-summary">異常總結</a></li>{% endif %}
+        {% if FEATURES.audit %}<li><a href="/audit" id="nav-audit">帳號盤點</a></li>{% endif %}
+        {% if FEATURES.packages %}<li><a href="/packages" id="nav-packages">軟體盤點</a></li>{% endif %}
+        {% if FEATURES.perf %}<li><a href="/perf" id="nav-perf">效能月報</a></li>{% endif %}
+        {% if FEATURES.twgcb %}<li><a href="/twgcb" id="nav-twgcb">TWGCB合規</a></li>{% endif %}
         <li><a href="/admin" id="nav-admin" style="color:var(--orange);">系統管理</a></li>
         {% if session.get("role") in ["admin", "superadmin"] %}
         <li><a href="/superadmin" id="nav-superadmin" style="color:var(--red);">開發後台</a></li>
@@ -55,8 +60,9 @@
   <div class="container">
     {% block content %}{% endblock %}
   </div>
-  <script src="/static/js/icons.js"></script>
-  <script src="/static/js/dashboard.js"></script>
+  <script>window.FEATURES = {{ FEATURES | tojson | safe }};</script>
+  <script src="/static/js/icons.js?v={{ APP_VER }}"></script>
+  <script src="/static/js/dashboard.js?v={{ APP_VER }}"></script>
   <script>
     // 使用者角色（由 Flask 注入）
     window.USER_ROLE = "{{ session.get('role', 'oper') }}";
@@ -138,7 +144,7 @@
 
     // Highlight active nav
     const path = location.pathname;
-    const navMap = {"/":"nav-dashboard","/report":"nav-report","/history":"nav-history","/summary":"nav-summary","/audit":"nav-audit","/twgcb":"nav-twgcb","/admin":"nav-admin","/superadmin":"nav-superadmin"};
+    const navMap = {"/":"nav-dashboard","/executive":"nav-executive","/report":"nav-report","/history":"nav-history","/summary":"nav-summary","/audit":"nav-audit","/packages":"nav-packages","/perf":"nav-perf","/twgcb":"nav-twgcb","/admin":"nav-admin","/superadmin":"nav-superadmin"};
     const activeId = navMap[path];
     if(activeId) document.getElementById(activeId).classList.add("active");
     // 手機版：點導覽連結自動收合選單
@@ -148,7 +154,9 @@
   </script>
   <script>
     fetch("/api/settings/version").then(function(r){return r.json();}).then(function(res){
-      if(res.success && res.data) document.getElementById("app-version").textContent = "v" + res.data.version + " | " + (res.data.updated_at || "");
+      if(res.success && res.data) var t = "v" + res.data.version + " | " + (res.data.updated_at || "");
+      var nv = document.getElementById("nav-version"); if(nv) nv.textContent = t;
+      var fv = document.getElementById("app-version"); if(fv) fv.textContent = t;
     }).catch(function(){});
   </script>
   <footer style="text-align:center;padding:12px;font-size:11px;color:var(--c4);font-family:JetBrains Mono,monospace;">

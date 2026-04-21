@@ -93,7 +93,7 @@ function renderReport(d) {
   let html = `<div class="report-container">
     <!-- 報表抬頭 -->
     <div class="report-header">
-      <div class="report-logo"><img src='/static/img/example_logo_report.png' style='height:50px;margin-bottom:8px;'><br>${d.company_name || 'Example Corp'}</div>
+      <div class="report-logo">${d.company_name || ''}</div>
       <div class="report-logo-sub">EXAMPLE SECURITIES</div>
       <div class="report-title">TWGCB 政府組態基準合規檢查報告</div>
       <div class="report-date">報告日期：${d.report_date} | 檢查項目：${checks.length} 項 | 受檢主機：${matrix.length} 台</div>

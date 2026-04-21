@@ -1,0 +1,19 @@
+---
+# 軟體套件盤點 Playbook (Linux + Windows)
+# Usage:
+#   ansible-playbook ansible/playbooks/collect_packages.yml
+#   ansible-playbook ansible/playbooks/collect_packages.yml --limit ansible-host
+
+- name: Collect Packages - Linux
+  hosts: all:!windows
+  gather_facts: true
+  become: no
+  roles:
+    - collect_packages
+
+- name: Collect Packages - Windows
+  hosts: windows
+  gather_facts: false
+  become: no
+  roles:
+    - collect_packages_win

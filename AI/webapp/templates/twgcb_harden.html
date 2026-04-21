@@ -102,8 +102,8 @@
   <p style="color:var(--c2);margin-bottom:16px;">重新掃描確認強化結果，如有問題可一鍵還原。</p>
 
   <div style="display:flex;gap:12px;margin-bottom:20px;">
-    <button class="btn btn-primary" onclick="rescan()">重新掃描</button>
-    <button class="btn btn-danger" onclick="restoreBackup()">一鍵還原到備份點</button>
+    <button class="btn btn-primary" onclick="rescan(this)">重新掃描</button>
+    <button class="btn btn-danger" onclick="restoreBackup(this)">一鍵還原到備份點</button>
   </div>
 
   <div id="verifyResult"></div>
@@ -191,36 +191,43 @@ async function loadStatus() {
   loadHardenItems();
 }
 
+// Phase 2 #7B: async-feedback 標準化
 async function fullBackup() {
   const btn = document.getElementById('btnFullBackup');
+  const _origHTML = btn.innerHTML;
   btn.disabled = true;
-  btn.textContent = '備份中...';
+  btn.style.opacity = '0.7';
+  btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 備份中';
   document.getElementById('backupStatus').innerHTML = '<div class="spinner-sm"></div> 正在備份目標主機設定檔（local + ansible-host 雙份）...';
-
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
   try {
     const res = await fetch('/api/harden/backup/full', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({hostname})
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({hostname}), signal: controller.signal
     });
     const json = await res.json();
     if (json.success) {
       backupDone = true;
       lastBackupId = json.backup_id;
-      document.getElementById('backupStatus').innerHTML =
-        '<div class="item-result result-ok">✓ ' + json.message + '</div>';
+      document.getElementById('backupStatus').innerHTML = '<div class="item-result result-ok">✓ ' + json.message + '</div>';
       document.getElementById('nextStep1').style.display = 'block';
       document.getElementById('step1indicator').className = 'step done';
+      if (typeof _dashToast === 'function') _dashToast('\u2713 備份成功：' + hostname, 'success');
     } else {
-      document.getElementById('backupStatus').innerHTML =
-        '<div class="item-result result-err">✗ ' + (json.error||'備份失敗') + '</div>';
+      document.getElementById('backupStatus').innerHTML = '<div class="item-result result-err">✗ ' + (json.error||'備份失敗') + '</div>';
+      if (typeof _dashToast === 'function') _dashToast('\u2717 備份失敗：' + (json.error||'未知'), 'error');
     }
   } catch(e) {
-    document.getElementById('backupStatus').innerHTML =
-      '<div class="item-result result-err">✗ ' + e.message + '</div>';
+    const emsg = (e.name === 'AbortError') ? '備份逾時（超過 120 秒）' : (e.message || '未知錯誤');
+    document.getElementById('backupStatus').innerHTML = '<div class="item-result result-err">✗ ' + emsg + '</div>';
+    if (typeof _dashToast === 'function') _dashToast('\u2717 備份失敗：' + emsg, 'error');
+  } finally {
+    clearTimeout(timeoutId);
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.innerHTML = _origHTML;
   }
-  btn.disabled = false;
-  btn.textContent = '一鍵備份全部設定檔';
 }
 
 async function listBackups() {
@@ -292,47 +299,57 @@ function renderItems() {
   }).join('');
 }
 
+// Phase 2 #7B: async-feedback 標準化
 async function doRemediate(checkId, idx) {
   if (!backupDone) { alert('請先執行備份！'); goStep(1); return; }
-
   const c = hardenData.checks[idx];
   if (!confirm('確定修復 ' + checkId + '？\\n\\n指令: ' + c.remediation)) return;
-
   const resultDiv = document.getElementById('result-' + checkId);
   resultDiv.innerHTML = '<div class="spinner-sm"></div> 備份中...';
-
-  // 1. 單項次備份
-  const filesRes = await fetch('/api/harden/check-files/' + checkId);
-  const filesJson = await filesRes.json();
-  const files = filesJson.data?.files || [];
-
-  if (files.length > 0) {
-    const bkRes = await fetch('/api/harden/backup/item', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({hostname, check_id: checkId, files})
-    });
-    const bkJson = await bkRes.json();
-    if (!bkJson.success) {
-      resultDiv.innerHTML = '<div class="item-result result-err">✗ 單項備份失敗，取消修復</div>';
-      return;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
+  try {
+    // 1. 單項備份
+    const filesRes = await fetch('/api/harden/check-files/' + checkId, {signal: controller.signal});
+    const filesJson = await filesRes.json();
+    const files = filesJson.data?.files || [];
+    if (files.length > 0) {
+      const bkRes = await fetch('/api/harden/backup/item', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({hostname, check_id: checkId, files}),
+        signal: controller.signal
+      });
+      const bkJson = await bkRes.json();
+      if (!bkJson.success) {
+        resultDiv.innerHTML = '<div class="item-result result-err">✗ 單項備份失敗，取消修復</div>';
+        if (typeof _dashToast === 'function') _dashToast('\u2717 ' + checkId + ' 備份失敗', 'error');
+        return;
+      }
     }
+    // 2. 執行修復
+    resultDiv.innerHTML = '<div class="spinner-sm"></div> 修復中...';
+    const res = await fetch('/api/twgcb/remediate', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({hostname, check_id: checkId, remediation: c.remediation}),
+      signal: controller.signal
+    });
+    const json = await res.json();
+    if (json.success) {
+      itemStates[checkId] = 'fixed';
+      resultDiv.innerHTML = '<div class="item-result result-ok">✓ 修復成功</div>';
+      if (typeof _dashToast === 'function') _dashToast('\u2713 已修復 ' + checkId, 'success');
+    } else {
+      resultDiv.innerHTML = '<div class="item-result result-err">✗ ' + (json.error||json.output||'修復失敗') + '</div>';
+      if (typeof _dashToast === 'function') _dashToast('\u2717 ' + checkId + ' 修復失敗：' + (json.error||'未知'), 'error');
+    }
+  } catch(e) {
+    const emsg = (e.name === 'AbortError') ? '修復逾時（超過 120 秒）' : (e.message || '未知錯誤');
+    resultDiv.innerHTML = '<div class="item-result result-err">✗ ' + emsg + '</div>';
+    if (typeof _dashToast === 'function') _dashToast('\u2717 ' + checkId + ' 修復失敗：' + emsg, 'error');
+  } finally {
+    clearTimeout(timeoutId);
+    renderItems();
   }
-
-  // 2. 執行修復
-  resultDiv.innerHTML = '<div class="spinner-sm"></div> 修復中...';
-  const res = await fetch('/api/twgcb/remediate', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({hostname, check_id: checkId, remediation: c.remediation})
-  });
-  const json = await res.json();
-
-  if (json.success) {
-    itemStates[checkId] = 'fixed';
-    resultDiv.innerHTML = '<div class="item-result result-ok">✓ 修復成功</div>';
-  } else {
-    resultDiv.innerHTML = '<div class="item-result result-err">✗ ' + (json.error||json.output||'修復失敗') + '</div>';
-  }
-  renderItems();
 }
 
 function doSkip(checkId) {
@@ -340,14 +357,38 @@ function doSkip(checkId) {
   renderItems();
 }
 
+// 變更 #41: 原本只寫 twgcb_config.exception_hosts[]，跟主頁 /api/twgcb/exceptions 寫的 collection 不同
+// 改為統一走 /api/twgcb/exceptions (寫 twgcb_exceptions collection)，含例外原因/核准人/日期，與主頁一致
 async function doException(checkId) {
-  if (!confirm('將 ' + hostname + ' 設為 ' + checkId + ' 的例外主機？')) return;
-  await fetch('/api/twgcb/config/' + checkId, {
-    method: 'PUT', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({exception_hosts: [hostname]})
-  });
-  itemStates[checkId] = 'exception';
-  renderItems();
+  var reason = prompt('例外原因 *（例：此主機為 FTP 伺服器，必須開啟 FTP 服務，已申請例外處理）');
+  if (!reason || !reason.trim()) return;
+  var approvedBy = prompt('核准人（可留空）：', '') || '';
+  var today = new Date().toISOString().substring(0, 10);
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 30000);
+  try {
+    var res = await fetch('/api/twgcb/exceptions', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        check_id: checkId, hostname: hostname,
+        reason: reason.trim(), approved_by: approvedBy.trim(), approved_date: today
+      }),
+      signal: controller.signal
+    });
+    var json = await res.json();
+    if (json.success) {
+      itemStates[checkId] = 'exception';
+      if (typeof _dashToast === 'function') _dashToast('\u2713 已標記例外：' + checkId, 'success');
+      renderItems();
+    } else {
+      if (typeof _dashToast === 'function') _dashToast('\u2717 標記例外失敗：' + (json.error || '未知錯誤'), 'error');
+    }
+  } catch(e) {
+    var emsg = (e.name === 'AbortError') ? '請求逾時（超過 30 秒）' : (e.message || '未知錯誤');
+    if (typeof _dashToast === 'function') _dashToast('\u2717 標記例外失敗：' + emsg, 'error');
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function goStep(n) {
@@ -360,16 +401,23 @@ function goStep(n) {
   if (n === 2) renderItems();
 }
 
-async function rescan() {
+// Phase 2 #7B: async-feedback 標準化
+async function rescan(btn) {
+  const _origHTML = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 掃描中'; }
   document.getElementById('verifyResult').innerHTML = '<div class="spinner-sm"></div> 重新掃描中...';
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
+  try {
   const res = await fetch('/api/twgcb/scan', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({target: hostname})
+    body: JSON.stringify({target: hostname}),
+    signal: controller.signal
   });
   const json = await res.json();
   if (json.success) {
     // 重新載入結果
-    const r2 = await fetch('/api/twgcb/results/' + hostname);
+    const r2 = await fetch('/api/twgcb/results/' + hostname, {signal: controller.signal});
     const j2 = await r2.json();
     if (j2.success) {
       hardenData = j2.data;
@@ -389,29 +437,53 @@ async function rescan() {
       });
       html += '</tbody></table>';
       document.getElementById('verifyResult').innerHTML = html;
+      if (typeof _dashToast === 'function') _dashToast('\u2713 掃描完成：合規率 ' + rate + '%', 'success');
     }
   } else {
     document.getElementById('verifyResult').innerHTML = '<div class="item-result result-err">✗ 掃描失敗: ' + json.error + '</div>';
+    if (typeof _dashToast === 'function') _dashToast('\u2717 掃描失敗：' + (json.error||'未知'), 'error');
+  }
+  } catch(e) {
+    const emsg = (e.name === 'AbortError') ? '掃描逾時（超過 120 秒）' : (e.message || '未知錯誤');
+    document.getElementById('verifyResult').innerHTML = '<div class="item-result result-err">✗ ' + emsg + '</div>';
+    if (typeof _dashToast === 'function') _dashToast('\u2717 掃描失敗：' + emsg, 'error');
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = _origHTML; }
   }
 }
 
-async function restoreBackup() {
+// Phase 2 #7B: async-feedback 標準化
+async function restoreBackup(btn) {
   if (!lastBackupId) { alert('沒有可還原的備份'); return; }
   if (!confirm('確定要還原到備份點 ' + lastBackupId + '？\\n\\n這會覆蓋所有已修改的設定檔。')) return;
-
+  const _origHTML = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.7'; btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 還原中'; }
   document.getElementById('verifyResult').innerHTML = '<div class="spinner-sm"></div> 還原中...';
-  const res = await fetch('/api/harden/restore', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({hostname, backup_id: lastBackupId})
-  });
-  const json = await res.json();
-  if (json.success) {
-    document.getElementById('verifyResult').innerHTML =
-      '<div class="item-result result-ok">✓ ' + json.message + '。建議重新掃描確認。</div>';
-    itemStates = {};
-  } else {
-    document.getElementById('verifyResult').innerHTML =
-      '<div class="item-result result-err">✗ ' + (json.error||'還原失敗') + '</div>';
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
+  try {
+    const res = await fetch('/api/harden/restore', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({hostname, backup_id: lastBackupId}),
+      signal: controller.signal
+    });
+    const json = await res.json();
+    if (json.success) {
+      document.getElementById('verifyResult').innerHTML = '<div class="item-result result-ok">✓ ' + json.message + '。建議重新掃描確認。</div>';
+      itemStates = {};
+      if (typeof _dashToast === 'function') _dashToast('\u2713 已還原到備份點', 'success');
+    } else {
+      document.getElementById('verifyResult').innerHTML = '<div class="item-result result-err">✗ ' + (json.error||'還原失敗') + '</div>';
+      if (typeof _dashToast === 'function') _dashToast('\u2717 還原失敗：' + (json.error||'未知'), 'error');
+    }
+  } catch(e) {
+    const emsg = (e.name === 'AbortError') ? '還原逾時（超過 120 秒）' : (e.message || '未知錯誤');
+    document.getElementById('verifyResult').innerHTML = '<div class="item-result result-err">✗ ' + emsg + '</div>';
+    if (typeof _dashToast === 'function') _dashToast('\u2717 還原失敗：' + emsg, 'error');
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = _origHTML; }
   }
 }
 </script>

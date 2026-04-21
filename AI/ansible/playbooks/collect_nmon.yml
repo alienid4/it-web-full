@@ -1,0 +1,40 @@
+---
+# 效能採樣 (nmon) - Linux + AIX
+# Usage:
+#   ansible-playbook ansible/playbooks/collect_nmon.yml --limit "host1,host2"
+# 建議由 scripts/collect_nmon.sh wrapper 呼叫 (會從 MongoDB 過濾 nmon_enabled=true)
+
+- name: Collect nmon - Linux
+  hosts: "{{ target_hosts | default('all:!windows:!aix') }}"
+  gather_facts: false
+  become: no
+  roles:
+    - collect_nmon
+
+# AIX 內建 nmon, 只需要部署 cron + fetch
+- name: Collect nmon - AIX
+  hosts: "{{ target_aix | default('aix') }}"
+  gather_facts: false
+  become: no
+  tasks:
+    - name: "AIX - create log dir"
+      raw: "mkdir -p /var/log/nmon && chmod 755 /var/log/nmon"
+      changed_when: false
+
+    - name: "AIX - daily cron"
+      raw: |
+        (crontab -l 2>/dev/null | grep -v 'collect_nmon' ; echo '0 0 * * * /usr/bin/nmon -f -t -s 60 -c 1440 -m /var/log/nmon >/dev/null 2>&1 # collect_nmon') | crontab -
+      changed_when: false
+
+    - name: "AIX - list recent .nmon"
+      raw: "find /var/log/nmon -name '*.nmon' -mtime -2 -type f 2>/dev/null"
+      register: aix_nmon_files
+      changed_when: false
+
+    - name: "AIX - fetch"
+      fetch:
+        src: "{{ item }}"
+        dest: "/opt/inspection/data/nmon/{{ inventory_hostname }}/"
+        flat: yes
+      loop: "{{ aix_nmon_files.stdout_lines | default([]) }}"
+      when: aix_nmon_files.stdout_lines | default([]) | length > 0

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}系統管理 - IT 每日巡檢系統{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="/static/css/admin.css">
+<link rel="stylesheet" href="/static/css/admin.css?v={{ APP_VER }}">
 {% endblock %}
 {% block content %}
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
@@ -24,30 +24,38 @@
       <button class="admin-tab" data-tab="usermgmt">👤 使用者管理</button>
       <button class="admin-tab" data-tab="logs">📋 日誌檢視</button>
       <button class="admin-tab" data-tab="worklog">📝 操作紀錄</button>
+      <button class="admin-tab" data-tab="perf-mgmt" data-feature="perf">🎚️ 效能月報管理</button>
     </div>
   </div>
   <div class="admin-nav-group">
-    <div class="admin-nav-title">🖥️ 受監控主機</div>
+    <div class="admin-nav-title">🖥️ 主機管理</div>
     <div class="admin-nav-items">
-      <button class="admin-tab" data-tab="hosts">🖥️ 伺服器清單</button>
-      <button class="admin-tab" data-tab="jobs">▶️ 巡檢排程</button>
-      <button class="admin-tab" data-tab="scheduler">🕐 排程設定</button>
+      <button class="admin-tab" data-tab="hosts">🖥️ 主機清單</button>
+      <button class="admin-tab" data-tab="jobs">▶️ 排程總覽</button>
+      <button class="admin-tab" data-tab="scheduler">🕐 排程規則</button>
       <button class="admin-tab" data-tab="alerts">🔔 告警管理</button>
-      <button class="admin-tab" data-tab="linux-init">🔧 Linux初始化工具</button>
+    </div>
+  </div>
+  <div class="admin-nav-group">
+    <div class="admin-nav-title">🛠 運維工具</div>
+    <div class="admin-nav-items">
+      <button class="admin-tab" data-tab="linux-init">🔧 Linux 初始化</button>
+      <button class="admin-tab" data-tab="ssh-keys">🔑 SSH 金鑰</button>
+      <button class="admin-tab" data-tab="remote-tools">🛠 遠端工具</button>
     </div>
   </div>
   <div class="admin-nav-group">
     <div class="admin-nav-title">📋 稽核專區</div>
     <div class="admin-nav-items">
-      <button class="admin-tab" data-tab="security-audit">🔒 系統安全稽核</button>
-      <button class="admin-tab" data-tab="twgcb">🛡️ TWGCB設定</button>
-      <button class="admin-tab" data-tab="reports">📄 合規報告</button>
+      <button class="admin-tab" data-tab="security-audit" data-feature="security_audit">🔒 系統安全稽核</button>
+      <button class="admin-tab" data-tab="twgcb" data-feature="twgcb">🛡️ TWGCB設定</button>
+      <button class="admin-tab" data-tab="reports" data-feature="twgcb">📄 合規報告</button>
     </div>
   </div>
   <div class="admin-nav-group">
     <div class="admin-nav-title">🔑 帳號安全</div>
     <div class="admin-nav-items">
-      <button class="admin-tab" data-tab="audit">📋 帳號盤點</button>
+      <button class="admin-tab" data-tab="audit" data-feature="audit">📋 帳號盤點</button>
       <button class="admin-tab" data-tab="acctmgmt">👥 帳號管理</button>
     </div>
   </div>
@@ -186,9 +194,53 @@
       <button class="btn btn-primary" onclick="addSchedule()" style="margin-top:18px;">新增</button>
     </div>
   </div>
+
+  </div>
+
+<div id="tab-perf-mgmt" class="tab-panel" data-feature="perf">
+  <div style="color:var(--c3);font-size:13px;margin-bottom:12px;">效能月報 (nmon) 相關設定集中於此。關閉此模組後，整個分頁會隱藏。</div>
+<!-- ===== nmon 採樣排程 (v3.9.2.0) ===== -->
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title">nmon 效能採樣排程</div>
+    <div style="color:var(--c3);font-size:12px;margin-bottom:12px;">勾選要採 nmon 的主機 + 設頻率，按「套用」會背景部署 cron 到勾選主機。未勾選的主機會被停用 (nmon_enabled=false)。</div>
+
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+      <div class="form-group" style="margin:0;">
+        <label>批次頻率</label>
+        <select id="nmon-sched-interval">
+          <option value="1">每 1 分鐘 (高頻)</option>
+          <option value="5" selected>每 5 分鐘</option>
+          <option value="15">每 15 分鐘</option>
+          <option value="30">每 30 分鐘</option>
+          <option value="60">每 1 小時</option>
+          <option value="1440">每 24 小時</option>
+        </select>
+      </div>
+      <button type="button" class="btn" style="background:var(--c3);color:white;margin-top:18px;" onclick="applyBatchInterval()" title="把上方頻率批次套到勾選中的主機下拉">批次套用到勾選</button>
+      <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+        <label>搜尋主機</label>
+        <input type="text" id="nmon-sched-search" oninput="renderNmonHosts()" placeholder="hostname / IP / OS">
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-top:18px;">
+        <input type="checkbox" id="nmon-sched-show-all" onchange="renderNmonHosts()">
+        <span>顯示不支援的主機</span>
+      </label>
+      <button class="btn btn-primary" style="margin-top:18px;" id="nmon-sched-apply-btn" onclick="saveNmonSchedule()">套用</button>
+      <span id="nmon-sched-status" style="font-size:12px;color:var(--c3);margin-top:18px;"></span>
+    </div>
+
+    <div style="font-size:13px;margin-bottom:6px;color:var(--c2);">
+      選擇目標主機 <span id="nmon-sched-count" style="color:var(--c3);"></span>
+      <label style="margin-left:12px;font-weight:normal;color:var(--c3);cursor:pointer;">
+        <input type="checkbox" id="nmon-sched-all" onchange="toggleAllNmon()"> 全選 (顯示中)
+      </label>
+    </div>
+    <div id="nmon-sched-hosts" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px;border:1px solid #eee;border-radius:6px;min-height:60px;background:#fafafa;">載入中...</div>
+  </div>
+  <!-- ===== nmon 排程結束 ===== -->
 </div>
 
-<div id="tab-reports" class="tab-panel">
+<div id="tab-reports" class="tab-panel" data-feature="twgcb">
   <div class="card" style="margin-bottom:16px;">
     <div style="display:flex;gap:12px;align-items:center;">
       <div class="form-group" style="margin:0;"><label>月份</label><input type="month" id="report-month"></div>
@@ -200,7 +252,7 @@
 </div>
 
 <!-- 帳號盤點 -->
-<div id="tab-audit" class="tab-panel">
+<div id="tab-audit" class="tab-panel" data-feature="audit">
   <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
     <div class="form-group" style="margin:0;"><label>主機</label><select id="audit-host" onchange="loadAuditTab()"><option value="">全部</option></select></div>
     <div class="form-group" style="margin:0;"><label>部門</label><select id="audit-dept" onchange="loadAuditTab()"><option value="">全部</option></select></div>
@@ -285,6 +337,788 @@
 </div>
 
 <!-- Linux 初始化工具 -->
+
+
+
+
+
+
+
+
+
+
+
+<div id="tab-ssh-keys" class="tab-panel">
+  <h3>🔑 SSH Key Management</h3>
+
+  <!-- Key Status -->
+  <div id="ssh-key-status" style="background:var(--bg);border-radius:8px;padding:16px;margin-bottom:16px;">
+    <h4 style="margin:0 0 8px;">Local SSH Key</h4>
+    <div id="ssh-key-info">Loading...</div>
+  </div>
+
+  <!-- 主機選擇 (卡片式) -->
+  <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+      <h4 style="margin:0;">選擇目標主機 <span id="ssh-pick-count" style="color:var(--c3);font-weight:normal;font-size:12px;"></span></h4>
+      <div style="display:flex;gap:8px;align-items:center;flex:1;max-width:400px;">
+        <input type="text" id="ssh-pick-search" oninput="sshRenderPick()" placeholder="🔍 搜尋主機 (hostname / IP / OS)" style="flex:1;padding:6px 10px;border:1px solid var(--c4);border-radius:6px;font-size:13px;">
+        <label style="font-size:13px;cursor:pointer;white-space:nowrap;"><input type="checkbox" id="ssh-pick-all" onchange="sshPickAll()"> 全選顯示</label>
+      </div>
+    </div>
+    <div id="ssh-pick-hosts" style="display:flex;flex-wrap:wrap;gap:8px;max-height:180px;overflow-y:auto;">Loading...</div>
+  </div>
+
+  <!-- Batch Actions -->
+  <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button onclick="sshTestAll()" class="btn-primary" style="padding:6px 16px;border-radius:6px;border:none;background:var(--g1);color:white;cursor:pointer;">Test All Hosts</button>
+    <button onclick="openBatchDeployModal()" style="padding:6px 16px;border-radius:6px;border:none;background:var(--orange);color:white;cursor:pointer;font-weight:600;">Batch Send Key</button>
+    <button onclick="openBatchRemoveModal()" style="padding:6px 16px;border-radius:6px;border:none;background:var(--red);color:white;cursor:pointer;font-weight:600;">Batch Remove Key</button>
+    <button onclick="sshRefresh()" style="padding:6px 16px;border-radius:6px;border:none;background:var(--c4);color:white;cursor:pointer;">Refresh</button>
+  </div>
+
+  <!-- Batch Result Area -->
+  <div id="ssh-batch-result" style="display:none;background:#f8f9fa;border-radius:8px;padding:12px;margin-bottom:16px;font-size:13px;"></div>
+
+  <!-- Hosts Table -->
+  <table class="data-table" style="width:100%;">
+    <thead>
+      <tr>
+        <th>Hostname</th>
+        <th>IP</th>
+        <th>OS</th>
+        <th>SSH User</th>
+        <th>SSH Status</th>
+        <th>Key 部署時間</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="ssh-hosts-body">
+      <tr><td colspan="7" style="text-align:center;color:var(--c3);">Loading...</td></tr>
+    </tbody>
+  </table>
+
+  <!-- Single Send Key Modal -->
+  <div id="ssh-send-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:999;justify-content:center;align-items:center;">
+    <div style="background:white;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+      <h4 style="margin:0 0 16px;">Send SSH Key</h4>
+      <p style="margin:0 0 8px;color:var(--c2);">Target: <strong id="ssh-send-target"></strong></p>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;color:var(--c3);">Username</label>
+        <input id="ssh-send-user" type="text" value="root" style="width:100%;padding:8px;border:1px solid var(--c4);border-radius:6px;box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:12px;color:var(--c3);">Password</label>
+        <input id="ssh-send-pw" type="password" placeholder="remote host password" style="width:100%;padding:8px;border:1px solid var(--c4);border-radius:6px;box-sizing:border-box;">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="closeSshModal()" style="padding:6px 16px;border-radius:6px;border:1px solid var(--c4);background:white;cursor:pointer;">Cancel</button>
+        <button onclick="doSendKey()" class="btn-primary" style="padding:6px 16px;border-radius:6px;border:none;background:var(--g1);color:white;cursor:pointer;">Send Key</button>
+      </div>
+      <div id="ssh-send-result" style="margin-top:12px;font-size:13px;"></div>
+    </div>
+  </div>
+
+  <!-- Batch Deploy Modal -->
+  <div id="ssh-batch-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:999;justify-content:center;align-items:center;">
+    <div style="background:white;border-radius:12px;padding:24px;max-width:450px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+      <h4 id="ssh-batch-title" style="margin:0 0 16px;">Batch Deploy SSH Key</h4>
+      <p style="margin:0 0 12px;color:var(--c2);font-size:13px;">透過 Ansible 部署到所有 Linux 主機，不需輸入密碼</p>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:12px;color:var(--c3);">部署帳號 (逗號分隔)</label>
+        <input id="ssh-batch-users" type="text" value="root, sysinfra" style="width:100%;padding:8px;border:1px solid var(--c4);border-radius:6px;box-sizing:border-box;">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="closeBatchModal()" style="padding:6px 16px;border-radius:6px;border:1px solid var(--c4);background:white;cursor:pointer;">Cancel</button>
+        <button id="ssh-batch-btn" onclick="doBatchDeploy()" style="padding:6px 16px;border-radius:6px;border:none;background:var(--orange);color:white;cursor:pointer;font-weight:600;">Deploy</button>
+      </div>
+      <div id="ssh-batch-modal-result" style="margin-top:12px;font-size:13px;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var _sshHosts = [];
+var _sshSendIp = "";
+var _sshBatchAction = "deploy"; // "deploy" or "remove"
+
+function loadSSHKeysTab() { sshRefresh(); }
+
+function sshPickAll() {
+  var on = document.getElementById("ssh-pick-all").checked;
+  var boxes = document.querySelectorAll("#ssh-pick-hosts input[type=checkbox]:not(:disabled)");
+  for (var i = 0; i < boxes.length; i++) boxes[i].checked = on;
+}
+
+function sshGetSelectedHosts() {
+  var boxes = document.querySelectorAll("#ssh-pick-hosts input[type=checkbox]:checked");
+  var hosts = [];
+  for (var i = 0; i < boxes.length; i++) hosts.push(boxes[i].value);
+  return hosts;
+}
+
+function sshRenderPick() {
+  // 保留勾選狀態
+  var prev = {};
+  var existing = document.querySelectorAll("#ssh-pick-hosts input[type=checkbox]");
+  for (var i = 0; i < existing.length; i++) prev[existing[i].value] = existing[i].checked;
+
+  var q = (document.getElementById("ssh-pick-search").value || "").toLowerCase().trim();
+  var html = "";
+  var visible = 0;
+  var total = _sshHosts.length;
+  for (var i = 0; i < _sshHosts.length; i++) {
+    var h = _sshHosts[i];
+    var osText = (h.os||"") + " " + (h.os_group||"");
+    var match = !q || (h.hostname||"").toLowerCase().indexOf(q) >= 0 ||
+                (h.ip||"").toLowerCase().indexOf(q) >= 0 ||
+                osText.toLowerCase().indexOf(q) >= 0;
+    if (!match) continue;
+    visible++;
+    var isWin = osText.toLowerCase().indexOf("windows") >= 0;
+    var disabled = isWin ? ' disabled title="Windows 不支援 SSH Key 部署"' : '';
+    var opacity = isWin ? 'opacity:0.5;' : '';
+    var checked = prev[h.hostname] ? ' checked' : '';
+    html += '<label style="background:white;padding:6px 12px;border:1px solid var(--c4);border-radius:6px;cursor:' + (isWin?'not-allowed':'pointer') + ';font-size:13px;' + opacity + '">' +
+      '<input type="checkbox" value="' + (h.hostname||"") + '"' + disabled + checked + ' style="margin-right:4px;">' +
+      (h.hostname||"") + ' <span style="color:var(--c3);font-size:11px;">(' + (h.ip||"") + ')</span></label>';
+  }
+  document.getElementById("ssh-pick-hosts").innerHTML = html || '<span style="color:var(--c3);">找不到符合條件的主機</span>';
+  var cnt = document.getElementById("ssh-pick-count");
+  if (cnt) cnt.textContent = q ? '(顯示 ' + visible + '/' + total + ')' : '(共 ' + total + ' 台)';
+}
+
+async function sshRefresh() {
+  try {
+    var r = await fetch("/api/admin/ssh/status");
+    var res = await r.json();
+    if (!res.success) return;
+    var key = res.data.key;
+    _sshHosts = res.data.hosts;
+    sshRenderPick();
+
+    // Key status
+    var ki = document.getElementById("ssh-key-info");
+    if (key.exists) {
+      var createdBy = key.created_by ? ' (by <b>' + key.created_by + '</b>)' : '';
+      var createdAt = key.created_at ? '<br><span style="font-size:11px;color:var(--c3);">建立時間: ' + key.created_at + '</span>' : '';
+      ki.innerHTML = '<span style="color:var(--g2);">\u2705 Key exists</span>' + createdBy + createdAt + '<br>' +
+        '<code style="font-size:11px;color:var(--c3);">' + key.fingerprint + '</code>';
+    } else {
+      ki.innerHTML = '<span style="color:var(--red);">\u274c No SSH key found</span><br>' +
+        '<button onclick="sshGenKey()" style="margin-top:8px;padding:6px 16px;border-radius:6px;border:none;background:var(--g1);color:white;cursor:pointer;">Generate Key</button>';
+    }
+
+    // Hosts table
+    var tb = document.getElementById("ssh-hosts-body");
+    if (_sshHosts.length === 0) {
+      tb.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--c3);">No hosts. Import hosts first.</td></tr>';
+      return;
+    }
+    var html = "";
+    for (var i = 0; i < _sshHosts.length; i++) {
+      var h = _sshHosts[i];
+      var deployInfo = '';
+      if (h.ssh_key_records && Object.keys(h.ssh_key_records).length > 0) {
+        var rkeys = Object.keys(h.ssh_key_records);
+        for (var ri = 0; ri < rkeys.length; ri++) {
+          deployInfo += '<div style="font-size:11px;line-height:1.6;"><span style="color:var(--c3);">' + h.ssh_key_records[rkeys[ri]] + '</span> <b style="color:var(--g1);">' + rkeys[ri] + '</b></div>';
+        }
+      } else {
+        deployInfo = '<span style="color:var(--c3);">\u2014</span>';
+      }
+      html += '<tr id="ssh-row-' + i + '">' +
+        '<td>' + (h.hostname||"") + '</td>' +
+        '<td>' + (h.ip||"") + '</td>' +
+        '<td>' + (h.os||h.os_group||"") + '</td>' +
+        '<td id="ssh-user-' + i + '"><span style="color:var(--c3);">\u2014</span></td>' +
+        '<td id="ssh-st-' + i + '"><span style="color:var(--c3);">\u2014</span></td>' +
+        '<td>' + deployInfo + '</td>' +
+        '<td>' +
+          '<button onclick="sshTestOne(' + i + ')" style="padding:3px 10px;background:var(--g2);color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-right:4px;">Test</button>' +
+          '<button onclick="openSshModal(' + i + ')" style="padding:3px 10px;background:var(--orange);color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;">Send Key</button>' +
+        '</td></tr>';
+    }
+    tb.innerHTML = html;
+  } catch(e) { console.error(e); }
+}
+
+async function sshGenKey() {
+  if (!confirm("Generate new SSH key?")) return;
+  var r = await fetch("/api/admin/ssh/generate-key", {method:"POST"});
+  var res = await r.json();
+  if (res.success) { alert("Key generated!"); sshRefresh(); }
+  else { alert("Error: " + res.error); }
+}
+
+function renderUserResults(d, ucEl, stEl) {
+  if (!d.user_results) { stEl.innerHTML = '<span style="color:var(--red);">\u274c No data</span>'; return; }
+  var ukeys = Object.keys(d.user_results);
+  var ucHtml = '', stHtml = '';
+  for (var i = 0; i < ukeys.length; i++) {
+    var u = ukeys[i], s = d.user_results[u];
+    if (s === "ok") {
+      ucHtml += '<div style="line-height:1.6;"><b style="color:var(--g1);">' + u + '</b></div>';
+      stHtml += '<div style="line-height:1.6;"><span style="color:var(--g2);">\u2705 OK</span></div>';
+    } else {
+      ucHtml += '<div style="line-height:1.6;"><span style="color:var(--red);">' + u + '</span></div>';
+      stHtml += '<div style="line-height:1.6;"><span style="color:var(--red);">\u274c ' + s + '</span></div>';
+    }
+  }
+  ucEl.innerHTML = ucHtml;
+  stEl.innerHTML = stHtml;
+}
+
+async function sshTestOne(idx) {
+  var h = _sshHosts[idx];
+  var st = document.getElementById("ssh-st-" + idx);
+  var uc = document.getElementById("ssh-user-" + idx);
+  st.innerHTML = '<span style="color:var(--orange);">\u23f3 Testing...</span>';
+  uc.innerHTML = '<span style="color:var(--c3);">\u2014</span>';
+  try {
+    var r = await fetch("/api/admin/ssh/test", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ip:h.ip, hostname:h.hostname})});
+    var res = await r.json();
+    if (res.success && res.data.length > 0) {
+      renderUserResults(res.data[0], uc, st);
+    }
+  } catch(e) { st.innerHTML = '<span style="color:var(--red);">\u274c Error</span>'; }
+}
+
+async function sshTestAll() {
+  for (var i = 0; i < _sshHosts.length; i++) {
+    document.getElementById("ssh-st-" + i).innerHTML = '<span style="color:var(--orange);">\u23f3</span>';
+  }
+  try {
+    var r = await fetch("/api/admin/ssh/test", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({})});
+    var res = await r.json();
+    if (res.success) {
+      for (var j = 0; j < res.data.length; j++) {
+        var d = res.data[j];
+        for (var k = 0; k < _sshHosts.length; k++) {
+          if (_sshHosts[k].ip === d.ip || _sshHosts[k].hostname === d.hostname) {
+            renderUserResults(d, document.getElementById("ssh-user-" + k), document.getElementById("ssh-st-" + k));
+          }
+        }
+      }
+    }
+  } catch(e) { console.error(e); }
+}
+
+// === Single Send Key Modal ===
+function openSshModal(idx) {
+  var h = _sshHosts[idx];
+  _sshSendIp = h.ip;
+  document.getElementById("ssh-send-target").textContent = h.hostname + " (" + h.ip + ")";
+  document.getElementById("ssh-send-pw").value = "";
+  document.getElementById("ssh-send-result").innerHTML = "";
+  document.getElementById("ssh-send-modal").style.display = "flex";
+}
+function closeSshModal() { document.getElementById("ssh-send-modal").style.display = "none"; }
+
+async function doSendKey() {
+  var user = document.getElementById("ssh-send-user").value;
+  var pw = document.getElementById("ssh-send-pw").value;
+  var result = document.getElementById("ssh-send-result");
+  if (!pw) { result.innerHTML = '<span style="color:var(--red);">Please enter password</span>'; return; }
+  result.innerHTML = '<span style="color:var(--orange);">\u23f3 Sending key...</span>';
+  try {
+    var r = await fetch("/api/admin/ssh/send-key", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ip:_sshSendIp, password:pw, user:user})});
+    var res = await r.json();
+    if (res.success) {
+      result.innerHTML = '<span style="color:var(--g2);">\u2705 ' + res.message + '</span>';
+      setTimeout(function(){ closeSshModal(); sshRefresh(); }, 1500);
+    } else {
+      result.innerHTML = '<span style="color:var(--red);">\u274c ' + (res.error||"Failed") + '</span>';
+    }
+  } catch(e) { result.innerHTML = '<span style="color:var(--red);">\u274c Network error</span>'; }
+}
+
+// === Batch Deploy / Remove Modal ===
+function openBatchDeployModal() {
+  _sshBatchAction = "deploy";
+  document.getElementById("ssh-batch-title").textContent = "Batch Deploy SSH Key";
+  document.getElementById("ssh-batch-btn").textContent = "Deploy";
+  document.getElementById("ssh-batch-btn").style.background = "var(--orange)";
+  document.getElementById("ssh-batch-modal-result").innerHTML = "";
+  document.getElementById("ssh-batch-modal").style.display = "flex";
+}
+function openBatchRemoveModal() {
+  _sshBatchAction = "remove";
+  document.getElementById("ssh-batch-title").textContent = "Batch Remove SSH Key";
+  document.getElementById("ssh-batch-btn").textContent = "Remove";
+  document.getElementById("ssh-batch-btn").style.background = "var(--red)";
+  document.getElementById("ssh-batch-modal-result").innerHTML = '<span style="color:var(--red);">\u26a0 此操作將從所有 Linux 主機移除 SSH Key，移除後將無法遠端連線！</span>';
+  document.getElementById("ssh-batch-modal").style.display = "flex";
+}
+function closeBatchModal() { document.getElementById("ssh-batch-modal").style.display = "none"; }
+
+async function doBatchDeploy() {
+  var usersStr = document.getElementById("ssh-batch-users").value;
+  var users = usersStr.split(",").map(function(s){ return s.trim(); }).filter(function(s){ return s; });
+  if (users.length === 0) { alert("請輸入至少一個帳號"); return; }
+
+  var selectedHosts = sshGetSelectedHosts();
+  if (selectedHosts.length === 0) { alert("請先勾選要操作的主機"); return; }
+
+  var action = _sshBatchAction;
+  var url = action === "deploy" ? "/api/admin/ssh/batch-deploy" : "/api/admin/ssh/batch-remove";
+  var actionLabel = action === "deploy" ? "部署" : "移除";
+
+  if (action === "remove" && !confirm("確定要從 " + selectedHosts.length + " 台主機移除 " + users.join(", ") + " 的 SSH Key？\n移除後將無法透過 Key 遠端連線！")) return;
+
+  var mr = document.getElementById("ssh-batch-modal-result");
+  mr.innerHTML = '<span style="color:var(--orange);">\u23f3 正在' + actionLabel + ' (' + selectedHosts.length + ' 台)，請稍候...</span>';
+  document.getElementById("ssh-batch-btn").disabled = true;
+
+  try {
+    var r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({users:users, hosts:selectedHosts})});
+    var res = await r.json();
+    document.getElementById("ssh-batch-btn").disabled = false;
+    if (res.success) {
+      var statusMap = {"ok":"\u2705","created_ok":"\u2705 (已自動建立帳號)","created":"\u26a0 帳號已建但 Key 未部署","create_fail":"\u274c 建立帳號失敗","no_user":"\u26d4 帳號不存在","deploy_fail":"\u274c 部署失敗","deploy_error":"\u274c 錯誤","remove_fail":"\u274c 移除失敗","remove_error":"\u274c 錯誤","check_error":"\u26a0 檢查失敗"};
+      var html = '<div style="margin-bottom:8px;font-weight:600;color:var(--g1);">\u2705 ' + actionLabel + '完成</div>';
+      for (var i = 0; i < res.data.length; i++) {
+        var d = res.data[i];
+        var hostIcon = d.status === "ok" ? '\u2705' : '\u274c';
+        html += '<div style="margin:6px 0;padding:8px;background:white;border-radius:6px;border:1px solid #eee;">';
+        html += '<b>' + hostIcon + ' ' + d.hostname + '</b><br>';
+        if (d.users) {
+          var ukeys = Object.keys(d.users);
+          for (var j = 0; j < ukeys.length; j++) {
+            var uname = ukeys[j];
+            var ustatus = d.users[uname];
+            var uicon = ustatus === "ok" ? '<span style="color:var(--g2);">\u2705</span>' : '<span style="color:var(--red);">' + (statusMap[ustatus]||ustatus) + '</span>';
+            html += '<span style="margin-left:12px;font-size:12px;">' + uname + ': ' + uicon + '</span><br>';
+          }
+        }
+        html += '</div>';
+      }
+      mr.innerHTML = html;
+      var br = document.getElementById("ssh-batch-result");
+      br.innerHTML = html;
+      br.style.display = "block";
+      setTimeout(function(){ sshRefresh(); }, 2000);
+    } else {
+      mr.innerHTML = '<span style="color:var(--red);">\u274c ' + (res.error||"Failed") + '</span>';
+    }
+  } catch(e) {
+    document.getElementById("ssh-batch-btn").disabled = false;
+    mr.innerHTML = '<span style="color:var(--red);">\u274c Network error</span>';
+  }
+}
+</script>
+<!-- END tab-ssh-keys -->
+<div id="tab-remote-tools" class="tab-panel">
+  <h3>🛠 遠端工具</h3>
+  <div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <label style="font-size:13px;"><b>執行身分:</b></label>
+    <select id="rt-exec-user" style="padding:4px 8px;border:1px solid var(--c4);border-radius:4px;font-size:13px;min-width:160px;">
+      <option value="">(請先勾選主機)</option>
+    </select>
+    <span id="rt-user-hint" style="color:var(--c3);font-size:11px;">僅列出所有勾選主機 <b>均已部署 SSH Key</b> 的帳號</span>
+  </div>
+
+  <!-- 主機選擇 -->
+  <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+      <h4 style="margin:0;">選擇目標主機 <span id="rt-host-count" style="color:var(--c3);font-weight:normal;font-size:12px;"></span></h4>
+      <div style="display:flex;gap:8px;align-items:center;flex:1;max-width:400px;">
+        <input type="text" id="rt-host-search" oninput="rtRenderHosts()" placeholder="🔍 搜尋主機 (hostname / IP / OS)" style="flex:1;padding:6px 10px;border:1px solid var(--c4);border-radius:6px;font-size:13px;">
+        <label style="font-size:13px;cursor:pointer;white-space:nowrap;"><input type="checkbox" id="rt-select-all" onchange="rtSelectAll()"> 全選顯示</label>
+        <button onclick="rtLoadHosts()" style="padding:4px 10px;border:1px solid var(--c4);border-radius:4px;background:white;cursor:pointer;font-size:12px;">重新載入</button>
+      </div>
+    </div>
+    <div id="rt-hosts" style="display:flex;flex-wrap:wrap;gap:8px;max-height:180px;overflow-y:auto;">Loading...</div>
+  </div>
+
+  <!-- 工具分區 -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+
+    <!-- 上傳 -->
+    <div style="background:white;border:1px solid #e0e0e0;border-radius:8px;padding:16px;">
+      <h4 style="margin:0 0 12px;color:var(--orange);">📤 上傳檔案</h4>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:12px;color:var(--c3);">檔案</label>
+        <input type="file" id="rt-upload-file" onchange="rtFileChanged()" style="width:100%;padding:6px;border:1px solid var(--c4);border-radius:6px;box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:12px;color:var(--c3);">目標路徑</label>
+        <input type="text" id="rt-upload-target" value="/tmp" style="width:100%;padding:6px;border:1px solid var(--c4);border-radius:6px;box-sizing:border-box;">
+      </div>
+      <div id="rt-upload-space" style="margin-bottom:8px;font-size:12px;"></div>
+      <button onclick="rtUpload()" style="width:100%;padding:8px;border:none;border-radius:6px;background:var(--orange);color:white;cursor:pointer;font-weight:600;">上傳</button>
+    </div>
+
+    <!-- 下載 -->
+    <div style="background:white;border:1px solid #e0e0e0;border-radius:8px;padding:16px;">
+      <h4 style="margin:0 0 12px;color:var(--g1);">📥 下載檔案</h4>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:12px;color:var(--c3);">遠端檔案路徑</label>
+        <input type="text" id="rt-download-path" placeholder="/tmp/xxx.log" style="width:100%;padding:6px;border:1px solid var(--c4);border-radius:6px;box-sizing:border-box;">
+      </div>
+      <div style="font-size:11px;color:var(--c3);margin-bottom:8px;">下載到 ansible-host 的 /tmp/tmp_YYYYMMDD_HHMMSS/主機名/</div>
+      <button onclick="rtDownload()" style="width:100%;padding:8px;border:none;border-radius:6px;background:var(--g1);color:white;cursor:pointer;font-weight:600;margin-bottom:6px;">下載</button>
+      <button onclick="rtRefreshDownloads()" style="width:100%;padding:4px;border:1px solid var(--c4);border-radius:6px;background:white;cursor:pointer;font-size:12px;">重新整理列表</button>
+    </div>
+  </div>
+
+  <!-- 執行指令 -->
+  <div style="background:white;border:1px solid #e0e0e0;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <h4 style="margin:0 0 12px;color:var(--red);">💡 執行指令</h4>
+    <div style="margin-bottom:8px;">
+      <label style="font-size:12px;color:var(--c3);">指令 (以 sysinfra 身分執行)</label>
+      <input type="text" id="rt-exec-cmd" placeholder="cat /etc/passwd | grep alien" style="width:100%;padding:8px;border:1px solid var(--c4);border-radius:6px;box-sizing:border-box;font-family:monospace;">
+    </div>
+    <div style="background:#fff8e1;border:1px solid #ffc107;border-radius:6px;padding:8px;font-size:11px;color:#856404;margin-bottom:10px;">
+      ⚠ <b>營業時間 09:00-15:00</b> 禁止異動指令，如需執行請勾選「已申請」並填寫 OA 單號/備註。<br>
+      <b>異動關鍵字</b>: systemctl, service, kill, rm, mv, dd, reboot, shutdown, useradd, userdel, passwd, chmod, chown, mkdir, touch, iptables, firewall-cmd, sed -i, tee, &gt;, &gt;&gt;
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+      <label style="font-size:13px;cursor:pointer;"><input type="checkbox" id="rt-applied"> 已申請 (執行異動指令必勾)</label>
+      <input type="text" id="rt-oa-ref" placeholder="OA 單號 / 備註" style="flex:1;padding:6px;border:1px solid var(--c4);border-radius:6px;">
+    </div>
+    <button onclick="rtExec()" style="padding:8px 24px;border:none;border-radius:6px;background:var(--red);color:white;cursor:pointer;font-weight:600;">執行</button>
+  </div>
+
+  <!-- 結果顯示 -->
+  <div id="rt-result-wrap" style="display:none;margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+      <span style="font-size:12px;color:var(--c3);">操作結果</span>
+      <button onclick="rtClearResult()" style="padding:2px 10px;border:1px solid var(--c4);border-radius:4px;background:white;cursor:pointer;font-size:11px;">🗑 Clear Log</button>
+    </div>
+    <div id="rt-result" style="background:#f8f9fa;border-radius:8px;padding:12px;"></div>
+  </div>
+
+  <!-- 已下載 sessions -->
+  <div style="background:white;border:1px solid #e0e0e0;border-radius:8px;padding:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h4 style="margin:0;">📁 已下載檔案</h4>
+      <button onclick="rtClearDownloads()" style="padding:4px 12px;border:1px solid var(--red);border-radius:4px;background:white;color:var(--red);cursor:pointer;font-size:12px;">🗑 一鍵清空</button>
+    </div>
+    <div id="rt-downloads">Loading...</div>
+  </div>
+<!-- END tab-remote-tools -->
+</div>
+
+<script>
+var _rtHosts = [];
+
+function loadRemoteToolsTab() {
+  rtLoadHosts();
+  rtRefreshDownloads();
+}
+
+function rtGetExecUser() {
+  var sel = document.getElementById("rt-exec-user");
+  return sel ? (sel.value || "") : "";
+}
+
+function rtUpdateExecUsers() {
+  // 計算已勾選主機的 key_users 交集
+  var sel = document.getElementById("rt-exec-user");
+  var hint = document.getElementById("rt-user-hint");
+  if (!sel) return;
+  var prev = sel.value;
+
+  var hosts = rtGetSelectedHosts();
+  if (hosts.length === 0) {
+    sel.innerHTML = '<option value="">(請先勾選主機)</option>';
+    hint.innerHTML = '僅列出所有勾選主機 <b>均已部署 SSH Key</b> 的帳號';
+    hint.style.color = 'var(--c3)';
+    return;
+  }
+
+  // 找出每台的 key_users 然後交集
+  var sets = [];
+  for (var i = 0; i < hosts.length; i++) {
+    var h = null;
+    for (var j = 0; j < _rtHosts.length; j++) if (_rtHosts[j].hostname === hosts[i]) { h = _rtHosts[j]; break; }
+    sets.push((h && h.key_users) ? h.key_users.slice() : []);
+  }
+  var inter = sets[0] || [];
+  for (var i = 1; i < sets.length; i++) {
+    inter = inter.filter(function(u){ return sets[i].indexOf(u) >= 0; });
+  }
+
+  if (inter.length === 0) {
+    sel.innerHTML = '<option value="">(無可用帳號)</option>';
+    hint.innerHTML = '⚠ 勾選的主機沒有共同部署的帳號，請到 <b>SSH Key 管理</b> 批次部署相同帳號';
+    hint.style.color = 'var(--red)';
+    return;
+  }
+
+  // 排序：sysinfra 優先
+  inter.sort(function(a, b){
+    if (a === "sysinfra") return -1;
+    if (b === "sysinfra") return 1;
+    return a.localeCompare(b);
+  });
+
+  var html = '';
+  for (var i = 0; i < inter.length; i++) {
+    var u = inter[i];
+    var sel_attr = (u === prev || (!prev && u === "sysinfra")) ? ' selected' : '';
+    html += '<option value="' + u + '"' + sel_attr + '">' + u + (u === "sysinfra" ? ' (預設)' : '') + '</option>';
+  }
+  sel.innerHTML = html;
+  hint.innerHTML = '共 <b>' + inter.length + '</b> 個可用帳號 (所有選取主機皆已部署)';
+  hint.style.color = 'var(--g1)';
+}
+
+function rtSelectAll() {
+  // 只影響目前顯示 (filter 後) 的主機
+  var checked = document.getElementById("rt-select-all").checked;
+  var boxes = document.querySelectorAll("#rt-hosts input[type=checkbox]");
+  for (var i = 0; i < boxes.length; i++) boxes[i].checked = checked;
+  rtUpdateExecUsers();
+}
+
+function rtGetSelectedHosts() {
+  var boxes = document.querySelectorAll("#rt-hosts input[type=checkbox]:checked");
+  var hosts = [];
+  for (var i = 0; i < boxes.length; i++) hosts.push(boxes[i].value);
+  return hosts;
+}
+
+function rtFmtBytes(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n/1024).toFixed(1) + " KB";
+  if (n < 1073741824) return (n/1048576).toFixed(1) + " MB";
+  return (n/1073741824).toFixed(2) + " GB";
+}
+
+async function rtLoadHosts() {
+  document.getElementById("rt-hosts").innerHTML = "Loading...";
+  try {
+    var r = await fetch("/api/admin/remote/hosts");
+    var res = await r.json();
+    if (!res.success) { document.getElementById("rt-hosts").innerHTML = "Error"; return; }
+    _rtHosts = res.data;
+    rtRenderHosts();
+  } catch(e) { document.getElementById("rt-hosts").innerHTML = "Network error"; }
+}
+
+function rtRenderHosts() {
+  // 保留已勾選狀態
+  var prevChecked = {};
+  var existBoxes = document.querySelectorAll("#rt-hosts input[type=checkbox]");
+  for (var i = 0; i < existBoxes.length; i++) prevChecked[existBoxes[i].value] = existBoxes[i].checked;
+
+  var q = (document.getElementById("rt-host-search").value || "").toLowerCase().trim();
+  var html = "";
+  var visible = 0;
+  for (var i = 0; i < _rtHosts.length; i++) {
+    var h = _rtHosts[i];
+    var match = !q || (h.hostname||"").toLowerCase().indexOf(q) >= 0 ||
+                (h.ip||"").toLowerCase().indexOf(q) >= 0 ||
+                ((h.os||"") + (h.os_group||"")).toLowerCase().indexOf(q) >= 0;
+    if (!match) continue;
+    visible++;
+    var isChecked = prevChecked[h.hostname] ? ' checked' : '';
+    html += '<label style="background:white;padding:6px 12px;border:1px solid var(--c4);border-radius:6px;cursor:pointer;font-size:13px;">' +
+      '<input type="checkbox" value="' + h.hostname + '"' + isChecked + ' style="margin-right:4px;">' +
+      h.hostname + ' <span style="color:var(--c3);font-size:11px;">(' + h.ip + ')</span></label>';
+  }
+  document.getElementById("rt-hosts").innerHTML = html || '<span style="color:var(--c3);">找不到符合條件的主機</span>';
+  document.getElementById("rt-host-count").textContent = q ? '(顯示 ' + visible + '/' + _rtHosts.length + ')' : '(共 ' + _rtHosts.length + ' 台)';
+  // 綁定 checkbox 變動 → 更新可用帳號
+  var boxes = document.querySelectorAll("#rt-hosts input[type=checkbox]");
+  for (var i = 0; i < boxes.length; i++) {
+    boxes[i].addEventListener("change", rtUpdateExecUsers);
+  }
+  rtUpdateExecUsers();
+}
+
+function rtShowResult(title, html) {
+  var el = document.getElementById("rt-result");
+  var wrap = document.getElementById("rt-result-wrap");
+  // 累積模式：新訊息加在前面，而非覛覆蓋
+  var ts = new Date().toLocaleTimeString();
+  var block = '<div style="border-bottom:1px dashed #ddd;padding-bottom:10px;margin-bottom:10px;">' +
+    '<h4 style="margin:0 0 8px;">' + title + ' <span style="font-size:11px;color:var(--c3);font-weight:normal;">(' + ts + ')</span></h4>' +
+    html + '</div>';
+  el.innerHTML = block + el.innerHTML;
+  wrap.style.display = "block";
+  wrap.scrollIntoView({behavior:"smooth", block:"nearest"});
+}
+
+function rtClearResult() {
+  document.getElementById("rt-result").innerHTML = "";
+  document.getElementById("rt-result-wrap").style.display = "none";
+}
+
+// === 上傳 ===
+async function rtFileChanged() {
+  var f = document.getElementById("rt-upload-file").files[0];
+  if (!f) return;
+  var hosts = rtGetSelectedHosts();
+  if (hosts.length === 0) {
+    document.getElementById("rt-upload-space").innerHTML = '<span style="color:var(--c3);">請先勾選主機以檢查空間</span>';
+    return;
+  }
+  var target = document.getElementById("rt-upload-target").value;
+  var sizeMb = f.size / 1048576;
+  document.getElementById("rt-upload-space").innerHTML = '<span style="color:var(--orange);">⏳ 檢查空間中...</span>';
+  try {
+    var r = await fetch("/api/admin/remote/check-space", {method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({hosts:hosts, target_path:target, file_size_mb:sizeMb})});
+    var res = await r.json();
+    if (!res.success) { document.getElementById("rt-upload-space").innerHTML = '<span style="color:var(--red);">' + res.error + '</span>'; return; }
+    var html = '';
+    var hasWarn = false;
+    for (var i = 0; i < res.data.length; i++) {
+      var d = res.data[i];
+      if (d.status !== "ok") {
+        html += '<div style="color:var(--red);">❌ ' + d.hostname + ': ' + d.message + '</div>';
+      } else {
+        var color = d.warn ? 'var(--red)' : 'var(--g1)';
+        var icon = d.warn ? '⚠' : '✅';
+        html += '<div style="color:' + color + ';">' + icon + ' ' + d.hostname + ': 上傳後使用率 ' + d.pct_after + '% (' + rtFmtBytes(d.avail_mb*1048576) + ' 可用)</div>';
+        if (d.warn) hasWarn = true;
+      }
+    }
+    if (hasWarn) html += '<div style="margin-top:4px;color:var(--red);font-weight:600;">⚠ 部分主機上傳後使用率將 > 85%</div>';
+    document.getElementById("rt-upload-space").innerHTML = html;
+  } catch(e) {
+    document.getElementById("rt-upload-space").innerHTML = '<span style="color:var(--red);">check failed</span>';
+  }
+}
+
+async function rtUpload() {
+  var f = document.getElementById("rt-upload-file").files[0];
+  var hosts = rtGetSelectedHosts();
+  var target = document.getElementById("rt-upload-target").value;
+  if (!f) { alert("請選擇檔案"); return; }
+  if (hosts.length === 0) { alert("請勾選主機"); return; }
+
+  // 空間檢查警告 → 確認強制
+  var spaceHtml = document.getElementById("rt-upload-space").innerHTML;
+  var force = false;
+  if (spaceHtml.indexOf("&gt; 85%") >= 0 || spaceHtml.indexOf("> 85%") >= 0) {
+    if (!confirm("部分主機上傳後使用率將超過 85%，是否強制上傳？")) return;
+    force = true;
+  }
+
+  rtShowResult("📤 上傳中...", '<div style="color:var(--orange);">⏳ 正在上傳 ' + f.name + ' 到 ' + hosts.length + ' 台主機...</div>');
+
+  var fd = new FormData();
+  fd.append("file", f);
+  fd.append("hosts", hosts.join(","));
+  fd.append("target_path", target);
+  fd.append("force", force);
+  fd.append("exec_user", rtGetExecUser());
+
+  try {
+    var r = await fetch("/api/admin/remote/upload", {method:"POST", body:fd});
+    var res = await r.json();
+    if (!res.success) { rtShowResult("❌ 上傳失敗", '<div style="color:var(--red);">' + res.error + '</div>'); return; }
+    var html = '<div style="margin-bottom:8px;"><b>' + res.filename + '</b> → ' + res.dest_dir + '</div>';
+    for (var i = 0; i < res.data.length; i++) {
+      var d = res.data[i];
+      var icon = d.status === "ok" ? '<span style="color:var(--g2);">✅</span>' : '<span style="color:var(--red);">❌</span>';
+      html += '<div style="padding:4px 0;">' + icon + ' <b>' + d.hostname + '</b>: ' + d.message + '</div>';
+    }
+    rtShowResult("📤 上傳結果", html);
+  } catch(e) { rtShowResult("❌ 錯誤", '<div style="color:var(--red);">' + e + '</div>'); }
+}
+
+// === 下載 ===
+async function rtDownload() {
+  var hosts = rtGetSelectedHosts();
+  var remote = document.getElementById("rt-download-path").value.trim();
+  if (!remote) { alert("請輸入遠端路徑"); return; }
+  if (hosts.length === 0) { alert("請勾選主機"); return; }
+
+  rtShowResult("📥 下載中...", '<div style="color:var(--orange);">⏳ 從 ' + hosts.length + ' 台主機下載 ' + remote + '...</div>');
+
+  try {
+    var r = await fetch("/api/admin/remote/download", {method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({hosts:hosts, remote_path:remote, exec_user:rtGetExecUser()})});
+    var res = await r.json();
+    if (!res.success) { rtShowResult("❌ 下載失敗", '<div style="color:var(--red);">' + res.error + '</div>'); return; }
+    var html = '<div style="margin-bottom:8px;">儲存路徑: <code>' + res.session_dir + '</code> ';
+    html += '<a href="/api/admin/remote/download-zip/' + res.session_id + '" style="margin-left:8px;padding:4px 12px;background:var(--g1);color:white;text-decoration:none;border-radius:4px;font-size:12px;">📦 下載 ZIP</a></div>';
+    for (var i = 0; i < res.data.length; i++) {
+      var d = res.data[i];
+      var icon = d.status === "ok" ? '<span style="color:var(--g2);">✅</span>' : '<span style="color:var(--red);">❌</span>';
+      if (d.status === "ok") {
+        html += '<div style="padding:4px 0;">' + icon + ' <b>' + d.hostname + '</b> (' + rtFmtBytes(d.size) + ')</div>';
+      } else {
+        var errMsg = (d.message||"").replace(/</g,"&lt;");
+        html += '<div style="padding:6px 0;">' + icon + ' <b>' + d.hostname + '</b>' +
+          '<pre style="margin:4px 0 0;padding:8px;background:#ffebee;color:#c62828;border-radius:4px;font-size:11px;white-space:pre-wrap;max-height:200px;overflow:auto;">' + errMsg + '</pre></div>';
+      }
+    }
+    rtShowResult("📥 下載結果", html);
+    rtRefreshDownloads();
+  } catch(e) { rtShowResult("❌ 錯誤", '<div style="color:var(--red);">' + e + '</div>'); }
+}
+
+async function rtRefreshDownloads() {
+  try {
+    var r = await fetch("/api/admin/remote/downloads-list");
+    var res = await r.json();
+    if (!res.success) { document.getElementById("rt-downloads").innerHTML = "Error"; return; }
+    if (res.data.length === 0) { document.getElementById("rt-downloads").innerHTML = '<span style="color:var(--c3);">尚無下載記錄</span>'; return; }
+    var html = '<table style="width:100%;font-size:12px;"><thead><tr><th style="text-align:left;">Session</th><th>檔案數</th><th>大小</th><th>時間</th><th>下載</th></tr></thead><tbody>';
+    for (var i = 0; i < res.data.length; i++) {
+      var s = res.data[i];
+      html += '<tr style="border-bottom:1px solid #eee;"><td><code>' + s.session_id + '</code></td>' +
+        '<td style="text-align:center;">' + s.file_count + '</td>' +
+        '<td style="text-align:center;">' + rtFmtBytes(s.size) + '</td>' +
+        '<td>' + s.mtime + '</td>' +
+        '<td style="text-align:center;">' + (s.zip_exists ? '<a href="/api/admin/remote/download-zip/' + s.session_id + '" style="color:var(--g1);">ZIP</a>' : '-') + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    document.getElementById("rt-downloads").innerHTML = html;
+  } catch(e) { document.getElementById("rt-downloads").innerHTML = "Network error"; }
+}
+
+async function rtClearDownloads() {
+  if (!confirm("確定要清空所有下載資料？")) return;
+  try {
+    var r = await fetch("/api/admin/remote/clear-downloads", {method:"POST"});
+    var res = await r.json();
+    if (res.success) { alert("已清空 " + res.count + " 筆"); rtRefreshDownloads(); }
+    else alert("Error: " + res.error);
+  } catch(e) { alert("Network error"); }
+}
+
+// === 執行指令 ===
+async function rtExec() {
+  var hosts = rtGetSelectedHosts();
+  var cmd = document.getElementById("rt-exec-cmd").value.trim();
+  var applied = document.getElementById("rt-applied").checked;
+  var oa = document.getElementById("rt-oa-ref").value.trim();
+  if (!cmd) { alert("請輸入指令"); return; }
+  if (hosts.length === 0) { alert("請勾選主機"); return; }
+
+  rtShowResult("⏳ 執行中...", '<div style="color:var(--orange);">執行 <code>' + cmd + '</code> 於 ' + hosts.length + ' 台主機...</div>');
+
+  try {
+    var r = await fetch("/api/admin/remote/exec", {method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({hosts:hosts, command:cmd, applied:applied, oa_ref:oa, exec_user:rtGetExecUser()})});
+    var res = await r.json();
+    if (!res.success) {
+      rtShowResult("❌ 無法執行", '<div style="color:var(--red);">' + res.error + '</div>');
+      return;
+    }
+    var badge = res.is_modify ? '<span style="background:var(--red);color:white;padding:2px 8px;border-radius:4px;font-size:11px;">異動指令 [' + res.keyword + ']</span>' : '<span style="background:var(--g1);color:white;padding:2px 8px;border-radius:4px;font-size:11px;">查詢指令</span>';
+    var userBadge = '<span style="background:#607d8b;color:white;padding:2px 8px;border-radius:4px;font-size:11px;margin-left:4px;">身分: ' + (res.exec_user||rtGetExecUser()) + '</span>';
+    var html = '<div style="margin-bottom:8px;">' + badge + userBadge + ' <code>' + cmd + '</code></div>';
+    for (var i = 0; i < res.data.length; i++) {
+      var d = res.data[i];
+      var icon = d.status === "ok" ? '<span style="color:var(--g2);">✅</span>' : '<span style="color:var(--red);">❌</span>';
+      html += '<div style="margin:8px 0;padding:8px;background:white;border:1px solid #eee;border-radius:6px;">';
+      html += '<div style="font-weight:600;margin-bottom:4px;">' + icon + ' ' + d.hostname + '</div>';
+      if (d.output) html += '<pre style="margin:0;padding:8px;background:#2b2b2b;color:#d4d4d4;border-radius:4px;font-size:11px;max-height:200px;overflow:auto;">' + (d.output||"(無輸出)").replace(/</g,"&lt;") + '</pre>';
+      if (d.stderr) html += '<pre style="margin:4px 0 0;padding:6px;background:#ffebee;color:#c62828;border-radius:4px;font-size:11px;">' + d.stderr.replace(/</g,"&lt;") + '</pre>';
+      html += '</div>';
+    }
+    rtShowResult("💡 執行結果", html);
+  } catch(e) { rtShowResult("❌ 錯誤", '<div style="color:var(--red);">' + e + '</div>'); }
+}
+</script>
 <div id="tab-linux-init" class="tab-panel">
   <div class="card-title" style="margin-bottom:12px;">Linux 初始化工具 (SysExpert) <span style="font-size:11px;font-weight:400;color:var(--c3);margin-left:8px;">僅限 Linux 主機</span></div>
   <!-- Sub-tabs -->
@@ -403,7 +1237,7 @@
 </div>
 
 <!-- 系統安全稽核 -->
-<div id="tab-security-audit" class="tab-panel">
+<div id="tab-security-audit" class="tab-panel" data-feature="security_audit">
   <div class="card-title" style="margin-bottom:12px;">系統安全稽核 <span style="font-size:11px;font-weight:400;color:var(--c3);margin-left:8px;">僅限 Linux 主機</span></div>
   <div style="display:flex;gap:12px;margin-bottom:16px;">
     <button class="sub-tab active" id="saSubExec" onclick="switchSaSub('exec')">🔒 執行稽核</button>
@@ -500,7 +1334,7 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 
-<div id="tab-twgcb" class="tab-panel">
+<div id="tab-twgcb" class="tab-panel" data-feature="twgcb">
   <div style="display:flex;gap:12px;margin-bottom:20px;">
     <button class="sub-tab active" id="subChecks" onclick="switchTwgcbSub('checks')">檢查項目設定</button>
     <button class="sub-tab" id="subReport" onclick="switchTwgcbSub('report')">報表簽核設定</button>
@@ -515,7 +1349,7 @@
     <p style="color:#888;font-size:13px;margin-bottom:12px;">設定報表抬頭與簽核欄位人員，產出報表時自動帶入。</p>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:600px;">
       <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">公司名稱</label>
-        <input type="text" id="rptCompany" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;" value="Example Corp"></div>
+        <input type="text" id="rptCompany" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;" value=""></div>
       <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">部門</label>
         <input type="text" id="rptDept" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;"></div>
       <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">承辦人</label>
@@ -570,7 +1404,7 @@
   </div>
 </div>
 
-<script src="/static/js/admin.js"></script>
+<script src="/static/js/admin.js?v={{ APP_VER }}"></script>
 <script>
 // TWGCB 設定
 let twgcbEditingId = null;
@@ -692,9 +1526,22 @@ async function saveReportCfg() {
   setTimeout(function(){msg.textContent='';}, 3000);
 }
 
+/* TAB-AUTOLOAD-BLOCK-START */
 document.addEventListener('click', function(e) {
-  if (e.target.dataset && e.target.dataset.tab === 'twgcb') setTimeout(loadTwgcbConfig, 100);
+  // TAB-AUTOLOAD-v1 通用 tab 切換後自動呼叫 loadXxxTab()
+  var tab = e.target.dataset && e.target.dataset.tab;
+  if (!tab) return;
+  if (tab === 'twgcb') { setTimeout(loadTwgcbConfig, 100); return; }
+  var tabLoaders = {
+    'ssh-keys': 'loadSSHKeysTab',
+    'remote-tools': 'loadRemoteToolsTab'
+  };
+  var fnName = tabLoaders[tab];
+  if (fnName && typeof window[fnName] === 'function') {
+    setTimeout(window[fnName], 50);
+  }
 });
+/* TAB-AUTOLOAD-BLOCK-END */
 document.addEventListener('keydown', function(e) {
   if(e.key==='Escape') {
     closeTwgcbEdit();
@@ -979,6 +1826,12 @@ async function finishAudit(success, message) {
   var msg = document.getElementById('secaudit-msg');
   msg.style.color = success ? 'var(--g1)' : 'var(--red)';
   msg.innerHTML = (success ? '✓ ' : '✗ ') + message;
+
+  // 變更 #41: 成功時顯示「查看 / 下載報告」按鈕，點擊切到報告 sub-tab
+  if (success) {
+    msg.innerHTML += ' <button onclick="switchSaSub(\'reports\')" style="margin-left:12px;padding:4px 14px;background:var(--g1);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">📄 查看 / 下載報告</button>';
+    if (typeof _dashToast === 'function') _dashToast('\u2713 稽核完成，可點「查看 / 下載報告」', 'success');
+  }
 
   // 失敗時顯示「查看 LOG」按鈕
   if (!success && _auditJobId) {

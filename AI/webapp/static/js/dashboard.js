@@ -1,6 +1,17 @@
 /* Dashboard 前端邏輯 v1.7.2 - 無圖表版 */
 var _allHostsData = [];
 
+// Phase 2 #7A: 共用 toast（成功/失敗/資訊通知）
+function _dashToast(text, type) {
+  var bg = type === "success" ? "var(--g1)" : (type === "error" ? "var(--red)" : "var(--c2)");
+  var icon = type === "success" ? "\u2713" : (type === "error" ? "\u2717" : "\u2139");
+  var t = document.createElement("div");
+  t.style.cssText = "position:fixed;top:80px;left:50%;transform:translateX(-50%);background:" + bg + ";color:white;padding:12px 24px;border-radius:12px;z-index:9999;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.3);display:flex;align-items:center;gap:10px;";
+  t.innerHTML = '<span style="font-size:18px;">' + icon + "</span><span>" + text + "</span>";
+  document.body.appendChild(t);
+  setTimeout(function(){ t.remove(); }, 3500);
+}
+
 document.addEventListener("DOMContentLoaded", function() {
   if (document.getElementById("kpi-ok")) {
     loadDashboard();
@@ -53,18 +64,36 @@ function loadDashboard() {
   });
 }
 
-function dashPingAll() {
-  // 顯示掃描中
+// Phase 2 #7A: async-feedback 標準化（spinner + AbortController + toast + finally）
+async function dashPingAll() {
   var scanBtn = document.getElementById("rescan-all-btn");
-  if (scanBtn) { scanBtn.textContent = "掃描中..."; scanBtn.disabled = true; }
-  fetch("/api/admin/hosts/ping-all").then(function(r){return r.json();}).then(function(res) {
-    if (!res.success) return;
-    window._dashPingData = res.data;
-    applyDashPing(res.data);
-    if (scanBtn) { scanBtn.textContent = "🔄 重新掃描"; scanBtn.disabled = false; }
-  }).catch(function(){
-    if (scanBtn) { scanBtn.textContent = "🔄 重新掃描"; scanBtn.disabled = false; }
-  });
+  var _origHTML = null;
+  if (scanBtn) {
+    _origHTML = scanBtn.innerHTML;
+    scanBtn.disabled = true;
+    scanBtn.style.opacity = "0.7";
+    scanBtn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 掃描中';
+  }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 30000);
+  try {
+    var r = await fetch("/api/admin/hosts/ping-all", { signal: controller.signal });
+    var res = await r.json();
+    if (res.success) {
+      window._dashPingData = res.data;
+      applyDashPing(res.data);
+      var cacheHint = res.cached ? "（快取 " + (res.age_sec || 0) + "s）" : "";
+      _dashToast("連線檢查完成" + cacheHint, "success");
+    } else {
+      _dashToast("連線檢查失敗：" + (res.error || "未知錯誤"), "error");
+    }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "連線檢查逾時（超過 30 秒）" : (e.message || "未知錯誤");
+    _dashToast("連線檢查失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (scanBtn) { scanBtn.disabled = false; scanBtn.style.opacity = ""; scanBtn.innerHTML = _origHTML; }
+  }
 }
 
 function applyDashPing(data) {

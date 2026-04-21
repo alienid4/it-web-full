@@ -1,0 +1,34 @@
+---
+# 軟體套件盤點 - Windows (SSH + PowerShell)
+
+- name: "Win - OS info"
+  raw: "powershell -Command \"$os=Get-CimInstance Win32_OperatingSystem; Write-Output ($os.Caption + '|' + $os.Version)\""
+  register: win_osinfo
+  changed_when: false
+  ignore_errors: true
+
+- name: "Win - Collect installed programs"
+  raw: |
+    powershell -Command "$paths=@('HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'); $items=foreach($p in $paths){Get-ItemProperty $p -EA SilentlyContinue}; $items | Where-Object {$_.DisplayName -and $_.DisplayName -notmatch '^KB\d+$'} | ForEach-Object {$name=$_.DisplayName -replace '\|',' '; $ver=($_.DisplayVersion -replace '\|',' '); $pub=($_.Publisher -replace '\|',' '); $d=($_.InstallDate -replace '\|',' '); Write-Output ($name + '|' + $ver + '|' + $pub + '|' + $d)}"
+  register: win_pkglist
+  changed_when: false
+  ignore_errors: true
+
+- name: "Win - Parse into result"
+  set_fact:
+    packages_result:
+      hostname: "{{ inventory_hostname }}"
+      os: "{{ (win_osinfo.stdout | default('Windows|')).split('|')[0] | trim }}"
+      os_family: "Windows"
+      kernel: "{{ (win_osinfo.stdout | default('|')).split('|')[1] | default('unknown') | trim }}"
+      pkg_manager: "registry_uninstall"
+      collected_at: "{{ '%Y-%m-%d %H:%M:%S' | strftime }}"
+      package_count: "{{ (win_pkglist.stdout_lines | default([]) | select('match','^.+\\|.*\\|.*\\|.*$') | list) | length }}"
+      packages: "{{ (win_pkglist.stdout_lines | default([]) | select('match','^.+\\|.*\\|.*\\|.*$') | list) | map('split','|') | map('list') | list }}"
+
+- name: "Win - Save JSON"
+  copy:
+    content: "{{ packages_result | to_nice_json }}"
+    dest: "/opt/inspection/data/reports/packages_{{ inventory_hostname }}.json"
+  delegate_to: localhost
+  become: false

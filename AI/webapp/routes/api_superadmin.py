@@ -41,6 +41,9 @@ def check_auth():
 def git_status():
     """取得 Git 狀態"""
     try:
+        import shutil
+        if not shutil.which("git"):
+            return jsonify({"success": False, "error": "git 未安裝"}), 200
         # status
         status = subprocess.run(
             ["git", "status", "--porcelain"],
@@ -218,6 +221,16 @@ DOCS_MAP = {
     "memory": {"name": "專案記憶", "path": "data/project_memory.md", "desc": "規格變更摘要"},
     "itagent_manual": {"name": "服務管理手冊", "path": "data/ITAGENT_MANUAL.md", "desc": "ITAgent systemd 服務架構、日常操作、搬家步驟、故障排除"},
     "itagent_script": {"name": "管理腳本", "path": "itagent.sh", "desc": "互動式選單 + CLI 模式（start/stop/restart/status/log）"},
+    # 變更 #47: 第 10 份開發者文件 — 給未來 AI 從零重建此系統的自給自足指南
+    "rebuild_skill": {"name": "從零重建 SKILL", "path": "data/REBUILD_FROM_ZERO_SKILL.md", "desc": "給 AI 的自給自足重建指南（概觀/架構/DB schema/API/坑紀錄/建置順序 17 步）"},
+    # 變更 #50: 第 12 份 — 常見問題排查 + CIO 未來待開發
+    "runbook": {"name": "RUNBOOK", "path": "data/RUNBOOK.md", "desc": "12 類常見問題排查 (SSH/MTU/502/tunnel/模組/nmon/fix_locks...) + 主管視角未來待開發清單"},
+    # 變更 #51: 第 13 份 — 離線安裝包完整依賴清單 (空氣隔離環境用)
+    "offline_deps": {"name": "離線安裝包清單", "path": "data/OFFLINE_DEPS.md", "desc": "35 個 Python wheel + 10 個 RPM + MongoDB 映像 + cloudflared 的下載連結 + 打包/安裝腳本, 空氣隔離環境用"},
+    # 變更 #52: 第 14 份 — wheel 直連 URL
+    "wheel_urls": {"name": "Python wheel 直連下載", "path": "data/WHEEL_URLS.md", "desc": "27 個 Python 套件的 .whl 直連 URL (files.pythonhosted.org), 右鍵另存新檔"},
+    # 變更 #49: 第 11 份 — v3.7.0.0 上線資安報告（5 層掃描）
+    "security_release_20260419": {"name": "資安上線報告 v3.7.0.0", "path": "data/SECURITY_RELEASE_20260419.md", "desc": "5 層掃描整合報告：白箱+Bandit SAST+pip-audit+Wapiti DAST+TWGCB 主機合規"},
 }
 
 
@@ -438,3 +451,26 @@ def notes_delete(note_id):
     if os.path.exists(fpath):
         os.remove(fpath)
     return jsonify({"success": True})
+
+
+# ===== 2026-04-20: Feature Flag 管理 =====
+@bp.route("/features/list", methods=["GET"])
+@superadmin_required
+def features_list():
+    from services import feature_flags
+    return jsonify({"success": True, "data": feature_flags.list_flags()})
+
+
+@bp.route("/features/toggle", methods=["POST"])
+@superadmin_required
+def features_toggle():
+    from services import feature_flags
+    body = request.get_json(silent=True) or {}
+    key = (body.get("key") or "").strip()
+    enabled = bool(body.get("enabled"))
+    if not key:
+        return jsonify({"success": False, "error": "key required"}), 400
+    ok = feature_flags.set_flag(key, enabled)
+    if not ok:
+        return jsonify({"success": False, "error": f"feature {key} not found"}), 404
+    return jsonify({"success": True, "key": key, "enabled": enabled})

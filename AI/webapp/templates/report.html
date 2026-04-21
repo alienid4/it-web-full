@@ -14,7 +14,7 @@
 <!-- 篩選列 -->
 <div class="filter-bar" style="margin-bottom:16px;">
   <input type="text" id="filterSearch" class="input-field" placeholder="搜尋主機、IP、保管者..." oninput="applyFilter()" style="flex:1;min-width:200px;">
-  <button id="report-rescan-btn" class="btn btn-sm" style="background:var(--g2);color:white;font-size:12px;padding:6px 14px;white-space:nowrap;" onclick="rescanAll()">🔄 重新掃描</button>
+  <span class="ct-tip" data-tip="重新檢查所有主機的連線狀態 (ping)。離線主機會標示紅色遮罩，此操作不會重新執行巡檢。"><button id="report-rescan-btn" class="btn btn-sm" style="background:var(--g2);color:white;font-size:12px;padding:6px 14px;white-space:nowrap;" onclick="rescanAll()">🔄 重新掃描</button></span>
   <label class="toggle-label">只顯示異常
     <input type="checkbox" id="toggleAbnormal" onchange="applyFilter()">
     <span class="toggle-slider"></span>
@@ -173,13 +173,36 @@ document.addEventListener("DOMContentLoaded", function() {
   });
 });
 
-function rescanAll() {
+// Phase 2 #7A: async-feedback 標準化
+async function rescanAll() {
   var btn = document.getElementById("report-rescan-btn");
-  btn.textContent = "掃描中..."; btn.disabled = true;
-  fetch("/api/admin/hosts/ping-all").then(function(r){return r.json();}).then(function(res) {
-    if (res.success) { window._pingData = res.data; applyPingOverlay(); }
-    btn.textContent = "🔄 重新掃描"; btn.disabled = false;
-  }).catch(function(){ btn.textContent = "🔄 重新掃描"; btn.disabled = false; });
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 掃描中';
+  }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 30000);
+  try {
+    var r = await fetch("/api/admin/hosts/ping-all", { signal: controller.signal });
+    var res = await r.json();
+    if (res.success) {
+      window._pingData = res.data;
+      applyPingOverlay();
+      var cacheHint = res.cached ? "（快取 " + (res.age_sec || 0) + "s）" : "";
+      if (typeof _dashToast === "function") _dashToast("連線檢查完成" + cacheHint, "success");
+    } else {
+      if (typeof _dashToast === "function") _dashToast("連線檢查失敗：" + (res.error || "未知錯誤"), "error");
+    }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "連線檢查逾時（超過 30 秒）" : (e.message || "未知錯誤");
+    if (typeof _dashToast === "function") _dashToast("連線檢查失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
+  }
 }
 
 function applyPingOverlay() {

@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify
+from decorators import login_required
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from services.mongo_service import (
@@ -11,12 +12,14 @@ bp = Blueprint("api_inspections", __name__, url_prefix="/api/inspections")
 
 
 @bp.route("/latest", methods=["GET"])
+@login_required
 def latest():
     data = get_latest_inspections()
     return jsonify({"success": True, "data": data, "count": len(data)})
 
 
 @bp.route("/<hostname>/latest", methods=["GET"])
+@login_required
 def host_latest(hostname):
     doc = get_host_latest_inspection(hostname)
     if not doc:
@@ -25,6 +28,7 @@ def host_latest(hostname):
 
 
 @bp.route("/<hostname>/history", methods=["GET"])
+@login_required
 def host_history(hostname):
     days = request.args.get("days", 7, type=int)
     data = get_host_history(hostname, days)
@@ -32,6 +36,7 @@ def host_history(hostname):
 
 
 @bp.route("/abnormal", methods=["GET"])
+@login_required
 def abnormal():
     data = get_abnormal_inspections()
     return jsonify({"success": True, "data": data, "count": len(data)})

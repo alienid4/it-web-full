@@ -71,7 +71,17 @@ def get_latest_inspections():
         {"$replaceRoot": {"newRoot": "$doc"}},
         {"$project": {"_id": 0}},
     ]
-    return list(col.aggregate(pipeline))
+    results = list(col.aggregate(pipeline))
+    hosts_map = {h["hostname"]: h for h in get_collection("hosts").find(
+        {}, {"_id": 0, "hostname": 1, "ip": 1, "custodian": 1}
+    )}
+    for r in results:
+        info = hosts_map.get(r.get("hostname"), {})
+        if not r.get("ip"):
+            r["ip"] = info.get("ip", "")
+        if not r.get("custodian"):
+            r["custodian"] = info.get("custodian", "")
+    return results
 
 
 def get_host_latest_inspection(hostname):

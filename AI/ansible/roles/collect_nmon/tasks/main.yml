@@ -1,0 +1,95 @@
+---
+# 效能採樣 (nmon) - Linux
+# 1) 裝 nmon (只做一次, 冪等)
+# 2) 建 /var/log/nmon 目錄
+# 3) 下 cron: 每天 00:00 跑 nmon -f -t -s 60 -c 1440 (每 60 秒採樣 x 1440 次 = 24 小時)
+# 4) fetch 最近 2 天 .nmon 檔到 ansible-host
+
+- name: "nmon - detect pkg mgr"
+  shell: |
+    if command -v apt-get >/dev/null 2>&1; then echo apt
+    elif command -v dnf >/dev/null 2>&1; then echo dnf
+    elif command -v yum >/dev/null 2>&1; then echo yum
+    else echo unknown
+    fi
+  register: nmon_pkgmgr
+  changed_when: false
+  become: true
+
+- name: "nmon - install on Debian/Ubuntu"
+  apt:
+    name: nmon
+    state: present
+    update_cache: yes
+  when: nmon_pkgmgr.stdout == "apt"
+  become: true
+  ignore_errors: true
+
+- name: "nmon - ensure EPEL on RHEL/Rocky (for nmon package)"
+  shell: "dnf install -y epel-release 2>&1 || yum install -y epel-release 2>&1 || true"
+  when: nmon_pkgmgr.stdout in ["dnf","yum"]
+  changed_when: false
+  become: true
+  ignore_errors: true
+
+- name: "nmon - install on RHEL/Rocky"
+  shell: "dnf install -y nmon 2>&1 || yum install -y nmon 2>&1"
+  when: nmon_pkgmgr.stdout in ["dnf","yum"]
+  register: nmon_install
+  changed_when: "'Installed' in nmon_install.stdout"
+  become: true
+  ignore_errors: true
+
+- name: "nmon - verify binary"
+  shell: "command -v nmon || command -v topas_nmon"
+  register: nmon_bin
+  changed_when: false
+  become: true
+  ignore_errors: true
+
+- name: "nmon - create log dir"
+  file:
+    path: /var/log/nmon
+    state: directory
+    mode: '0755'
+  become: true
+
+# 支援可變 interval (分鐘): 1 / 5 / 15 / 30 / 60 / 1440 (24h)
+# 每次 cron 跑 `nmon -s 60 -c <interval>` = 抓 <interval> 個 1-分鐘 snapshot
+- name: "nmon - ensure no legacy cron lines"
+  cron:
+    name: "nmon daily snapshot (collect_nmon)"
+    state: absent
+    user: root
+  become: true
+  ignore_errors: true
+
+- name: "nmon - schedule cron (interval={{ nmon_interval_min | default(5) }} min)"
+  cron:
+    name: "nmon sampling (collect_nmon)"
+    minute: "{{ '0' if (nmon_interval_min | default(5) | int) >= 60 else ('*/' + (nmon_interval_min | default(5) | string)) }}"
+    hour: "{{ '0' if (nmon_interval_min | default(5) | int) >= 1440 else ('*/' + ((nmon_interval_min | default(5) | int) // 60) | string if (nmon_interval_min | default(5) | int) >= 60 else '*') }}"
+    job: "{{ nmon_bin.stdout | default('/usr/bin/nmon') | trim }} -f -t -s 60 -c {{ nmon_interval_min | default(5) }} -m /var/log/nmon >/dev/null 2>&1"
+    state: present
+    user: root
+  when: nmon_bin.stdout | default('') | length > 0
+  become: true
+
+- name: "nmon - list recent .nmon files (last 2 days)"
+  shell: "find /var/log/nmon -maxdepth 1 -name '*.nmon' -mtime -2 -type f 2>/dev/null | sort"
+  register: nmon_files
+  changed_when: false
+  become: true
+
+- name: "nmon - fetch .nmon files to control node"
+  fetch:
+    src: "{{ item }}"
+    dest: "/opt/inspection/data/nmon/{{ inventory_hostname }}/"
+    flat: yes
+  loop: "{{ nmon_files.stdout_lines | default([]) }}"
+  when: nmon_files.stdout_lines | default([]) | length > 0
+  become: true
+
+- name: "nmon - collection summary"
+  debug:
+    msg: "{{ inventory_hostname }}: nmon={{ nmon_bin.stdout | default('NOT-INSTALLED') | trim }}, files_fetched={{ nmon_files.stdout_lines | default([]) | length }}"

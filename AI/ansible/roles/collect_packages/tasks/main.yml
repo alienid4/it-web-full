@@ -1,0 +1,75 @@
+---
+# 軟體套件盤點 - Linux (rpm/dpkg 自動偵測)
+# 輸出: /opt/inspection/data/reports/packages_<hostname>.json
+
+- name: "Collect OS info"
+  shell: |
+    KERNEL=$(uname -r)
+    OSREL=""
+    if [ -f /etc/os-release ]; then
+      OSREL=$(awk -F= '/^PRETTY_NAME=/{gsub(/"/,"",$2); print $2}' /etc/os-release)
+    fi
+    echo "${KERNEL}|${OSREL}"
+  register: os_info
+  changed_when: false
+  ignore_errors: true
+  become: true
+
+- name: "Detect package manager"
+  shell: |
+    if command -v rpm >/dev/null 2>&1; then
+      echo "rpm"
+    elif command -v dpkg-query >/dev/null 2>&1; then
+      echo "dpkg"
+    else
+      echo "unknown"
+    fi
+  register: pkg_manager
+  changed_when: false
+  become: true
+
+- name: "Collect packages via rpm"
+  shell: |
+    LC_ALL=C rpm -qa --queryformat '%{NAME}|%{VERSION}-%{RELEASE}|%{ARCH}|%{INSTALLTIME}\n' 2>/dev/null | \
+      awk -F'|' 'BEGIN{OFS="|"} {if ($4 ~ /^[0-9]+$/) $4=strftime("%Y-%m-%d", $4); print}' | sort -u
+  register: rpm_list
+  changed_when: false
+  when: pkg_manager.stdout == "rpm"
+  become: true
+
+- name: "Collect packages via dpkg"
+  shell: |
+    dpkg-query -W -f='${Package}|${Version}|${Architecture}|\n' 2>/dev/null | sort -u
+  register: dpkg_list
+  changed_when: false
+  when: pkg_manager.stdout == "dpkg"
+  become: true
+
+- name: "Parse package list (rpm)"
+  set_fact:
+    pkg_lines: "{{ rpm_list.stdout_lines | default([]) }}"
+  when: pkg_manager.stdout == "rpm"
+
+- name: "Parse package list (dpkg)"
+  set_fact:
+    pkg_lines: "{{ dpkg_list.stdout_lines | default([]) }}"
+  when: pkg_manager.stdout == "dpkg"
+
+- name: "Build package list"
+  set_fact:
+    packages_result:
+      hostname: "{{ inventory_hostname }}"
+      os: "{{ (os_info.stdout | default('|')).split('|')[1] | default('Linux') | trim }}"
+      os_family: "Linux"
+      kernel: "{{ (os_info.stdout | default('|')).split('|')[0] | default('unknown') | trim }}"
+      pkg_manager: "{{ pkg_manager.stdout | default('unknown') }}"
+      collected_at: "{{ '%Y-%m-%d %H:%M:%S' | strftime }}"
+      package_count: "{{ pkg_lines | length }}"
+      packages: "{{ pkg_lines | map('split', '|') | map('list') | list }}"
+
+- name: "Save packages result to JSON"
+  copy:
+    content: "{{ packages_result | to_nice_json }}"
+    dest: "/opt/inspection/data/reports/packages_{{ inventory_hostname }}.json"
+  delegate_to: localhost
+  become: false

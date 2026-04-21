@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}主管儀表板 - IT 監控系統{% endblock %}
+{% block head %}
+<style>
+@media print {
+  nav, .navbar, .btn, .no-print { display: none !important; }
+  body { padding: 0; margin: 0; }
+  .exec-page { padding: 10mm; }
+  .exec-card { page-break-inside: avoid; }
+}
+.exec-kpi { background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 18px; text-align: center; box-shadow: 0 2px 6px rgba(0,0,0,.05); }
+.exec-kpi .label { font-size: 13px; color: var(--c3); margin-bottom: 6px; }
+.exec-kpi .value { font-size: 32px; font-weight: 800; color: var(--c1); margin-bottom: 2px; }
+.exec-kpi .sub { font-size: 12px; color: var(--c3); }
+.score-ring { display:inline-block; width: 160px; height: 160px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; }
+.score-ring.green { background: conic-gradient(#26A889 var(--p), #eee 0); }
+.score-ring.lightgreen { background: conic-gradient(#7ed321 var(--p), #eee 0); }
+.score-ring.orange { background: conic-gradient(#f5a623 var(--p), #eee 0); }
+.score-ring.red { background: conic-gradient(#e74c3c var(--p), #eee 0); }
+.score-ring .inner { background: #fff; width: 130px; height: 130px; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.score-num { font-size: 44px; font-weight: 900; }
+.score-lv { font-size: 13px; color: var(--c3); }
+.rec-item { padding: 10px 14px; border-radius: 6px; margin: 6px 0; font-size: 13px; }
+.rec-item.error { background: #ffebee; border-left: 3px solid var(--red); }
+.rec-item.warn { background: #fff8e1; border-left: 3px solid var(--orange); }
+.rec-item.info { background: #e3f2fd; border-left: 3px solid #2196f3; }
+.rec-item.ok { background: #e8f5e9; border-left: 3px solid var(--g1); }
+</style>
+{% endblock %}
+{% block content %}
+<div class="exec-page">
+
+<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:18px;">
+  <div>
+    <h1 style="margin:0;font-size:26px;">資訊主管儀表板</h1>
+    <div style="color:var(--c3);font-size:13px;margin-top:4px;" id="exec-timestamp">—</div>
+  </div>
+  <a href="/api/cio/pdf" class="btn no-print" style="background:var(--g1);color:white;text-decoration:none;margin-right:8px;">📄 下載月度 PDF</a>
+    <button class="btn no-print" style="background:var(--g2);color:white;" onclick="window.print()">🖨 列印</button>
+</div>
+
+<!-- Row 1: Health Score + 4 KPIs -->
+<div style="display:grid;grid-template-columns:260px 1fr 1fr 1fr 1fr;gap:14px;margin-bottom:18px;" class="exec-card">
+  <div style="text-align:center;padding:16px;border:1px solid #eee;border-radius:10px;background:#fff;">
+    <div style="font-size:13px;color:var(--c3);margin-bottom:8px;">綜合健康指數</div>
+    <div id="score-ring" class="score-ring green" style="--p:0%;margin:0 auto;">
+      <div class="inner">
+        <div class="score-num" id="score-num">—</div>
+        <div class="score-lv" id="score-level">—</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--c4);margin-top:8px;" id="score-components">—</div>
+  </div>
+  <div class="exec-kpi">
+    <div class="label">🖥️ 主機在線</div>
+    <div class="value" id="kpi-host">—</div>
+    <div class="sub" id="kpi-host-sub">—</div>
+  </div>
+  <div class="exec-kpi">
+    <div class="label">🛡️ TWGCB 合規率</div>
+    <div class="value" id="kpi-compliance">—</div>
+    <div class="sub" id="kpi-compliance-sub">—</div>
+  </div>
+  <div class="exec-kpi">
+    <div class="label">🔐 資安(A 級未修)</div>
+    <div class="value" id="kpi-security">—</div>
+    <div class="sub" id="kpi-security-sub">—</div>
+  </div>
+  <div class="exec-kpi">
+    <div class="label">⚡ 本月效能峰</div>
+    <div class="value" id="kpi-perf">—</div>
+    <div class="sub" id="kpi-perf-sub">—</div>
+  </div>
+</div>
+
+<!-- Row 2: Recommendations -->
+<div class="card exec-card" style="margin-bottom:18px;padding:18px;">
+  <h3 style="margin:0 0 10px;font-size:16px;">📌 本期建議行動</h3>
+  <div id="recommendations">載入中...</div>
+</div>
+
+<!-- Row 3: Top Risks -->
+<div class="card exec-card" style="margin-bottom:18px;padding:18px;">
+  <h3 style="margin:0 0 10px;font-size:16px;">⚠️ Top 5 高風險主機 (合規率由低至高)</h3>
+  <div id="top-risks">載入中...</div>
+</div>
+
+<!-- Row 4: Events -->
+<div class="card exec-card" style="margin-bottom:18px;padding:18px;">
+  <h3 style="margin:0 0 10px;font-size:16px;">📜 本週重要事件</h3>
+  <div id="recent-events">載入中...</div>
+</div>
+
+<!-- Row 5: Trend placeholder -->
+<div class="card exec-card" style="margin-bottom:18px;padding:18px;">
+  <h3 style="margin:0 0 10px;font-size:16px;">📈 合規率趨勢 (近 30 天)</h3>
+  <div style="margin-bottom:12px;">
+    <label style="font-size:13px;color:var(--c3);margin-right:10px;">時間範圍:</label>
+    <select id="trend-days" onchange="reloadTrend()" style="padding:4px 8px;">
+      <option value="30" selected>近 30 天</option>
+      <option value="90">近 90 天</option>
+      <option value="365">近 365 天</option>
+    </select>
+  </div>
+  <div id="trend-img-wrap">
+    <img id="trend-img" src="/api/cio/trend-chart?days=30" alt="合規率趨勢" style="width:100%;max-width:960px;height:auto;display:block;margin:0 auto;border:1px solid #eee;border-radius:6px;background:#fff;">
+  </div>
+</div>
+
+<div class="card exec-card" style="margin-bottom:18px;padding:18px;" id="aging-section">
+  <h3 style="margin:0 0 10px;font-size:16px;">⏳ 合規項老化分析 (未修 FAIL 項)</h3>
+  <div id="aging-content">載入中...</div>
+</div>
+
+<div style="text-align:center;font-size:11px;color:var(--c4);padding:20px;">—— 主管儀表板 ——</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function loadAging() {
+  fetch('/api/cio/aging?threshold=30').then(function(r){return r.json();}).then(function(res){
+    if (!res.success) { document.getElementById('aging-content').innerHTML = '<div style="color:var(--red);">失敗</div>'; return; }
+    var d = res.data;
+    var html = '';
+    html += '<div style="display:flex;gap:14px;margin-bottom:12px;flex-wrap:wrap;">';
+    html += '<div style="padding:10px 14px;background:#f5f5f5;border-radius:6px;"><strong>總 FAIL 項</strong>: '+d.total_fails+'</div>';
+    html += '<div style="padding:10px 14px;background:'+(d.over_threshold_count>0?'#ffebee':'#e8f5e9')+';border-radius:6px;"><strong>超過 '+d.threshold_days+' 天未修</strong>: '+d.over_threshold_count+'</div>';
+    html += '</div>';
+    html += '<div style="margin-bottom:12px;"><strong>按級別:</strong> ';
+    (d.by_level||[]).forEach(function(l){
+      html += '<span style="display:inline-block;margin:4px;padding:4px 10px;background:#eef;border-radius:4px;font-size:12px;">'+l.level+': '+l.count+(l.over_threshold?' (老化 '+l.over_threshold+')':'')+'</span>';
+    });
+    html += '</div>';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">';
+    html += '<div><h4 style="font-size:14px;margin:0 0 6px;color:var(--c2);">按部門</h4>';
+    if ((d.by_department||[]).length===0) {
+      html += '<div style="color:var(--c3);">無資料</div>';
+    } else {
+      html += '<table class="data-table" style="width:100%;font-size:12px;"><thead><tr><th>部門</th><th style="text-align:right;">FAIL</th><th style="text-align:right;">主機</th></tr></thead><tbody>';
+      d.by_department.forEach(function(v){
+        html += '<tr><td>'+(v.department||"(未分類)")+'</td><td style="text-align:right;">'+v.fail_count+'</td><td style="text-align:right;">'+v.host_count+'</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '</div>';
+    html += '<div><h4 style="font-size:14px;margin:0 0 6px;color:var(--c2);">按 AP 負責人</h4>';
+    if ((d.by_ap_owner||[]).length===0) {
+      html += '<div style="color:var(--c3);">無資料</div>';
+    } else {
+      html += '<table class="data-table" style="width:100%;font-size:12px;"><thead><tr><th>負責人</th><th style="text-align:right;">FAIL</th><th style="text-align:right;">主機</th></tr></thead><tbody>';
+      d.by_ap_owner.forEach(function(v){
+        html += '<tr><td>'+(v.ap_owner||"(未指派)")+'</td><td style="text-align:right;">'+v.fail_count+'</td><td style="text-align:right;">'+v.host_count+'</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    html += '</div></div>';
+    if (d.old_fails_top && d.old_fails_top.length) {
+      html += '<h4 style="font-size:14px;margin:14px 0 6px;color:var(--red);">🚨 超過 '+d.threshold_days+' 天最老 Top 20</h4>';
+      html += '<table class="data-table" style="width:100%;font-size:12px;"><thead><tr><th>主機</th><th>部門</th><th>項目</th><th>級別</th><th style="text-align:right;">天數</th></tr></thead><tbody>';
+      d.old_fails_top.forEach(function(f){
+        html += '<tr><td>'+f.hostname+'</td><td>'+(f.department||"-")+'</td><td>['+f.check_id+'] '+f.name+'</td><td>'+(f.level||"-")+'</td><td style="text-align:right;color:var(--red);font-weight:600;">'+f.age_days+'</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    document.getElementById('aging-content').innerHTML = html;
+  });
+}
+
+function loadExec() {
+  fetch('/api/cio/overview').then(function(r){return r.json();}).then(function(res){
+    if (!res.success) { alert("載入失敗: "+(res.error||"?")); return; }
+    render(res.data);
+  });
+  fetch('/api/cio/recommendations').then(function(r){return r.json();}).then(function(res){
+    if (!res.success) return;
+    var html = '';
+    (res.data||[]).forEach(function(r){
+      html += '<div class="rec-item '+r.level+'">'+(r.level==='error'?'🔴 ':r.level==='warn'?'🟠 ':r.level==='ok'?'✅ ':'ℹ️ ')+r.text;
+      if (r.hosts && r.hosts.length) html += ' <span style="color:var(--c3);">['+r.hosts.join(', ')+']</span>';
+      html += '</div>';
+    });
+    document.getElementById('recommendations').innerHTML = html;
+  });
+}
+
+function render(d) {
+  // timestamp
+  document.getElementById('exec-timestamp').textContent = '產製時間: '+d.generated_at;
+
+  // health score
+  var hs = d.health_score || {};
+  var ring = document.getElementById('score-ring');
+  ring.className = 'score-ring '+(hs.color||'green');
+  ring.style.setProperty('--p', (hs.score||0)+'%');
+  document.getElementById('score-num').textContent = hs.score != null ? hs.score.toFixed(0) : '—';
+  document.getElementById('score-level').textContent = hs.level || '—';
+  if (hs.components) {
+    var c = hs.components;
+    document.getElementById('score-components').textContent =
+      '主機 '+c.host_health.toFixed(0)+'%  ·  合規 '+c.compliance.toFixed(0)+'%  ·  資安 '+c.security.toFixed(0)+'%';
+  }
+
+  // KPIs
+  var hh = d.host_health;
+  document.getElementById('kpi-host').textContent = hh.online + '/' + hh.total;
+  document.getElementById('kpi-host-sub').textContent = hh.rate.toFixed(1) + '% 在線 · ' + hh.offline + ' 台離線';
+
+  var cc = d.compliance;
+  document.getElementById('kpi-compliance').textContent = cc.rate.toFixed(1) + '%';
+  document.getElementById('kpi-compliance-sub').textContent = cc.pass_checks + '/' + cc.total_checks + ' 通過 · ' + cc.exception_count + ' 例外';
+
+  var ss = d.security;
+  var secColor = ss.a_level_fail_open > 0 ? 'var(--red)' : 'var(--g1)';
+  document.getElementById('kpi-security').innerHTML = '<span style="color:'+secColor+';">'+ss.a_level_fail_open+'</span>';
+  document.getElementById('kpi-security-sub').textContent = ss.a_level_fail_open > 0 ? '項高優先未修' : '✓ 無 A 級 FAIL';
+
+  var perf = d.perf || {};
+  if (perf.available) {
+    document.getElementById('kpi-perf').textContent = perf.cpu_peak.value.toFixed(1)+'%';
+    document.getElementById('kpi-perf-sub').innerHTML = 'CPU 峰值 '+perf.cpu_peak.hostname+' · '+perf.days_with_data+' 天資料';
+  } else {
+    document.getElementById('kpi-perf').textContent = '—';
+    document.getElementById('kpi-perf-sub').textContent = perf.message || '無資料';
+  }
+
+  // top risks
+  var risks = d.top_risks || [];
+  if (risks.length === 0) {
+    document.getElementById('top-risks').innerHTML = '<div style="color:var(--g1);padding:12px;">✅ 所有主機合規率 100%</div>';
+  } else {
+    var html = '<table class="data-table" style="width:100%;"><thead><tr><th>#</th><th>主機</th><th>OS</th><th style="text-align:right;">合規率</th><th style="text-align:right;">Pass/Total</th><th style="text-align:right;">失敗數</th></tr></thead><tbody>';
+    risks.forEach(function(h, i){
+      var color = h.rate < 80 ? 'var(--red)' : h.rate < 95 ? 'var(--orange)' : 'var(--c2)';
+      html += '<tr>';
+      html += '<td>'+(i+1)+'</td>';
+      html += '<td><strong>'+h.hostname+'</strong></td>';
+      html += '<td>'+(h.os||'-')+'</td>';
+      html += '<td style="text-align:right;color:'+color+';font-weight:600;">'+h.rate.toFixed(1)+'%</td>';
+      html += '<td style="text-align:right;">'+h.pass+'/'+h.total+'</td>';
+      html += '<td style="text-align:right;color:var(--red);">'+h.fail+'</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('top-risks').innerHTML = html;
+  }
+
+  // events
+  var ev = d.recent_events || [];
+  if (ev.length === 0) {
+    document.getElementById('recent-events').innerHTML = '<div style="color:var(--c3);padding:12px;">本週無重要事件</div>';
+  } else {
+    var html = '<table class="data-table" style="width:100%;"><thead><tr><th>時間</th><th>使用者</th><th>動作</th><th>詳情</th></tr></thead><tbody>';
+    ev.forEach(function(e){
+      html += '<tr>';
+      html += '<td style="font-size:12px;white-space:nowrap;">'+e.timestamp+'</td>';
+      html += '<td><strong>'+e.user+'</strong></td>';
+      html += '<td>'+e.action+'</td>';
+      html += '<td style="font-size:12px;color:var(--c3);">'+(e.detail||'').substring(0,80)+'</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('recent-events').innerHTML = html;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function(){ loadExec(); loadAging(); });
+</script>
+{% endblock %}

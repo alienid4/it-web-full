@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+{% block title %}效能月報 - IT 監控系統{% endblock %}
+{% block head %}
+<style>
+@media print {
+  .no-print, nav, .navbar, #nav-user-status, .btn { display: none !important; }
+  body { padding: 0; margin: 0; }
+  .perf-page { padding: 10mm; }
+  .perf-card, .card { page-break-inside: avoid; }
+}
+.perf-kpi { background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 14px 16px; box-shadow: 0 2px 6px rgba(0,0,0,.04);}
+.perf-kpi .label { font-size: 12px; color: var(--c3); margin-bottom: 4px; }
+.perf-kpi .peak { font-size: 22px; font-weight: 700; color: var(--c1); }
+.perf-kpi .sub { font-size: 12px; color: var(--c3); margin-top: 2px; }
+.perf-delta-up { color: var(--red); font-weight: 600; }
+.perf-delta-down { color: var(--g1); font-weight: 600; }
+.perf-delta-flat { color: var(--c3); }
+.perf-hi { background: #fff7ed; border-left: 3px solid var(--orange); padding: 8px 12px; margin: 6px 0; border-radius: 4px; font-size: 13px; }
+.perf-tier-gold { background: linear-gradient(135deg,#FFD700,#FFA500); color: #fff; }
+.perf-tier-silver { background: linear-gradient(135deg,#C0C0C0,#909090); color: #fff; }
+.perf-tier-bronze { background: linear-gradient(135deg,#CD7F32,#8B4513); color: #fff; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="perf-page">
+<h2 style="margin-bottom:8px;font-size:20px;">效能報表 (Performance Report)</h2>
+<p style="color:var(--c3);font-size:13px;margin-bottom:18px;">nmon 採樣 · 支援日 / 週 / 月三種視角 · 圖表為 server-side PNG（列印、email 友善）。</p>
+
+<!-- Controls -->
+<div class="no-print" style="margin-bottom:18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+  <div class="form-group" style="margin:0;">
+    <label>主機</label>
+    <select id="perf-host" onchange="loadReport()"><option value="">— 請選擇 —</option></select>
+  </div>
+  <div class="form-group" style="margin:0;">
+    <label>視角</label>
+    <select id="perf-mode" onchange="onModeChange()">
+      <option value="daily">日 (intra-day 時序)</option>
+      <option value="weekly">週 (7 天 peak/avg)</option>
+      <option value="monthly" selected>月 (全月 peak/avg)</option>
+    </select>
+  </div>
+  <div class="form-group" id="perf-month-wrap" style="margin:0;">
+    <label>月份</label>
+    <input type="month" id="perf-month" onchange="loadReport()" style="padding:6px 10px;">
+  </div>
+  <div class="form-group" id="perf-date-wrap" style="margin:0;display:none;">
+    <label>日期</label>
+    <input type="date" id="perf-date" onchange="loadReport()" style="padding:6px 10px;">
+  </div>
+  <div class="form-group" id="perf-start-wrap" style="margin:0;display:none;">
+    <label>週起始日</label>
+    <input type="date" id="perf-start" onchange="loadReport()" style="padding:6px 10px;">
+  </div>
+  <button class="btn" style="background:var(--g2);color:white;margin-top:18px;" onclick="window.print()">🖨 列印 / 存 PDF</button>
+  <a id="perf-csv" class="btn" style="background:var(--c3);color:white;text-decoration:none;margin-top:18px;display:none;" href="#">⬇ CSV (月)</a>
+  <button class="btn" style="background:#999;color:white;margin-top:18px;" onclick="refreshCharts(true)" title="強制重畫圖 (bypass server cache)">🔄 重畫</button>
+  <span id="perf-status" style="font-size:12px;color:var(--c3);margin-left:auto;margin-top:18px;"></span>
+</div>
+
+<div id="perf-body">
+  <div style="padding:40px;text-align:center;color:var(--c3);">請先選主機與視角 (上方)。未看到主機？到「系統管理 → 主機管理」把該主機勾選「nmon 月報」。</div>
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 2026-04-20: 改用 server-side matplotlib PNG (列印友善+可 email)
+
+function pad2(n){ return String(n).padStart(2,'0'); }
+function todayStr(){ var d=new Date(); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+function mondayOf(){ var d=new Date(); var dow=d.getDay()||7; d.setDate(d.getDate()-(dow-1)); return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
+
+function loadHosts() {
+  fetch('/api/nmon/hosts').then(function(r){return r.json();}).then(function(res){
+    if(!res.success) return;
+    var sel = document.getElementById('perf-host');
+    var opts = '<option value="">— 請選擇 —</option>';
+    (res.data||[]).forEach(function(h){
+      var badge = h.daily_count>0 ? ' ('+h.daily_count+'天)' : ' (尚無資料)';
+      opts += '<option value="'+h.hostname+'">'+h.hostname+' - '+(h.system_name||'-')+badge+'</option>';
+    });
+    sel.innerHTML = opts;
+    document.getElementById('perf-status').textContent = '已啟用月報主機: '+(res.data||[]).length+' 台';
+
+    var now = new Date();
+    document.getElementById('perf-month').value = now.getFullYear()+'-'+pad2(now.getMonth()+1);
+    document.getElementById('perf-date').value = todayStr();
+    document.getElementById('perf-start').value = mondayOf();
+  });
+}
+
+function onModeChange() {
+  var mode = document.getElementById('perf-mode').value;
+  document.getElementById('perf-month-wrap').style.display = (mode === 'monthly') ? '' : 'none';
+  document.getElementById('perf-date-wrap').style.display  = (mode === 'daily')   ? '' : 'none';
+  document.getElementById('perf-start-wrap').style.display = (mode === 'weekly')  ? '' : 'none';
+  document.getElementById('perf-csv').style.display        = (mode === 'monthly') ? '' : 'none';
+  loadReport();
+}
+
+function loadReport() {
+  var host = document.getElementById('perf-host').value;
+  var mode = document.getElementById('perf-mode').value;
+  if(!host){ return; }
+
+  document.getElementById('perf-status').textContent = '載入中...';
+  document.getElementById('perf-body').innerHTML = '<div class="skeleton" style="height:400px;"></div>';
+
+  if (mode === 'monthly') {
+    var month = document.getElementById('perf-month').value;
+    if(!month) return;
+    document.getElementById('perf-csv').href = '/api/nmon/export?host='+encodeURIComponent(host)+'&month='+month;
+    fetch('/api/nmon/monthly?host='+encodeURIComponent(host)+'&month='+month)
+      .then(r=>r.json()).then(function(res){
+        if(!res.success){ fail(res); return; }
+        renderMonth(res.data, host, month);
+        document.getElementById('perf-status').textContent = '月視角 · 共 '+res.data.days_with_data+' 天資料';
+      });
+  } else if (mode === 'daily') {
+    var date = document.getElementById('perf-date').value;
+    if(!date) return;
+    fetch('/api/nmon/day?host='+encodeURIComponent(host)+'&date='+date)
+      .then(r=>r.json()).then(function(res){
+        if(!res.success){ fail(res); return; }
+        renderDay(res.data, host, date);
+        var n = ((res.data.daily||{}).timeseries||[]).length;
+        document.getElementById('perf-status').textContent = '日視角 · '+n+' 個 snapshot';
+      });
+  } else if (mode === 'weekly') {
+    var start = document.getElementById('perf-start').value;
+    if(!start) return;
+    fetch('/api/nmon/week?host='+encodeURIComponent(host)+'&start='+start)
+      .then(r=>r.json()).then(function(res){
+        if(!res.success){ fail(res); return; }
+        renderWeek(res.data, host, start);
+        document.getElementById('perf-status').textContent = '週視角 · '+(res.data.dailies||[]).length+' 天資料';
+      });
+  }
+}
+
+function fail(res){
+  document.getElementById('perf-body').innerHTML = '<div style="padding:20px;color:var(--red);">'+(res.error||'失敗')+'</div>';
+}
+
+function refreshCharts(force) {
+  // 重新 trigger loadReport, 並在 <img> url 加 force=1 讓後端 bypass cache
+  window._perfForce = force ? 1 : 0;
+  loadReport();
+}
+
+function fmtDelta(v) {
+  if(v === null || v === undefined) return '<span class="perf-delta-flat">—</span>';
+  if(Math.abs(v) < 0.5) return '<span class="perf-delta-flat">持平</span>';
+  var arrow = v>0 ? '↑' : '↓';
+  var cls = v>0 ? 'perf-delta-up' : 'perf-delta-down';
+  return '<span class="'+cls+'">'+arrow+' '+Math.abs(v).toFixed(1)+'</span>';
+}
+
+function kbpsToMbps(v) { return (v*8/1024).toFixed(1); }
+
+function hostHeaderHTML(h, titleText, periodText) {
+  var tierCls = 'perf-tier-silver';
+  if((h.tier||'').indexOf('金')>=0) tierCls = 'perf-tier-gold';
+  else if((h.tier||'').indexOf('銅')>=0) tierCls = 'perf-tier-bronze';
+  var html = '<div class="card perf-card" style="padding:20px;margin-bottom:18px;">';
+  html += '<h1 style="margin:0 0 10px;font-size:24px;">'+titleText+'</h1>';
+  html += '<div style="font-size:14px;color:var(--c3);">';
+  html += '<strong>OS:</strong> '+(h.os||'-')+' &nbsp;|&nbsp; ';
+  html += '<strong>hostname/IP:</strong> '+h.hostname+' ('+(h.ip||'-')+') &nbsp;|&nbsp; ';
+  html += '<strong>系統:</strong> '+(h.system_name||'-')+' &nbsp;|&nbsp; ';
+  html += '<strong>級別:</strong> <span class="badge '+tierCls+'" style="padding:2px 10px;border-radius:12px;font-weight:600;">'+(h.tier||'-')+'</span>';
+  html += '</div>';
+  html += '<div style="font-size:11px;color:var(--c4);margin-top:6px;">'+periodText+' · 產製時間: '+new Date().toLocaleString('zh-TW')+'</div>';
+  html += '</div>';
+  return html;
+}
+
+function chartsGridHTML(hostname, mode, modeQs) {
+  var cb = Date.now();
+  var force = window._perfForce ? '&force=1' : '';
+  var base = '/api/nmon/chart?host='+encodeURIComponent(hostname)+'&mode='+mode+modeQs+force+'&t='+cb;
+  var imgStyle = 'width:100%;height:auto;border:1px solid #eee;border-radius:6px;background:#fff;';
+  var html = '<div class="card perf-card" style="padding:20px;margin-bottom:18px;">';
+  html += '<h3 style="margin:0 0 14px;font-size:16px;">趨勢圖 ('+mode+')</h3>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">';
+  html += '<div><img src="'+base+'&metric=cpu"      alt="CPU"  style="'+imgStyle+'" loading="lazy"></div>';
+  html += '<div><img src="'+base+'&metric=mem"      alt="MEM"  style="'+imgStyle+'" loading="lazy"></div>';
+  html += '<div><img src="'+base+'&metric=disk"     alt="DISK" style="'+imgStyle+'" loading="lazy"></div>';
+  html += '<div><img src="'+base+'&metric=net_kbps" alt="NET"  style="'+imgStyle+'" loading="lazy"></div>';
+  html += '</div></div>';
+  return html;
+}
+
+function renderDay(data, hostname, date) {
+  var h = data.host || {};
+  var daily = data.daily || {};
+  var ts = daily.timeseries || [];
+  var cpu = daily.cpu || {}; var mem = daily.mem || {}; var disk = daily.disk || {}; var net = daily.net_kbps || {};
+  var cmp = data.compare || {};
+  var prev = data.prev_day_avg || {};
+  var events = data.events || [];
+
+  var html = '';
+  html += hostHeaderHTML(h, hostname+' — '+date+' 日內效能', '資料日: '+date+' · snapshot 數: '+ts.length);
+  // KPI (single day)
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;">';
+  html += dayKpi('⚡ CPU', cpu, '%');
+  html += dayKpi('🧠 記憶體', mem, '%');
+  html += dayKpi('💾 Disk I/O', disk, '%', disk.peak_disk ? ('最忙: '+disk.peak_disk) : null);
+  html += dayKpi('🌐 Network', net, ' KB/s', net.peak ? ('峰值 '+kbpsToMbps(net.peak)+' Mbps') : null);
+  html += '</div>';
+  html += chartsGridHTML(hostname, 'daily', '&date='+date);
+  if (ts.length === 0) {
+    html += '<div class="perf-hi">⚠️ 當日無 snapshot 資料，請確認 nmon cron 已啟動，或改查其他日期。</div>';
+  }
+
+  // 事件亮點
+  html += '<div class="card perf-card" style="padding:20px;margin-bottom:18px;">';
+  html += '<h3 style="margin:0 0 10px;font-size:16px;">本日事件亮點</h3>';
+  if (events.length === 0) {
+    html += '<div class="perf-hi">本日無資料或無異常事件。</div>';
+  } else {
+    events.forEach(function(e){ html += '<div class="perf-hi">'+e.icon+' '+e.text+'</div>'; });
+  }
+  html += '</div>';
+
+  // 昨日比較
+  html += '<div class="card perf-card" style="padding:20px;margin-bottom:18px;">';
+  html += '<h3 style="margin:0 0 10px;font-size:16px;">昨日比較 (本日均值 vs 昨日均值)</h3>';
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:13px;">';
+  html += cmpCard('CPU', cpu.avg || 0, prev.cpu, cmp.cpu, '%');
+  html += cmpCard('記憶體', mem.avg || 0, prev.mem, cmp.mem, '%');
+  html += cmpCard('Disk', disk.avg || 0, prev.disk, cmp.disk, '%');
+  html += cmpCard('Network', net.avg || 0, prev.net_kbps, cmp.net_kbps, ' KB/s');
+  html += '</div></div>';
+
+  html += '<div style="text-align:center;font-size:11px;color:var(--c4);padding:20px;">—— 日內詳細 ——</div>';
+  document.getElementById('perf-body').innerHTML = html;
+}
+
+function dayKpi(title, stat, unit, extra) {
+  var peak = (stat.peak || 0).toFixed(1);
+  var avg = (stat.avg || 0).toFixed(1);
+  var pt = stat.peak_time || '-';
+  return '<div class="perf-kpi"><div class="label">'+title+'</div>'+
+    '<div class="peak">峰值 '+peak+unit+'</div>'+
+    '<div class="sub">均值 '+avg+unit+' · 峰於 '+pt+'</div>'+
+    (extra ? '<div class="sub">'+extra+'</div>' : '')+
+  '</div>';
+}
+
+function renderWeek(data, hostname, start) {
+  var h = data.host || {};
+  var dailies = data.dailies || [];
+  var cmp = data.compare || {};
+  var cur = data.cur_avg || {};
+  var prev = data.prev_week_avg || {};
+  var events = data.events || [];
+
+  var html = '';
+  html += hostHeaderHTML(h, hostname+' — 週報 '+start+' ~ '+data.end, '資料期間: '+start+' ~ '+data.end+' · '+dailies.length+' 天');
+
+  // Aggregate week stats (本週峰值最大 + 均值平均)
+  function weekStat(k) {
+    var peaks = dailies.map(function(d){ return (d[k]||{}).peak||0; });
+    var avgs = dailies.map(function(d){ return (d[k]||{}).avg||0; });
+    var p = peaks.length ? Math.max.apply(null,peaks) : 0;
+    var a = avgs.length ? avgs.reduce(function(x,y){return x+y;},0)/avgs.length : 0;
+    return {peak: p, avg: a};
+  }
+  var wc=weekStat('cpu'), wm=weekStat('mem'), wd=weekStat('disk'), wn=weekStat('net_kbps');
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;">';
+  html += dayKpi('⚡ CPU', wc, '%');
+  html += dayKpi('🧠 記憶體', wm, '%');
+  html += dayKpi('💾 Disk I/O', wd, '%');
+  html += dayKpi('🌐 Network', wn, ' KB/s', wn.peak ? ('峰值 '+kbpsToMbps(wn.peak)+' Mbps') : null);
+  html += '</div>';
+  html += chartsGridHTML(hostname, 'weekly', '&start='+start);
+  if (dailies.length === 0) html += '<div class="perf-hi">⚠️ 該週無資料</div>';
+
+  // 事件亮點
+  html += '<div class="card perf-card" style="padding:20px;margin-bottom:18px;">';
+  html += '<h3 style="margin:0 0 10px;font-size:16px;">本週事件亮點</h3>';
+  if (events.length === 0) {
+    html += '<div class="perf-hi">本週無資料或無異常事件。</div>';
+  } else {
+    events.forEach(function(e){ html += '<div class="perf-hi">'+e.icon+' '+e.text+'</div>'; });
+  }
+  html += '</div>';
+
+  // 上週比較 (本週 peak 均值 vs 上週 peak 均值)
+  html += '<div class="card perf-card" style="padding:20px;margin-bottom:18px;">';
+  html += '<h3 style="margin:0 0 10px;font-size:16px;">上週比較 (本週 peak 均 vs 上週 peak 均)</h3>';
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:13px;">';
+  html += cmpCard('CPU', cur.cpu || 0, prev.cpu, cmp.cpu, '%');
+  html += cmpCard('記憶體', cur.mem || 0, prev.mem, cmp.mem, '%');
+  html += cmpCard('Disk', cur.disk || 0, prev.disk, cmp.disk, '%');
+  html += cmpCard('Network', cur.net_kbps || 0, prev.net_kbps, cmp.net_kbps, ' KB/s');
+  html += '</div></div>';
+
+  html += '<div style="text-align:center;font-size:11px;color:var(--c4);padding:20px;">—— 週報 ——</div>';
+  document.getElementById('perf-body').innerHTML = html;
+}
+
+function renderMonth(d, hostname, monthStr) {
+  var h = d.host || {};
+  var s = d.stats || {};
+  var pd = d.peak_days || {};
+  var cmp = d.compare_prev_month || {};
+  var prev = d.prev_month_avg || {};
+
+  var tierCls = 'perf-tier-silver';
+  if((h.tier||'').indexOf('金')>=0) tierCls = 'perf-tier-gold';
+  else if((h.tier||'').indexOf('銅')>=0) tierCls = 'perf-tier-bronze';
+
+  var html = '';
+  // Header
+  html += '<div class="card perf-card" style="padding:20px;margin-bottom:18px;">';
+  html += '<h1 style="margin:0 0 10px;font-size:24px;">'+h.hostname+' — '+d.period.year+' 年 '+d.period.month+' 月效能月報</h1>';
+  html += '<div style="font-size:14px;color:var(--c3);">';
+  html += '<strong>OS:</strong> '+(h.os||'-')+' &nbsp;|&nbsp; ';
+  html += '<strong>hostname/IP:</strong> '+h.hostname+' ('+(h.ip||'-')+') &nbsp;|&nbsp; ';
+  html += '<strong>系統:</strong> '+(h.system_name||'-')+' &nbsp;|&nbsp; ';
+  html += '<strong>級別:</strong> <span class="badge '+tierCls+'" style="padding:2px 10px;border-radius:12px;font-weight:600;">'+(h.tier||'-')+'</span>';
+  html += '</div>';
+  html += '<div style="font-size:11px;color:var(--c4);margin-top:6px;">資料期間: '+d.period.start+' ~ '+d.period.end+' · 產製時間: '+new Date().toLocaleString('zh-TW')+'</div>';
+  html += '</div>';
+
+  // KPI row
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;">';
+  html += kpiCard('⚡ CPU', s.cpu, pd.cpu, cmp.cpu, prev.cpu, '%');
+  html += kpiCard('🧠 記憶體', s.mem, pd.mem, cmp.mem, prev.mem, '%');
+  html += kpiCard('💾 Disk I/O', s.disk, pd.disk, cmp.disk, prev.disk, '%', pd.disk && pd.disk.peak_disk ? ('最忙: '+pd.disk.peak_disk) : null);
+  html += kpiCard('🌐 Network', {peak:s.net_kbps.peak, avg:s.net_kbps.avg}, pd.net_kbps, cmp.net_kbps, prev.net_kbps, ' KB/s', pd.net_kbps ? '峰值 '+kbpsToMbps(pd.net_kbps.value||0)+' Mbps' : null);
+  html += '</div>';
+
+  // Charts
+  html += chartsGridHTML(h.hostname, 'monthly', '&month='+d.period.year+'-'+String(d.period.month).padStart(2,'0'));
+
+  // Events
+  html += '<div class="card perf-card" style="padding:20px;margin-bottom:18px;">';
+  html += '<h3 style="margin:0 0 10px;font-size:16px;">本月事件亮點</h3>';
+  var events = [];
+  if(pd.cpu && pd.cpu.value > 80) events.push('🔴 '+pd.cpu.date+' '+(pd.cpu.peak_time||'')+' CPU 峰值 '+pd.cpu.value.toFixed(1)+'%');
+  else if(pd.cpu && pd.cpu.value > 0) events.push('✅ CPU 最高峰 '+pd.cpu.date+' '+(pd.cpu.peak_time||'')+' '+pd.cpu.value.toFixed(1)+'% (未超過 80% 門檻)');
+  if(pd.mem && pd.mem.value > 85) events.push('🟠 '+pd.mem.date+' 記憶體 '+pd.mem.value.toFixed(1)+'%');
+  else if(pd.mem && pd.mem.value > 0) events.push('✅ 記憶體最高峰 '+pd.mem.date+' '+pd.mem.value.toFixed(1)+'%');
+  if(pd.disk && pd.disk.value > 70) events.push('🟠 '+pd.disk.date+' 磁碟 '+pd.disk.peak_disk+' 繁忙 '+pd.disk.value.toFixed(1)+'%');
+  if(pd.net_kbps && pd.net_kbps.value > 0) events.push('📡 網路峰值 '+pd.net_kbps.date+' '+kbpsToMbps(pd.net_kbps.value)+' Mbps');
+  if(events.length===0) events.push('本月無異常事件，各項指標健康。');
+  events.forEach(function(e){ html += '<div class="perf-hi">'+e+'</div>'; });
+  html += '</div>';
+
+  // Compare prev
+  html += '<div class="card perf-card" style="padding:20px;margin-bottom:18px;">';
+  html += '<h3 style="margin:0 0 10px;font-size:16px;">上月比較 (本月均值 vs 上月均值)</h3>';
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:13px;">';
+  html += cmpCard('CPU', s.cpu.avg, prev.cpu, cmp.cpu, '%');
+  html += cmpCard('記憶體', s.mem.avg, prev.mem, cmp.mem, '%');
+  html += cmpCard('Disk', s.disk.avg, prev.disk, cmp.disk, '%');
+  html += cmpCard('Network', s.net_kbps.avg, prev.net_kbps, cmp.net_kbps, ' KB/s');
+  html += '</div></div>';
+
+  // Footer
+  html += '<div style="text-align:center;font-size:11px;color:var(--c4);padding:20px;">—— 報告結束 ——</div>';
+
+  document.getElementById('perf-body').innerHTML = html;
+
+  // 圖表由 server 產生 (matplotlib PNG) — 不需要 Chart.js render
+}
+
+function kpiCard(title, stat, pd, delta, prev, unit, extra) {
+  var peak = (stat.peak || 0).toFixed(1);
+  var avg = (stat.avg || 0).toFixed(1);
+  var dd = '';
+  if(delta !== null && delta !== undefined){
+    dd = '<div class="sub">vs 上月: '+fmtDelta(delta)+'</div>';
+  }
+  return '<div class="perf-kpi">'+
+    '<div class="label">'+title+'</div>'+
+    '<div class="peak">峰值 '+peak+unit+'</div>'+
+    '<div class="sub">均值 '+avg+unit+(pd && pd.date ? ' · 峰於 '+pd.date : '')+'</div>'+
+    (extra ? '<div class="sub">'+extra+'</div>' : '')+
+    dd+
+  '</div>';
+}
+
+function cmpCard(title, cur, prev, delta, unit) {
+  return '<div style="border:1px solid #eee;border-radius:8px;padding:10px;">'+
+    '<div style="color:var(--c3);font-size:12px;">'+title+'</div>'+
+    '<div style="margin-top:4px;"><strong>本月</strong> '+(cur||0).toFixed(1)+unit+'</div>'+
+    '<div><strong>上月</strong> '+(prev===null||prev===undefined?'— 無資料':prev.toFixed(1)+unit)+'</div>'+
+    '<div>變化 '+fmtDelta(delta)+'</div>'+
+  '</div>';
+}
+
+document.addEventListener('DOMContentLoaded', loadHosts);
+</script>
+{% endblock %}

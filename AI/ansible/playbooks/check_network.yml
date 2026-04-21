@@ -1,0 +1,10 @@
+---
+# 網路健康檢查 playbook
+# Usage: ansible-playbook ansible/playbooks/check_network.yml -i ansible/inventory/hosts.yml --vault-password-file .vault_pass
+
+- name: Network Health Check - Linux
+  hosts: all:!windows
+  gather_facts: false
+  become: no
+  roles:
+    - check_network
