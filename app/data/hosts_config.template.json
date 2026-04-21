@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "description": "主機清單範本。填完後另存為 hosts_config.json。受控主機需建立 ansible_svc 帳號並放入本機 ~/.ssh/ansible_svc_key.pub 公鑰。",
+  "hosts": [
+    {
+      "hostname": "host-linux-01",
+      "ip": "10.0.0.11",
+      "os": "rhel9",
+      "groups": ["linux", "prod"],
+      "ssh_user": "ansible_svc",
+      "ssh_port": 22,
+      "enabled": true
+    },
+    {
+      "hostname": "host-windows-01",
+      "ip": "10.0.0.21",
+      "os": "windows2019",
+      "groups": ["windows", "prod"],
+      "winrm_user": "Administrator",
+      "winrm_port": 5986,
+      "winrm_transport": "credssp",
+      "enabled": true
+    }
+  ]
+}

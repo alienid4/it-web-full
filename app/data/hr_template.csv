@@ -1,0 +1,3 @@
+employee_id,name,department,email,role
+EMP001,John Doe,IT,john.doe@example.com,admin
+EMP002,Jane Smith,Finance,jane.smith@example.com,viewer

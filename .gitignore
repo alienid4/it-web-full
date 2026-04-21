@@ -58,3 +58,9 @@ devkit/FULL_SYSTEM_SPEC.md
 devkit/README.md
 devkit/setup_environment.sh
 
+# Build scratch dirs (install.sh 打包用)
+tmp_install_work/
+deps_build/
+packages/
+
+

@@ -1,6 +1,8 @@
 {
-  "version": "3.4.2.0",
-  "name": "example-inspection-system",
+  "version": "3.5.0.0-testenv",
+  "name": "it-web-full",
   "released_at": "2026-04-21",
-  "description": "Example Corp IT 每日自動巡檢系統"
+  "description": "IT Inspection System — 公司測試區離線部署版",
+  "deploy_mode": "dual_track",
+  "deps_package": "inspection_deps_v3.5.0.0-testenv.tar.gz"
 }

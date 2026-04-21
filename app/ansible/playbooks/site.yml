@@ -3,7 +3,7 @@
   hosts: "{{ target_hosts | default('all') }}"
   gather_facts: true
   vars:
-    inspection_home: /seclog/AI/inspection
+    inspection_home: /opt/inspection
 
   pre_tasks:
     - name: 設定報告時間戳記
