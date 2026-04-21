@@ -1,0 +1,1525 @@
+{% extends "base.html" %}
+{% block title %}系統管理 - IT 每日巡檢系統{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/admin.css">
+{% endblock %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+  <h2 style="font-size:20px;">系統管理</h2>
+  <div style="font-size:13px;color:var(--c3);">
+    <span id="admin-user"></span> |
+    <span onclick="showAccountModal()" style="color:var(--g1);cursor:pointer;">帳號設定</span> |
+    <a href="#" onclick="doLogout()" style="color:var(--red);text-decoration:none;">登出</a>
+  </div>
+</div>
+
+<!-- Tab Navigation - Dropdown Menu -->
+<div class="admin-nav" id="admin-tabs">
+  <div class="admin-nav-group">
+    <div class="admin-nav-title">🏢 監控平台管理</div>
+    <div class="admin-nav-items">
+      <button class="admin-tab active" data-tab="dashboard">📊 系統狀態</button>
+      <button class="admin-tab" data-tab="settings">⚙️ 設定管理</button>
+      <button class="admin-tab" data-tab="backups">💾 備份管理</button>
+      <button class="admin-tab" data-tab="usermgmt">👤 使用者管理</button>
+      <button class="admin-tab" data-tab="logs">📋 日誌檢視</button>
+      <button class="admin-tab" data-tab="worklog">📝 操作紀錄</button>
+    </div>
+  </div>
+  <div class="admin-nav-group">
+    <div class="admin-nav-title">🖥️ 受監控主機</div>
+    <div class="admin-nav-items">
+      <button class="admin-tab" data-tab="hosts">🖥️ 伺服器清單</button>
+      <button class="admin-tab" data-tab="jobs">▶️ 巡檢排程</button>
+      <button class="admin-tab" data-tab="scheduler">🕐 排程設定</button>
+      <button class="admin-tab" data-tab="alerts">🔔 告警管理</button>
+      <button class="admin-tab" data-tab="linux-init">🔧 Linux初始化工具</button>
+    </div>
+  </div>
+  <div class="admin-nav-group">
+    <div class="admin-nav-title">📋 稽核專區</div>
+    <div class="admin-nav-items">
+      <button class="admin-tab" data-tab="security-audit">🔒 系統安全稽核</button>
+      <button class="admin-tab" data-tab="twgcb">🛡️ TWGCB設定</button>
+      <button class="admin-tab" data-tab="reports">📄 合規報告</button>
+    </div>
+  </div>
+  <div class="admin-nav-group">
+    <div class="admin-nav-title">🔑 帳號安全</div>
+    <div class="admin-nav-items">
+      <button class="admin-tab" data-tab="audit">📋 帳號盤點</button>
+      <button class="admin-tab" data-tab="acctmgmt">👥 帳號管理</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tab Panels -->
+<div id="tab-dashboard" class="tab-panel active">
+  <div class="kpi-grid" id="sys-kpi" style="margin-bottom:16px;"></div>
+  <div class="card"><div class="card-title">系統資訊</div><div id="sys-info">載入中...</div></div>
+  <div class="card" style="margin-top:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title" style="margin:0;">在線使用者 <span id="online-count" style="font-size:13px;font-weight:400;color:var(--c3);"></span></div>
+    </div>
+    <div id="online-users" style="margin-top:8px;">載入中...</div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title">快速操作</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="if(requirePermission('admin'))adminAction('/api/admin/system/run-inspection','POST','確定要執行巡檢？')">立即巡檢</button>
+      <button class="btn" style="background:var(--orange);color:white;" onclick="if(requirePermission('admin'))adminAction('/api/admin/jobs/seed','POST','確定要重新匯入 MongoDB？')">匯入 MongoDB</button>
+    </div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title">外部存取 (Cloudflare Tunnel)</div>
+    <div id="tunnel-status" style="font-size:14px;color:var(--c3);">查詢中...</div>
+  </div>
+  <!-- 服務操作確認 Modal -->
+  <div class="modal-overlay" id="admin-svc-modal">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-title">服務操作確認</div>
+      <p id="admin-svc-msg" style="font-size:14px;color:var(--c1);margin-bottom:20px;"></p>
+      <div id="admin-svc-result" style="display:none;margin-bottom:16px;padding:12px;border-radius:8px;font-size:13px;"></div>
+      <div id="admin-svc-btns" style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn" style="background:var(--c4);color:var(--c1);" onclick="document.getElementById('admin-svc-modal').classList.remove('active')">取消</button>
+        <button class="btn btn-primary" id="admin-svc-confirm">確定執行</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="tab-settings" class="tab-panel">
+  <div class="card"><div class="card-title">閾值設定</div><div id="settings-thresholds">載入中...</div></div>
+  <div class="card" style="margin-top:16px;"><div class="card-title">服務檢查清單</div><div id="settings-services">載入中...</div></div>
+  <div class="card" style="margin-top:16px;"><div class="card-title">磁碟排除清單</div><div id="settings-disk-excl">載入中...</div></div>
+  <div class="card" style="margin-top:16px;"><div class="card-title">Email 通知設定</div><div id="settings-email">載入中...</div></div>
+</div>
+
+<div id="tab-backups" class="tab-panel">
+  <!-- 程式備份 -->
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="card-title" style="margin:0;">程式備份</div>
+      <button class="btn btn-primary" onclick="createBackup()">立即備份</button>
+    </div>
+    <div id="backup-list">載入中...</div>
+  </div>
+  <!-- 資料備份 (MongoDB) -->
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="card-title" style="margin:0;">資料備份 (MongoDB)</div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="createDbDump()">立即 Dump</button>
+        <button class="btn" style="background:var(--g2);color:white;" onclick="document.getElementById('dbimport-upload').click()">匯入 Dump</button>
+        <input type="file" id="dbimport-upload" accept=".tar.gz,.gz" style="display:none;" onchange="importDbDump(this)">
+      </div>
+    </div>
+    <div id="dbbackup-list">載入中...</div>
+  </div>
+  <!-- 系統更新 (Patch) -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="card-title" style="margin:0;">系統更新 (Patch)</div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" style="background:var(--orange);color:white;" onclick="document.getElementById('patch-upload').click()">上傳 Patch</button>
+        <button class="btn btn-danger" onclick="rollbackPatch()">回滾上一版</button>
+        <input type="file" id="patch-upload" accept=".tar.gz,.gz" style="display:none;" onchange="uploadPatch(this)">
+      </div>
+    </div>
+    <div id="patch-preview" style="display:none;margin-bottom:12px;background:var(--g-light);border-radius:8px;padding:16px;">
+      <div style="font-weight:700;margin-bottom:8px;" id="patch-title">Patch 預覽</div>
+      <div id="patch-info"></div>
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn" style="background:var(--c4);" onclick="document.getElementById('patch-preview').style.display='none'">取消</button>
+        <button class="btn btn-primary" onclick="applyPatch()">確認套用</button>
+      </div>
+    </div>
+    <div id="patch-history">載入中...</div>
+  </div>
+</div>
+
+<div id="tab-jobs" class="tab-panel">
+  <div class="card"><div class="card-title">最近執行狀態</div><div id="job-status">載入中...</div></div>
+  <div class="card" style="margin-top:16px;"><div class="card-title">執行日誌 (最後 30 行)</div><div id="job-log" class="log-viewer">載入中...</div></div>
+</div>
+
+<div id="tab-logs" class="tab-panel">
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+      <div class="form-group" style="margin:0;"><label>日期</label><input type="date" id="log-date"></div>
+      <div class="form-group" style="margin:0;"><label>關鍵字</label><input type="text" id="log-keyword" placeholder="搜尋..."></div>
+      <button class="btn btn-primary" onclick="loadLogs()" style="margin-top:18px;">搜尋</button>
+      <button class="btn" style="background:var(--c4);margin-top:18px;" onclick="loadFlaskLog()">Flask Log</button>
+    </div>
+  </div>
+  <div class="card"><div id="log-content" class="log-viewer">請搜尋或選擇日誌</div></div>
+</div>
+
+<div id="tab-hosts" class="tab-panel">
+  <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button class="btn btn-primary" onclick="showAddHostModal()">新增主機</button>
+    <button class="btn" style="background:var(--g2);color:white;" onclick="document.getElementById('csv-upload').click()">匯入 CSV</button>
+    <button class="btn" style="background:var(--g2);color:white;" onclick="importJson()">匯入 JSON</button>
+    <button class="btn" style="background:var(--c2);color:white;" onclick="window.open('/api/admin/hosts/export-csv')">匯出 CSV</button>
+    <button class="btn" style="background:var(--c3);color:white;" onclick="window.open('/api/admin/hosts/template-csv')">下載範本</button>
+    <button class="btn" style="background:var(--orange);color:white;" onclick="adminAction('/api/admin/hosts/regenerate-inventory','POST','確定重建 Ansible Inventory？')">重建 Inventory</button>
+    <input type="file" id="csv-upload" accept=".csv" style="display:none;" onchange="uploadCSV(this)">
+  </div>
+  <div class="card"><div id="admin-hosts-list">載入中...</div></div>
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title">各主機服務狀態</div>
+    <div id="sys-services">載入中...</div>
+  </div>
+</div>
+
+<div id="tab-alerts" class="tab-panel">
+  <div class="card"><div class="card-title">告警紀錄 (最近 100 筆)</div><div id="alert-list">載入中...</div></div>
+</div>
+
+<div id="tab-scheduler" class="tab-panel">
+  <div class="card"><div class="card-title">巡檢排程</div><div id="scheduler-content">載入中...</div></div>
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title">新增排程</div>
+    <div style="display:flex;gap:12px;align-items:center;">
+      <div class="form-group" style="margin:0;"><label>時</label><input type="number" id="sched-hour" min="0" max="23" style="width:60px;"></div>
+      <div class="form-group" style="margin:0;"><label>分</label><input type="number" id="sched-min" min="0" max="59" style="width:60px;" value="30"></div>
+      <button class="btn btn-primary" onclick="addSchedule()" style="margin-top:18px;">新增</button>
+    </div>
+  </div>
+</div>
+
+<div id="tab-reports" class="tab-panel">
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;gap:12px;align-items:center;">
+      <div class="form-group" style="margin:0;"><label>月份</label><input type="month" id="report-month"></div>
+      <button class="btn btn-primary" onclick="loadMonthlyReport()" style="margin-top:18px;">產生報告</button>
+      <button class="btn" style="background:var(--g2);color:white;margin-top:18px;" onclick="exportCSV()">匯出 CSV</button>
+    </div>
+  </div>
+  <div class="card"><div class="card-title">月報</div><div id="report-content">請選擇月份</div></div>
+</div>
+
+<!-- 帳號盤點 -->
+<div id="tab-audit" class="tab-panel">
+  <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <div class="form-group" style="margin:0;"><label>主機</label><select id="audit-host" onchange="loadAuditTab()"><option value="">全部</option></select></div>
+    <div class="form-group" style="margin:0;"><label>部門</label><select id="audit-dept" onchange="loadAuditTab()"><option value="">全部</option></select></div>
+    <div class="form-group" style="margin:0;"><label>風險</label><select id="audit-risk" onchange="loadAuditTab()"><option value="">全部</option><option value="has_risk">有風險</option><option value="pw_old">密碼過老</option><option value="pw_expired">密碼到期</option><option value="no_login">未登入</option></select></div>
+    <button class="btn" style="background:var(--g2);color:white;margin-top:18px;" onclick="window.open('/api/admin/audit/export')">匯出 CSV</button>
+  </div>
+  <div class="card"><div id="audit-content">載入中...</div></div>
+</div>
+
+<!-- 帳號管理 -->
+<div id="tab-acctmgmt" class="tab-panel">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title">盤點閾值設定</div>
+    <div style="display:flex;gap:16px;align-items:center;">
+      <div class="form-group" style="margin:0;"><label>密碼未變更天數</label><input type="number" id="cfg-pw-days" value="180" style="width:80px;"></div>
+      <div class="form-group" style="margin:0;"><label>未登入天數</label><input type="number" id="cfg-login-days" value="180" style="width:80px;"></div>
+      <button class="btn btn-primary" onclick="saveAuditSettings()" style="margin-top:18px;">儲存</button>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title">HR 人員資料</div>
+    <div style="margin-bottom:12px;display:flex;gap:8px;">
+      <button class="btn" style="background:var(--g2);color:white;" onclick="document.getElementById('hr-upload').click()">匯入 HR CSV</button>
+      <button class="btn" style="background:var(--c3);color:white;" onclick="window.open('/api/admin/audit/hr/template')">下載範本</button>
+      <input type="file" id="hr-upload" accept=".csv" style="display:none;" onchange="uploadHR(this)">
+    </div>
+    <div id="hr-list">載入中...</div>
+  </div>
+</div>
+
+<!-- 使用者管理 Tab -->
+<div id="tab-usermgmt" class="tab-panel">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div class="card-title" style="margin:0;">系統使用者</div>
+      <button class="btn btn-primary" onclick="showAddUserModal()">新增使用者</button>
+    </div>
+    <div id="users-table">載入中...</div>
+  </div>
+</div>
+
+<!-- 新增/編輯使用者 Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-title" id="user-modal-title">新增使用者</div>
+    <div class="form-group"><label>帳號</label><input type="text" id="um-username" placeholder="英文帳號"></div>
+    <div class="form-group"><label>密碼</label><input type="password" id="um-password" placeholder="至少 6 碼"></div>
+    <div class="form-group"><label>顯示名稱</label><input type="text" id="um-display" placeholder="中文姓名"></div>
+    <div class="form-group"><label>Email</label><input type="email" id="um-email" placeholder="user@company.com"></div>
+    <div class="form-group"><label>角色</label>
+      <select id="um-role">
+        <option value="admin">admin — 可操作服務/設定/管理</option>
+        <option value="oper">oper — 唯讀瀏覽</option>
+      </select>
+    </div>
+    <div id="user-modal-msg" style="display:none;margin-bottom:12px;padding:10px;border-radius:8px;font-size:13px;"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" style="background:var(--c4);color:var(--c1);" onclick="document.getElementById('user-modal').classList.remove('active')">取消</button>
+      <button class="btn btn-primary" id="user-modal-save" onclick="saveUser()">建立</button>
+    </div>
+  </div>
+</div>
+
+<!-- 帳號備註 Modal -->
+<div class="modal-overlay" id="note-modal">
+  <div class="modal">
+    <div class="modal-title" id="note-modal-title">編輯帳號備註</div>
+    <input type="hidden" id="note-hostname">
+    <input type="hidden" id="note-user">
+    <div class="form-group"><label>帳號</label><input type="text" id="note-display" readonly></div>
+    <div class="form-group"><label>備註</label><input type="text" id="note-text" placeholder="例: 004808_ALIEN_測試專用"></div>
+    <div class="form-group"><label>部門</label><input type="text" id="note-dept" placeholder="例: 資訊架構部"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" style="background:var(--c4);" onclick="document.getElementById('note-modal').classList.remove('active')">取消</button>
+      <button class="btn btn-primary" onclick="saveAccountNote()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<div id="tab-worklog" class="tab-panel">
+  <div class="card"><div class="card-title">管理操作紀錄</div><div id="worklog-content">載入中...</div></div>
+</div>
+
+<!-- Linux 初始化工具 -->
+<div id="tab-linux-init" class="tab-panel">
+  <div class="card-title" style="margin-bottom:12px;">Linux 初始化工具 (SysExpert) <span style="font-size:11px;font-weight:400;color:var(--c3);margin-left:8px;">僅限 Linux 主機</span></div>
+  <!-- Sub-tabs -->
+  <div style="display:flex;gap:12px;margin-bottom:16px;">
+    <button class="sub-tab active" id="linitSubExec" onclick="switchLinitSub('exec')">🔧 執行初始化</button>
+    <button class="sub-tab" id="linitSubConfig" onclick="switchLinitSub('config')">⚙️ 參數設定</button>
+    <button class="sub-tab" id="linitSubRollback" onclick="switchLinitSub('rollback')">↩️ 備份還原</button>
+    <button class="sub-tab" id="linitSubReports" onclick="switchLinitSub('reports')">📄 報告</button>
+  </div>
+
+  <!-- Sub-tab 1: 執行初始化 -->
+  <div id="linitPanelExec">
+    <div class="card" style="margin-bottom:16px;">
+      <!-- 主機選擇 -->
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <label style="font-size:13px;font-weight:600;">目標主機</label>
+          <label style="font-size:12px;cursor:pointer;color:var(--g1);"><input type="checkbox" id="linit-all" onchange="toggleAllLinitHosts(this.checked)" style="margin-right:4px;">全選</label>
+        </div>
+        <div id="linit-hostlist" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:6px;max-height:140px;overflow-y:auto;padding:8px;border:1px solid #e0e0e0;border-radius:8px;background:#fafafa;">載入中...</div>
+        <div id="linit-selected" style="margin-top:4px;font-size:12px;color:var(--c3);"></div>
+      </div>
+      <!-- 項目選擇 -->
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <label style="font-size:13px;font-weight:600;">執行項目</label>
+          <div style="display:flex;gap:6px;">
+            <button onclick="selectLinitItems('A')" style="padding:2px 8px;font-size:11px;border:1px solid var(--g1);border-radius:4px;background:white;color:var(--g1);cursor:pointer;">全選 A 類</button>
+            <button onclick="selectLinitItems('B')" style="padding:2px 8px;font-size:11px;border:1px solid #9c27b0;border-radius:4px;background:white;color:#9c27b0;cursor:pointer;">全選 B 類</button>
+            <button onclick="selectLinitItems('all')" style="padding:2px 8px;font-size:11px;border:1px solid var(--c3);border-radius:4px;background:white;color:var(--c3);cursor:pointer;">全選</button>
+            <button onclick="selectLinitItems('none')" style="padding:2px 8px;font-size:11px;border:1px solid var(--c3);border-radius:4px;background:white;color:var(--c3);cursor:pointer;">取消</button>
+            <button onclick="selectLinitItems('check')" style="padding:2px 8px;font-size:11px;border:1px solid var(--orange);border-radius:4px;background:white;color:var(--orange);cursor:pointer;">🔍 僅檢查</button>
+          </div>
+        </div>
+        <div style="max-height:360px;overflow-y:auto;border:1px solid #e0e0e0;border-radius:8px;">
+          <!-- A 類 -->
+          <div style="padding:8px 12px;background:var(--g1);color:white;font-size:12px;font-weight:600;position:sticky;top:0;z-index:1;">A 類：稽核必要項目 (A1-A18)</div>
+          <div id="linit-items-a" style="padding:6px 8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:4px;"></div>
+          <!-- B 類 -->
+          <div style="padding:8px 12px;background:#9c27b0;color:white;font-size:12px;font-weight:600;position:sticky;top:0;z-index:1;">B 類：進階互動優化 (B1-B10)</div>
+          <div id="linit-items-b" style="padding:6px 8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:4px;"></div>
+        </div>
+        <div id="linit-item-count" style="margin-top:4px;font-size:12px;color:var(--c3);"></div>
+      </div>
+      <!-- 執行按鈕 -->
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-primary" onclick="runLinuxInit()" id="linit-btn">執行選取項目</button>
+        <span id="linit-count" style="font-size:12px;color:var(--c3);"></span>
+      </div>
+      <!-- 進度面板 -->
+      <div id="linit-progress-panel" style="margin-top:12px;display:none;border:1px solid #e0e0e0;border-radius:10px;padding:16px;background:#fafafa;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <div><span class="spinner" id="linit-spinner" style="display:inline-block;width:14px;height:14px;border:2px solid var(--c4);border-top-color:var(--g1);border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;"></span><span id="linit-phase" style="margin-left:8px;font-size:13px;font-weight:600;color:var(--c1);">啟動中...</span></div>
+          <div style="font-size:12px;color:var(--c3);"><span id="linit-timer">00:00</span> <span style="margin-left:8px;" id="linit-progress-text">0 / 0</span></div>
+        </div>
+        <div style="height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden;margin-bottom:12px;"><div id="linit-bar" style="height:100%;background:var(--g1);border-radius:3px;transition:width 0.5s;width:0%;"></div></div>
+        <div id="linit-host-progress" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px;"></div>
+      </div>
+      <div id="linit-msg" style="margin-top:8px;font-size:13px;"></div>
+      <div id="linit-log-area" style="display:none;margin-top:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><span style="font-size:13px;font-weight:600;color:var(--red);">Ansible LOG</span><button class="btn btn-sm" style="background:var(--c4);color:var(--c1);font-size:11px;" onclick="document.getElementById('linit-log-area').style.display='none'">收合</button></div>
+        <pre id="linit-log-content" style="max-height:300px;overflow:auto;background:#1a1a2e;color:#e0e0e0;padding:12px;border-radius:8px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-tab 2: 參數設定 -->
+  <div id="linitPanelConfig" style="display:none;">
+    <div class="card">
+      <div class="card-title">全部項目參數設定 (A1-A18 + B1-B10)</div>
+      <p style="font-size:12px;color:var(--c3);margin-bottom:16px;">修改後執行對應項目時生效。若為空值則使用預設值。</p>
+      <div id="linit-config-form" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;"></div>
+      <div style="margin-top:16px;display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-primary" onclick="saveLinitConfig()">儲存設定</button>
+        <span id="linit-config-msg" style="font-size:13px;"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sub-tab 3: 備份還原 -->
+  <div id="linitPanelRollback" style="display:none;">
+    <div class="card">
+      <div class="card-title">備份還原</div>
+      <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:16px;">
+        <div class="form-group" style="margin:0;">
+          <label>選擇主機</label>
+          <select id="linit-rb-host" style="min-width:200px;"></select>
+        </div>
+        <button class="btn btn-primary" onclick="loadRollbackList()" style="margin-bottom:2px;">查詢備份</button>
+      </div>
+      <div id="linit-rb-result" style="font-size:13px;color:var(--c3);">請選擇主機後點「查詢備份」</div>
+    </div>
+  </div>
+
+  <!-- Sub-tab 4: 報告 -->
+  <div id="linitPanelReports" style="display:none;">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div class="card-title" style="margin:0;">初始化報告</div>
+        <button class="btn btn-sm" style="background:var(--c4);color:var(--c1);" onclick="refreshLinitReports()">重新整理</button>
+      </div>
+      <div id="linit-reports">載入中...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Linux Init 預覽 Modal -->
+<div class="modal-overlay" id="linit-preview-modal">
+  <div class="modal" style="max-width:800px;max-height:80vh;display:flex;flex-direction:column;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="modal-title" style="margin:0;" id="linit-preview-title">報告預覽</div>
+      <button class="btn btn-sm" style="background:var(--c4);color:var(--c1);" onclick="document.getElementById('linit-preview-modal').classList.remove('active')">關閉</button>
+    </div>
+    <pre id="linit-preview-content" style="flex:1;overflow:auto;background:#1a1a2e;color:#e0e0e0;padding:16px;border-radius:8px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
+  </div>
+</div>
+
+<!-- 系統安全稽核 -->
+<div id="tab-security-audit" class="tab-panel">
+  <div class="card-title" style="margin-bottom:12px;">系統安全稽核 <span style="font-size:11px;font-weight:400;color:var(--c3);margin-left:8px;">僅限 Linux 主機</span></div>
+  <div style="display:flex;gap:12px;margin-bottom:16px;">
+    <button class="sub-tab active" id="saSubExec" onclick="switchSaSub('exec')">🔒 執行稽核</button>
+    <button class="sub-tab" id="saSubConfig" onclick="switchSaSub('config')">⚙️ 參數設定</button>
+    <button class="sub-tab" id="saSubReports" onclick="switchSaSub('reports')">📄 報告</button>
+  </div>
+  <div id="saPanelExec">
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title">執行安全稽核</div>
+    <div style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <label style="font-size:13px;font-weight:600;">目標主機（可複選）</label>
+        <label style="font-size:12px;cursor:pointer;color:var(--g1);">
+          <input type="checkbox" id="secaudit-all" onchange="toggleAllAuditHosts(this.checked)" style="margin-right:4px;">全選
+        </label>
+      </div>
+      <div id="secaudit-hostlist" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:6px;max-height:200px;overflow-y:auto;padding:8px;border:1px solid #e0e0e0;border-radius:8px;background:#fafafa;">
+        <div style="color:var(--c3);font-size:13px;">載入中...</div>
+      </div>
+      <div id="secaudit-selected" style="margin-top:6px;font-size:12px;color:var(--c3);"></div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="btn btn-primary" onclick="runSecurityAudit()" id="secaudit-btn">執行稽核</button>
+      <span id="secaudit-count" style="font-size:12px;color:var(--c3);"></span>
+    </div>
+    <!-- 進度面板 -->
+    <div id="secaudit-progress-panel" style="margin-top:12px;display:none;border:1px solid #e0e0e0;border-radius:10px;padding:16px;background:#fafafa;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div>
+          <span class="spinner" id="secaudit-spinner" style="display:inline-block;width:14px;height:14px;border:2px solid var(--c4);border-top-color:var(--g1);border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;"></span>
+          <span id="secaudit-phase" style="margin-left:8px;font-size:13px;font-weight:600;color:var(--c1);">啟動中...</span>
+        </div>
+        <div style="font-size:12px;color:var(--c3);">
+          <span id="secaudit-timer">00:00</span>
+          <span style="margin-left:8px;" id="secaudit-progress-text">0 / 0</span>
+        </div>
+      </div>
+      <!-- 進度條 -->
+      <div style="height:6px;background:#e0e0e0;border-radius:3px;overflow:hidden;margin-bottom:12px;">
+        <div id="secaudit-bar" style="height:100%;background:var(--g1);border-radius:3px;transition:width 0.5s;width:0%;"></div>
+      </div>
+      <!-- 每台主機狀態 -->
+      <div id="secaudit-host-progress" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px;"></div>
+    </div>
+    <div id="secaudit-msg" style="margin-top:8px;font-size:13px;"></div>
+    <!-- 錯誤 LOG 區 -->
+    <div id="secaudit-log-area" style="display:none;margin-top:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <span style="font-size:13px;font-weight:600;color:var(--red);">Ansible 執行 LOG</span>
+        <button class="btn btn-sm" style="background:var(--c4);color:var(--c1);font-size:11px;" onclick="document.getElementById('secaudit-log-area').style.display='none'">收合</button>
+      </div>
+      <pre id="secaudit-log-content" style="max-height:300px;overflow:auto;background:#1a1a2e;color:#e0e0e0;padding:12px;border-radius:8px;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
+    </div>
+  </div>
+  </div>
+
+  <!-- 參數設定 sub-tab -->
+  <div id="saPanelConfig" style="display:none;">
+    <div class="card">
+      <div class="card-title">稽核參數設定</div>
+      <p style="font-size:12px;color:var(--c3);margin-bottom:16px;">修改後執行稽核時生效。</p>
+      <div id="sa-config-form" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;"></div>
+      <div style="margin-top:16px;display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-primary" onclick="saveSaConfig()">儲存設定</button>
+        <span id="sa-config-msg" style="font-size:13px;"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 報告 sub-tab -->
+  <div id="saPanelReports" style="display:none;">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="card-title" style="margin:0;">稽核報告</div>
+      <button class="btn btn-sm" style="background:var(--c4);color:var(--c1);" onclick="refreshAuditReports()">重新整理</button>
+    </div>
+    <div id="secaudit-reports">載入中...</div>
+  </div>
+  </div>
+</div>
+
+<!-- 稽核報告預覽 Modal -->
+<div class="modal-overlay" id="secaudit-preview-modal">
+  <div class="modal" style="max-width:800px;max-height:80vh;display:flex;flex-direction:column;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="modal-title" style="margin:0;" id="secaudit-preview-title">報告預覽</div>
+      <button class="btn btn-sm" style="background:var(--c4);color:var(--c1);" onclick="document.getElementById('secaudit-preview-modal').classList.remove('active')">關閉</button>
+    </div>
+    <pre id="secaudit-preview-content" style="flex:1;overflow:auto;background:#1a1a2e;color:#e0e0e0;padding:16px;border-radius:8px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;margin:0;"></pre>
+  </div>
+</div>
+
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<div id="tab-twgcb" class="tab-panel">
+  <div style="display:flex;gap:12px;margin-bottom:20px;">
+    <button class="sub-tab active" id="subChecks" onclick="switchTwgcbSub('checks')">檢查項目設定</button>
+    <button class="sub-tab" id="subReport" onclick="switchTwgcbSub('report')">報表簽核設定</button>
+  </div>
+
+  <div id="twgcbSubChecks">
+    <p style="color:#888;font-size:13px;margin-bottom:12px;">每項可獨立啟用/停用。點「編輯」可調整閾值（如密碼天數改180天）、修復指令、例外主機。</p>
+    <div id="twgcbConfigArea">載入中...</div>
+  </div>
+
+  <div id="twgcbSubReport" style="display:none;">
+    <p style="color:#888;font-size:13px;margin-bottom:12px;">設定報表抬頭與簽核欄位人員，產出報表時自動帶入。</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:600px;">
+      <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">公司名稱</label>
+        <input type="text" id="rptCompany" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;" value="Example Corp"></div>
+      <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">部門</label>
+        <input type="text" id="rptDept" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;"></div>
+      <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">承辦人</label>
+        <input type="text" id="rptHandler" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;"></div>
+      <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">科長</label>
+        <input type="text" id="rptChief" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;"></div>
+      <div><label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px;">部長</label>
+        <input type="text" id="rptDirector" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;"></div>
+    </div>
+    <button onclick="saveReportCfg()" style="margin-top:16px;padding:8px 20px;background:var(--g1);color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600;">儲存報表設定</button>
+    <span id="rptSaveMsg" style="margin-left:12px;font-size:13px;"></span>
+  </div>
+
+  <div id="twgcbEditModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;justify-content:center;align-items:center;">
+    <div style="background:white;border-radius:16px;padding:32px;width:500px;max-width:90%;">
+      <h3 id="twgcbEditTitle">編輯檢查項</h3>
+      <div style="margin-bottom:12px;"><label style="font-size:13px;font-weight:600;">閾值/期望值</label>
+        <input type="text" id="twgcbEditThreshold" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;margin-top:4px;"></div>
+      <div style="margin-bottom:12px;"><label style="font-size:13px;font-weight:600;">修復指令</label>
+        <textarea id="twgcbEditCmd" style="width:100%;height:60px;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;margin-top:4px;font-family:monospace;font-size:12px;"></textarea></div>
+      <div style="margin-bottom:12px;"><label style="font-size:13px;font-weight:600;">例外主機（逗號分隔）</label>
+        <input type="text" id="twgcbEditExceptions" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;box-sizing:border-box;margin-top:4px;" placeholder="host1,host2"></div>
+      <div style="display:flex;gap:10px;">
+        <button onclick="saveTwgcbEdit()" style="padding:8px 20px;background:var(--g1);color:white;border:none;border-radius:6px;cursor:pointer;font-weight:600;">儲存</button>
+        <button onclick="closeTwgcbEdit()" style="padding:8px 20px;background:#e0e0e0;color:#333;border:none;border-radius:6px;cursor:pointer;">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Add Host Modal -->
+<div class="modal-overlay" id="host-modal">
+  <div class="modal">
+    <div class="modal-title" id="host-modal-title">新增主機</div>
+    <div class="form-group"><label>主機名稱</label><input type="text" id="h-hostname"></div>
+    <div class="form-group"><label>IP</label><input type="text" id="h-ip"></div>
+    <div class="form-group"><label>OS / 設備類型</label><select id="h-os"><option value="Rocky Linux">Rocky Linux</option><option value="RHEL">RHEL</option><option value="Debian">Debian</option><option value="AIX">AIX</option><option value="Windows Server 2016">Windows Server 2016</option><option value="Windows Server 2019">Windows Server 2019</option><option value="Windows Server 2022">Windows Server 2022</option><option value="Cisco IOS">Cisco IOS (SNMP)</option><option value="Juniper">Juniper (SNMP)</option><option value="Fortinet">Fortinet (SNMP)</option><option value="Aruba">Aruba (SNMP)</option><option value="Network Device">網路設備 (SNMP)</option><option value="IBM AS/400">IBM AS/400 (SNMP)</option></select></div>
+    <div class="form-group"><label>OS Group</label><select id="h-osgroup"><option value="rocky">rocky</option><option value="rhel">rhel</option><option value="debian">debian</option><option value="aix">aix</option><option value="windows">windows</option><option value="snmp">snmp (網路設備)</option><option value="as400">as400</option></select></div>
+    <div class="form-group"><label>SNMP Community</label><input type="text" id="h-snmp-community" placeholder="預設: public（SNMP設備填寫）"></div>
+    <div class="form-group"><label>環境</label><select id="h-env"><option value="正式">正式</option><option value="測試">測試</option></select></div>
+    <div class="form-group"><label>保管者</label><input type="text" id="h-custodian"></div>
+    <div class="form-group"><label>部門</label><input type="text" id="h-dept" placeholder="例: 資訊架構部"></div>
+    <div class="form-group"><label>群組</label><input type="text" id="h-group" placeholder="例: H1-LAB"></div>
+    <div class="form-group"><label>系統別</label><input type="text" id="h-system-name" placeholder="例: 會計系統、交易系統"></div>
+    <div class="form-group"><label>級別</label><select id="h-tier"><option value="">未設定</option><option value="金">金</option><option value="銀">銀</option><option value="銅">銅</option></select></div>
+    <div class="form-group"><label>AP 負責人</label><input type="text" id="h-ap-owner" placeholder="例: 王大明"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" style="background:var(--c4);" onclick="closeHostModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveHost()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/admin.js"></script>
+<script>
+// TWGCB 設定
+let twgcbEditingId = null;
+
+function switchTwgcbSub(sub) {
+  document.getElementById('twgcbSubChecks').style.display = sub==='checks' ? 'block' : 'none';
+  document.getElementById('twgcbSubReport').style.display = sub==='report' ? 'block' : 'none';
+  document.getElementById('subChecks').className = 'sub-tab' + (sub==='checks'?' active':'');
+  document.getElementById('subReport').className = 'sub-tab' + (sub==='report'?' active':'');
+  if (sub==='report') loadReportCfg();
+}
+
+async function loadTwgcbConfig() {
+  try {
+    const res = await fetch('/api/twgcb/config');
+    const json = await res.json();
+    if (!json.success) return;
+    const configs = json.data;
+    const levelColors = {A:'#1565C0',B:'#F57F17',C:'#E65100',D:'#B71C1C'};
+    let html = '<table style="width:100%;border-collapse:collapse;"><thead><tr>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;width:50px;">啟用</th>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">GCB 編號</th>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">等級</th>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">分類</th>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">檢查項目</th>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">閾值</th>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">例外主機</th>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;width:60px;">操作</th>';
+    html += '</tr></thead><tbody>';
+    configs.forEach(function(c) {
+      const opacity = c.enabled ? '' : 'opacity:0.4;';
+      const chk = c.enabled ? 'checked' : '';
+      const ex = (c.exception_hosts||[]);
+      html += '<tr style="' + opacity + '">';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;"><input type="checkbox" ' + chk + ' onchange="toggleTwgcb(\'' + c.check_id + '\',this.checked)"></td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-family:monospace;font-size:11px;">' + c.check_id + '</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;"><span style="color:' + (levelColors[c.level]||'#333') + ';font-weight:700;">' + c.level + '</span></td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;">' + c.category + '</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;"><strong>' + c.name + '</strong><br><small style="color:#888;">' + (c.description||'') + '</small></td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;"><code>' + (c.threshold||c.expected||'-') + '</code></td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:11px;">' + (ex.length>0 ? ex.join(', ') : '-') + '</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;"><button onclick="openTwgcbEdit(\'' + c.check_id + '\')" style="padding:3px 10px;background:var(--g1);color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;">編輯</button></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('twgcbConfigArea').innerHTML = html;
+  } catch(e) { document.getElementById('twgcbConfigArea').innerHTML = '載入失敗'; }
+}
+
+async function toggleTwgcb(id, enabled) {
+  await fetch('/api/twgcb/config/' + id, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({enabled:enabled})});
+  loadTwgcbConfig();
+}
+
+let twgcbConfigs = [];
+async function openTwgcbEdit(checkId) {
+  if (!twgcbConfigs.length) {
+    const r = await fetch('/api/twgcb/config');
+    const j = await r.json();
+    twgcbConfigs = j.data || [];
+  }
+  const c = twgcbConfigs.find(function(x){return x.check_id===checkId;});
+  if (!c) return;
+  twgcbEditingId = checkId;
+  document.getElementById('twgcbEditTitle').textContent = '編輯 ' + c.check_id + ' - ' + c.name;
+  document.getElementById('twgcbEditThreshold').value = c.threshold || c.expected || '';
+  document.getElementById('twgcbEditCmd').value = c.remediation || '';
+  document.getElementById('twgcbEditExceptions').value = (c.exception_hosts||[]).join(',');
+  document.getElementById('twgcbEditModal').style.display = 'flex';
+}
+
+function closeTwgcbEdit() {
+  document.getElementById('twgcbEditModal').style.display = 'none';
+  twgcbEditingId = null;
+}
+
+async function saveTwgcbEdit() {
+  if (!twgcbEditingId) return;
+  const threshold = document.getElementById('twgcbEditThreshold').value.trim();
+  const remediation = document.getElementById('twgcbEditCmd').value.trim();
+  const ex = document.getElementById('twgcbEditExceptions').value.trim();
+  const exception_hosts = ex ? ex.split(',').map(function(h){return h.trim();}).filter(Boolean) : [];
+  await fetch('/api/twgcb/config/' + twgcbEditingId, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({threshold:threshold, expected:threshold, remediation:remediation, exception_hosts:exception_hosts})
+  });
+  closeTwgcbEdit();
+  twgcbConfigs = [];
+  loadTwgcbConfig();
+}
+
+async function loadReportCfg() {
+  const res = await fetch('/api/twgcb/report-config');
+  const json = await res.json();
+  if (!json.success) return;
+  const d = json.data;
+  document.getElementById('rptCompany').value = d.company_name || '';
+  document.getElementById('rptDept').value = d.department || '';
+  document.getElementById('rptHandler').value = d.handler || '';
+  document.getElementById('rptChief').value = d.section_chief || '';
+  document.getElementById('rptDirector').value = d.director || '';
+}
+
+async function saveReportCfg() {
+  const res = await fetch('/api/twgcb/report-config', {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      company_name: document.getElementById('rptCompany').value,
+      department: document.getElementById('rptDept').value,
+      handler: document.getElementById('rptHandler').value,
+      section_chief: document.getElementById('rptChief').value,
+      director: document.getElementById('rptDirector').value
+    })
+  });
+  const json = await res.json();
+  const msg = document.getElementById('rptSaveMsg');
+  msg.textContent = json.success ? '✓ 已儲存' : '✗ 儲存失敗';
+  msg.style.color = json.success ? 'var(--g1)' : 'var(--red)';
+  setTimeout(function(){msg.textContent='';}, 3000);
+}
+
+document.addEventListener('click', function(e) {
+  if (e.target.dataset && e.target.dataset.tab === 'twgcb') setTimeout(loadTwgcbConfig, 100);
+});
+document.addEventListener('keydown', function(e) {
+  if(e.key==='Escape') {
+    closeTwgcbEdit();
+    document.getElementById('secaudit-preview-modal').classList.remove('active');
+  }
+});
+
+// ===== 系統安全稽核 =====
+
+var SA_CONFIG_FIELDS = [
+  {key:'audit_cat1', label:'類別一：版本確認 EOS 及修補', type:'toggle', def:'1'},
+  {key:'audit_cat2', label:'類別二：帳號密碼原則參數', type:'toggle', def:'1'},
+  {key:'audit_cat3', label:'類別三：帳號清單及權限', type:'toggle', def:'1'},
+  {key:'audit_cat4', label:'類別四：敏感檔案及目錄權限', type:'toggle', def:'1'},
+  {key:'audit_cat5', label:'類別五：網路安全服務', type:'toggle', def:'1'},
+  {key:'audit_cat6', label:'類別六：日誌與稽核紀錄', type:'toggle', def:'1'},
+  {key:'audit_large_lines', label:'大檔案截斷行數', type:'number', unit:'行', def:'100'},
+  {key:'audit_last_n', label:'登入紀錄顯示筆數', type:'number', unit:'筆', def:'20'},
+  {key:'audit_svc_head', label:'服務列表顯示筆數', type:'number', unit:'筆', def:'30'},
+  {key:'audit_services_head', label:'/etc/services 顯示行數', type:'number', unit:'行', def:'50'},
+  {key:'audit_archive', label:'產生壓縮封存 (tar.gz)', type:'toggle', def:'1'},
+];
+
+function switchSaSub(sub) {
+  ['exec','config','reports'].forEach(function(s) {
+    var panel = document.getElementById('saPanel' + s.charAt(0).toUpperCase() + s.slice(1));
+    var btn = document.getElementById('saSub' + s.charAt(0).toUpperCase() + s.slice(1));
+    if (panel) panel.style.display = (s === sub) ? 'block' : 'none';
+    if (btn) btn.className = 'sub-tab' + (s === sub ? ' active' : '');
+  });
+  if (sub === 'config') loadSaConfig();
+  if (sub === 'reports') refreshAuditReports();
+}
+
+async function loadSaConfig() {
+  try {
+    var res = await fetch('/api/security-audit/config');
+    var json = await res.json();
+    if (!json.success) return;
+    var data = json.data;
+    var html = '';
+    SA_CONFIG_FIELDS.forEach(function(f) {
+      var val = data[f.key] || f.def;
+      html += '<div style="padding:12px;background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;">';
+      html += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">'+f.label+'</label>';
+      if (f.type === 'toggle') {
+        var checked = val === '1' ? 'checked' : '';
+        html += '<label style="font-size:13px;cursor:pointer;"><input type="checkbox" id="sacfg-'+f.key+'" '+checked+'> '+(val==='1'?'啟用':'停用')+'</label>';
+      } else {
+        html += '<div style="display:flex;gap:6px;align-items:center;">';
+        html += '<input type="number" id="sacfg-'+f.key+'" value="'+val+'" style="width:80px;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">';
+        if (f.unit) html += '<span style="font-size:11px;color:var(--c3);">'+f.unit+'</span>';
+        html += '</div>';
+      }
+      html += '<div style="font-size:10px;color:var(--c3);margin-top:2px;">預設: '+f.def+'</div>';
+      html += '</div>';
+    });
+    document.getElementById('sa-config-form').innerHTML = html;
+  } catch(e) {}
+}
+
+async function saveSaConfig() {
+  var body = {};
+  SA_CONFIG_FIELDS.forEach(function(f) {
+    var el = document.getElementById('sacfg-'+f.key);
+    if (!el) return;
+    if (f.type === 'toggle') body[f.key] = el.checked ? '1' : '0';
+    else body[f.key] = el.value;
+  });
+  try {
+    var res = await fetch('/api/security-audit/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    var json = await res.json();
+    var msg = document.getElementById('sa-config-msg');
+    msg.textContent = json.success ? '✓ 已儲存' : '✗ 儲存失敗';
+    msg.style.color = json.success ? 'var(--g1)' : 'var(--red)';
+    setTimeout(function(){msg.textContent='';}, 3000);
+  } catch(e) {}
+}
+var _auditHosts = []; // 快取主機清單
+
+async function loadSecurityAuditTab() {
+  // 載入主機列表 (checkbox grid)
+  try {
+    var res = await fetch('/api/security-audit/hosts');
+    var json = await res.json();
+    if (json.success && json.data.length) {
+      _auditHosts = json.data;
+      var container = document.getElementById('secaudit-hostlist');
+      var html = '';
+      json.data.forEach(function(h) {
+        html += '<label style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13px;background:white;border:1px solid #e8e8e8;" onmouseover="this.style.borderColor=\'var(--g1)\'" onmouseout="this.style.borderColor=\'#e8e8e8\'">';
+        html += '<input type="checkbox" class="secaudit-cb" value="' + h.hostname + '" data-ip="' + h.ip + '" onchange="updateAuditSelection()">';
+        html += '<span style="font-family:monospace;font-weight:600;color:var(--g1);">' + h.ip + '</span>';
+        html += '<span style="color:var(--c3);">(' + h.hostname + ' / ' + (h.os || h.os_group) + ')</span>';
+        html += '</label>';
+      });
+      container.innerHTML = html;
+      updateAuditSelection();
+    }
+  } catch(e) {
+    document.getElementById('secaudit-hostlist').innerHTML = '<div style="color:var(--red);font-size:13px;">載入失敗</div>';
+  }
+  // 載入報告列表
+  refreshAuditReports();
+}
+
+function toggleAllAuditHosts(checked) {
+  document.querySelectorAll('.secaudit-cb').forEach(function(cb) { cb.checked = checked; });
+  updateAuditSelection();
+}
+
+function updateAuditSelection() {
+  var checked = document.querySelectorAll('.secaudit-cb:checked');
+  var total = document.querySelectorAll('.secaudit-cb').length;
+  var countEl = document.getElementById('secaudit-count');
+  var selEl = document.getElementById('secaudit-selected');
+  var allCb = document.getElementById('secaudit-all');
+
+  if (allCb) allCb.checked = (checked.length === total && total > 0);
+
+  if (checked.length === 0) {
+    countEl.textContent = '';
+    selEl.textContent = '請勾選要稽核的主機';
+    selEl.style.color = 'var(--orange)';
+  } else {
+    var ips = Array.from(checked).map(function(cb) { return cb.dataset.ip; });
+    countEl.textContent = '已選 ' + checked.length + ' / ' + total + ' 台';
+    selEl.textContent = '選取: ' + ips.join(', ');
+    selEl.style.color = 'var(--c3)';
+  }
+}
+
+function getSelectedAuditTargets() {
+  var checked = document.querySelectorAll('.secaudit-cb:checked');
+  var total = document.querySelectorAll('.secaudit-cb').length;
+  if (checked.length === 0) return null;
+  if (checked.length === total) return 'all';
+  return Array.from(checked).map(function(cb) { return cb.value; }).join(',');
+}
+
+var _auditJobId = null;
+var _auditPollTimer = null;
+var _auditStartTime = null;
+var _auditTimerInterval = null;
+
+var _hostStatusIcons = {
+  waiting:  '⏳',
+  running:  '🔄',
+  done:     '✅',
+  failed:   '❌'
+};
+var _hostStatusLabels = {
+  waiting:  '等待中',
+  running:  '執行中',
+  done:     '完成',
+  failed:   '失敗'
+};
+
+async function runSecurityAudit() {
+  var target = getSelectedAuditTargets();
+  if (!target) {
+    var msg = document.getElementById('secaudit-msg');
+    msg.style.color = 'var(--orange)';
+    msg.textContent = '⚠ 請先勾選至少一台主機';
+    return;
+  }
+
+  var btn = document.getElementById('secaudit-btn');
+  var msg = document.getElementById('secaudit-msg');
+  var panel = document.getElementById('secaudit-progress-panel');
+  var logArea = document.getElementById('secaudit-log-area');
+
+  btn.disabled = true;
+  msg.textContent = '';
+  logArea.style.display = 'none';
+  panel.style.display = 'block';
+  document.getElementById('secaudit-spinner').style.display = 'inline-block';
+  document.getElementById('secaudit-phase').textContent = '啟動中...';
+  document.getElementById('secaudit-bar').style.width = '0%';
+  document.getElementById('secaudit-host-progress').innerHTML = '';
+  document.getElementById('secaudit-progress-text').textContent = '';
+
+  // 啟動計時器
+  _auditStartTime = Date.now();
+  if (_auditTimerInterval) clearInterval(_auditTimerInterval);
+  _auditTimerInterval = setInterval(updateAuditTimer, 1000);
+  updateAuditTimer();
+
+  try {
+    var res = await fetch('/api/security-audit/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({target: target})
+    });
+    var json = await res.json();
+    if (json.success && json.job_id) {
+      _auditJobId = json.job_id;
+      // 初始化主機進度
+      renderHostProgress(json.target_hosts.map(function(h) {
+        var info = _auditHosts.find(function(x){ return x.hostname === h; });
+        return {hostname: h, ip: info ? info.ip : '', status: 'waiting'};
+      }));
+      // 啟動輪詢
+      _auditPollTimer = setInterval(pollAuditProgress, 3000);
+    } else {
+      finishAudit(false, json.error || '啟動失敗');
+    }
+  } catch(e) {
+    finishAudit(false, '連線失敗: ' + e.message);
+  }
+}
+
+function updateAuditTimer() {
+  if (!_auditStartTime) return;
+  var elapsed = Math.floor((Date.now() - _auditStartTime) / 1000);
+  var min = Math.floor(elapsed / 60);
+  var sec = elapsed % 60;
+  document.getElementById('secaudit-timer').textContent =
+    String(min).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+}
+
+function renderHostProgress(hosts) {
+  var html = '';
+  hosts.forEach(function(h) {
+    var icon = _hostStatusIcons[h.status] || '⏳';
+    var label = _hostStatusLabels[h.status] || h.status;
+    var bgColor = h.status === 'done' ? '#e8f5e9' : h.status === 'failed' ? '#ffebee' : h.status === 'running' ? '#e3f2fd' : '#f5f5f5';
+    var borderColor = h.status === 'done' ? '#a5d6a7' : h.status === 'failed' ? '#ef9a9a' : h.status === 'running' ? '#90caf9' : '#e0e0e0';
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;background:' + bgColor + ';border:1px solid ' + borderColor + ';">';
+    html += '<span>' + icon + '</span>';
+    html += '<span style="font-family:monospace;font-weight:600;">' + h.ip + '</span>';
+    html += '<span style="color:var(--c3);">(' + h.hostname + ')</span>';
+    html += '<span style="margin-left:auto;font-weight:600;">' + label + '</span>';
+    html += '</div>';
+  });
+  document.getElementById('secaudit-host-progress').innerHTML = html;
+}
+
+async function pollAuditProgress() {
+  if (!_auditJobId) return;
+  try {
+    var res = await fetch('/api/security-audit/progress/' + _auditJobId);
+    var json = await res.json();
+    if (!json.success) return;
+
+    // 更新階段文字
+    document.getElementById('secaudit-phase').textContent = json.phase || '執行中';
+
+    // 更新進度條
+    var pct = json.total > 0 ? Math.round(json.completed / json.total * 100) : 0;
+    document.getElementById('secaudit-bar').style.width = pct + '%';
+    document.getElementById('secaudit-progress-text').textContent = json.completed + ' / ' + json.total + ' 台';
+
+    // 更新每台主機狀態
+    renderHostProgress(json.hosts);
+
+    // 完成或失敗
+    if (json.is_finished) {
+      clearInterval(_auditPollTimer);
+      _auditPollTimer = null;
+      if (json.job_status === 'done') {
+        document.getElementById('secaudit-bar').style.width = '100%';
+        finishAudit(true, '稽核完成 (' + document.getElementById('secaudit-timer').textContent + ')');
+      } else if (json.job_status === 'timeout') {
+        finishAudit(false, '稽核超時 (300s)');
+      } else {
+        finishAudit(false, '稽核執行失敗，請查看 LOG');
+      }
+    }
+  } catch(e) { /* 輪詢失敗靜默 */ }
+}
+
+async function finishAudit(success, message) {
+  // 停止計時器
+  if (_auditTimerInterval) { clearInterval(_auditTimerInterval); _auditTimerInterval = null; }
+  if (_auditPollTimer) { clearInterval(_auditPollTimer); _auditPollTimer = null; }
+
+  // 隱藏 spinner
+  document.getElementById('secaudit-spinner').style.display = 'none';
+
+  // 更新訊息
+  var msg = document.getElementById('secaudit-msg');
+  msg.style.color = success ? 'var(--g1)' : 'var(--red)';
+  msg.innerHTML = (success ? '✓ ' : '✗ ') + message;
+
+  // 失敗時顯示「查看 LOG」按鈕
+  if (!success && _auditJobId) {
+    msg.innerHTML += ' <button onclick="showAuditLog()" style="margin-left:8px;padding:2px 10px;background:var(--c4);color:var(--c1);border:none;border-radius:4px;cursor:pointer;font-size:12px;">查看 LOG</button>';
+  }
+
+  // 恢復按鈕
+  document.getElementById('secaudit-btn').disabled = false;
+
+  // 更新完成狀態文字
+  if (success) {
+    document.getElementById('secaudit-phase').textContent = '全部完成 ✓';
+    document.getElementById('secaudit-phase').style.color = 'var(--g1)';
+  } else {
+    document.getElementById('secaudit-phase').textContent = '執行失敗';
+    document.getElementById('secaudit-phase').style.color = 'var(--red)';
+  }
+
+  // 刷新報告列表
+  refreshAuditReports();
+}
+
+async function showAuditLog() {
+  if (!_auditJobId) return;
+  var logArea = document.getElementById('secaudit-log-area');
+  var logContent = document.getElementById('secaudit-log-content');
+  logArea.style.display = 'block';
+  logContent.textContent = '載入中...';
+
+  try {
+    var res = await fetch('/api/security-audit/progress/' + _auditJobId);
+    var json = await res.json();
+    if (json.success && json.log) {
+      logContent.textContent = json.log;
+    } else {
+      logContent.textContent = '（無法取得 LOG）';
+    }
+  } catch(e) {
+    logContent.textContent = '載入失敗: ' + e.message;
+  }
+}
+
+async function refreshAuditReports() {
+  var container = document.getElementById('secaudit-reports');
+  try {
+    var res = await fetch('/api/security-audit/reports');
+    var json = await res.json();
+    if (!json.success || !json.data.length) {
+      container.innerHTML = '<div style="color:var(--c3);font-size:14px;">尚無稽核報告</div>';
+      return;
+    }
+    var html = '<table style="width:100%;border-collapse:collapse;">';
+    html += '<thead><tr>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">主機</th>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">稽核日期</th>';
+    html += '<th style="padding:8px;text-align:right;border-bottom:2px solid #ddd;">大小</th>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">產生時間</th>';
+    html += '<th style="padding:8px;text-align:center;border-bottom:2px solid #ddd;width:140px;">操作</th>';
+    html += '</tr></thead><tbody>';
+    json.data.forEach(function(r) {
+      html += '<tr>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-weight:600;">' + r.hostname + '</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;">' + r.date + '</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:right;">' + r.size_kb + ' KB</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:12px;color:var(--c3);">' + r.mtime + '</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:center;">';
+      html += '<button onclick="previewAuditReport(\'' + r.filename + '\')" style="padding:3px 10px;background:var(--g1);color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-right:4px;">預覽</button>';
+      html += '<button onclick="downloadAuditReport(\'' + r.filename + '\')" style="padding:3px 10px;background:var(--g2);color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;">下載</button>';
+      html += '</td></tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = '<div style="color:var(--red);">載入失敗</div>';
+  }
+}
+
+async function previewAuditReport(filename) {
+  document.getElementById('secaudit-preview-title').textContent = '報告預覽 — ' + filename;
+  document.getElementById('secaudit-preview-content').textContent = '載入中...';
+  document.getElementById('secaudit-preview-modal').classList.add('active');
+  try {
+    var res = await fetch('/api/security-audit/reports/' + encodeURIComponent(filename) + '/preview');
+    var json = await res.json();
+    if (json.success) {
+      document.getElementById('secaudit-preview-content').textContent = json.content;
+    } else {
+      document.getElementById('secaudit-preview-content').textContent = '載入失敗: ' + (json.error || '未知錯誤');
+    }
+  } catch(e) {
+    document.getElementById('secaudit-preview-content').textContent = '連線失敗: ' + e.message;
+  }
+}
+
+function downloadAuditReport(filename) {
+  window.open('/api/security-audit/reports/' + encodeURIComponent(filename) + '/download', '_blank');
+}
+
+// ===== Linux 初始化工具 (v2 — 28項+參數+還原) =====
+var _linitHosts = [];
+var _linitJobId = null, _linitPollTimer = null, _linitStartTime = null, _linitTimerInterval = null;
+
+var INIT_ITEMS = [
+  {id:'A1', cat:'A', name:'設定密碼最長有效期 (90天)'},
+  {id:'A2', cat:'A', name:'設定密碼最短更改間隔 (1天)'},
+  {id:'A3', cat:'A', name:'設定密碼最小長度 (8位)'},
+  {id:'A4', cat:'A', name:'配置 Authselect Faillock'},
+  {id:'A5', cat:'A', name:'禁用 SELinux'},
+  {id:'A6', cat:'A', name:'禁用 IPv6 (GRUB)'},
+  {id:'A7', cat:'A', name:'停止並禁用 Postfix'},
+  {id:'A8', cat:'A', name:'同步時區 Asia/Taipei'},
+  {id:'A9', cat:'A', name:'建立 sysinfra 帳號'},
+  {id:'A10', cat:'A', name:'設定帳號預設密碼'},
+  {id:'A11', cat:'A', name:'設定密碼永不過期'},
+  {id:'A12', cat:'A', name:'配置 Sudoers 免密碼'},
+  {id:'A13', cat:'A', name:'修改 SNMP Community'},
+  {id:'A14', cat:'A', name:'啟動 SNMP 服務'},
+  {id:'A15', cat:'A', name:'更新 DNS 解析器'},
+  {id:'A16', cat:'A', name:'配置 Chrony NTP'},
+  {id:'A17', cat:'A', name:'安裝系統維護工具'},
+  {id:'A18', cat:'A', name:'清理更新 Repo 快取'},
+  {id:'B1', cat:'B', name:'SSH 逾時 (TMOUT)'},
+  {id:'B2', cat:'B', name:'File Descriptor (ulimit)'},
+  {id:'B3', cat:'B', name:'全域別名 (ll/vi/grep)'},
+  {id:'B4', cat:'B', name:'Kernel TCP 優化'},
+  {id:'B5', cat:'B', name:'自訂登入訊息 (MOTD)'},
+  {id:'B6', cat:'B', name:'History 歷史強化'},
+  {id:'B7', cat:'B', name:'服務精簡 (停冗余)'},
+  {id:'B8', cat:'B', name:'Tmp 自動清理 (cron)'},
+  {id:'B9', cat:'B', name:'Auditd 監控規則'},
+  {id:'B10', cat:'B', name:'Syslog authpriv 強化'},
+];
+
+var LINIT_CONFIG_FIELDS = [
+  // A 類參數
+  {key:'sysexpert_pass_max_days', label:'密碼最長有效期', unit:'天', def:'90', item:'A1'},
+  {key:'sysexpert_pass_min_days', label:'密碼最短間隔', unit:'天', def:'1', item:'A2'},
+  {key:'sysexpert_pass_min_len', label:'密碼最小長度', unit:'位', def:'8', item:'A3'},
+  {key:'sysexpert_faillock_deny', label:'登入失敗鎖定次數', unit:'次', def:'5', item:'A4'},
+  {key:'sysexpert_faillock_unlock', label:'鎖定解除時間', unit:'秒', def:'900', item:'A4'},
+  {key:'sysexpert_timezone', label:'系統時區', unit:'', def:'Asia/Taipei', item:'A8'},
+  {key:'sysexpert_sysinfra_user', label:'管理帳號名稱', unit:'', def:'sysinfra', item:'A9'},
+  {key:'sysexpert_sysinfra_uid', label:'管理帳號 UID', unit:'', def:'645', item:'A9'},
+  {key:'sysexpert_sysinfra_pass', label:'管理帳號密碼', unit:'', def:'1qaz@WSX', item:'A10'},
+  {key:'sysexpert_snmp_community', label:'SNMP Community', unit:'', def:'exampleup', item:'A13'},
+  {key:'sysexpert_dns1', label:'DNS Server 1', unit:'', def:'10.93.168.1', item:'A15'},
+  {key:'sysexpert_dns2', label:'DNS Server 2', unit:'', def:'10.93.3.1', item:'A15'},
+  {key:'sysexpert_ntp_server', label:'NTP Server', unit:'', def:'10.93.168.1', item:'A16'},
+  {key:'sysexpert_chrony_server', label:'Chrony Server', unit:'', def:'10.93.168.1', item:'A16'},
+  // B 類參數
+  {key:'sysexpert_tmout', label:'SSH 逾時 (TMOUT)', unit:'秒', def:'600', item:'B1'},
+  {key:'sysexpert_ulimit', label:'File Descriptor', unit:'', def:'65535', item:'B2'},
+  {key:'sysexpert_tcp_fin', label:'TCP FIN Timeout', unit:'秒', def:'30', item:'B4'},
+  {key:'sysexpert_histsize', label:'History 保留筆數', unit:'筆', def:'10000', item:'B6'},
+  {key:'sysexpert_tmp_days', label:'Tmp 清理天數', unit:'天', def:'7', item:'B8'},
+  {key:'sysexpert_motd', label:'MOTD 登入訊息', unit:'', def:'', item:'B5'},
+  {key:'sysexpert_disable_svcs', label:'停用服務清單', unit:'空格分隔', def:'avahi-daemon cups bluetooth', item:'B7'},
+  {key:'sysexpert_audit_path', label:'Auditd 監控路徑', unit:'', def:'/etc/shadow', item:'B9'},
+  {key:'sysexpert_authpriv_log', label:'authpriv 記錄路徑', unit:'', def:'/var/log/secure', item:'B10'},
+];
+
+function switchLinitSub(sub) {
+  ['exec','config','rollback','reports'].forEach(function(s) {
+    var panel = document.getElementById('linitPanel' + s.charAt(0).toUpperCase() + s.slice(1));
+    var btn = document.getElementById('linitSub' + s.charAt(0).toUpperCase() + s.slice(1));
+    if (panel) panel.style.display = (s === sub) ? 'block' : 'none';
+    if (btn) btn.className = 'sub-tab' + (s === sub ? ' active' : '');
+  });
+  if (sub === 'config') loadLinitConfig();
+  if (sub === 'reports') refreshLinitReports();
+}
+
+async function loadLinuxInitTab() {
+  // 載入主機
+  try {
+    var res = await fetch('/api/linux-init/hosts');
+    var json = await res.json();
+    if (json.success && json.data.length) {
+      _linitHosts = json.data;
+      var c = document.getElementById('linit-hostlist'); var html = '';
+      json.data.forEach(function(h) {
+        html += '<label style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;cursor:pointer;font-size:13px;background:white;border:1px solid #e8e8e8;" onmouseover="this.style.borderColor=\'var(--g1)\'" onmouseout="this.style.borderColor=\'#e8e8e8\'">';
+        html += '<input type="checkbox" class="linit-cb" value="' + h.hostname + '" data-ip="' + h.ip + '" onchange="updateLinitSelection()">';
+        html += '<span style="font-family:monospace;font-weight:600;color:var(--g1);">' + h.ip + '</span>';
+        html += '<span style="color:var(--c3);">(' + h.hostname + ' / ' + (h.os || h.os_group) + ')</span></label>';
+      });
+      c.innerHTML = html; updateLinitSelection();
+      // 還原 sub-tab 的主機選單
+      var rbSel = document.getElementById('linit-rb-host');
+      rbSel.innerHTML = '';
+      json.data.forEach(function(h) { rbSel.innerHTML += '<option value="'+h.hostname+'">'+h.ip+' ('+h.hostname+')</option>'; });
+    }
+  } catch(e) { document.getElementById('linit-hostlist').innerHTML = '<div style="color:var(--red);">載入失敗</div>'; }
+  // 渲染 28 項 checkbox
+  renderInitItems();
+  refreshLinitReports();
+}
+
+function renderInitItems() {
+  var aHtml = '', bHtml = '';
+  INIT_ITEMS.forEach(function(item) {
+    var color = item.cat === 'A' ? 'var(--g1)' : '#9c27b0';
+    var row = '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;cursor:pointer;font-size:12px;">';
+    row += '<input type="checkbox" class="linit-item-cb" value="'+item.id+'" data-cat="'+item.cat+'" onchange="updateLinitItemCount()">';
+    row += '<span style="font-weight:700;color:'+color+';min-width:28px;">'+item.id+'</span>';
+    row += '<span>'+item.name+'</span></label>';
+    if (item.cat === 'A') aHtml += row; else bHtml += row;
+  });
+  document.getElementById('linit-items-a').innerHTML = aHtml;
+  document.getElementById('linit-items-b').innerHTML = bHtml;
+  updateLinitItemCount();
+}
+
+function selectLinitItems(mode) {
+  var cbs = document.querySelectorAll('.linit-item-cb');
+  if (mode === 'check') {
+    // 僅檢查 = 不勾任何項目，用 --check 模式
+    cbs.forEach(function(cb) { cb.checked = false; });
+  } else {
+    cbs.forEach(function(cb) {
+      if (mode === 'all') cb.checked = true;
+      else if (mode === 'none') cb.checked = false;
+      else if (mode === 'A') cb.checked = (cb.dataset.cat === 'A');
+      else if (mode === 'B') cb.checked = (cb.dataset.cat === 'B');
+    });
+  }
+  updateLinitItemCount();
+}
+
+function updateLinitItemCount() {
+  var checked = document.querySelectorAll('.linit-item-cb:checked');
+  var total = document.querySelectorAll('.linit-item-cb').length;
+  var el = document.getElementById('linit-item-count');
+  if (checked.length === 0) {
+    el.innerHTML = '<span style="color:var(--orange);">未選擇項目（點「🔍 僅檢查」可只做現況檢查）</span>';
+  } else {
+    var ids = Array.from(checked).map(function(c){return c.value;});
+    el.textContent = '已選 ' + checked.length + ' / ' + total + ' 項: ' + ids.join(', ');
+  }
+}
+
+function toggleAllLinitHosts(c) { document.querySelectorAll('.linit-cb').forEach(function(cb){cb.checked=c;}); updateLinitSelection(); }
+
+function updateLinitSelection() {
+  var checked = document.querySelectorAll('.linit-cb:checked');
+  var total = document.querySelectorAll('.linit-cb').length;
+  var allCb = document.getElementById('linit-all');
+  if (allCb) allCb.checked = (checked.length === total && total > 0);
+  document.getElementById('linit-count').textContent = checked.length > 0 ? '已選 ' + checked.length + ' / ' + total + ' 台' : '';
+  var sel = document.getElementById('linit-selected');
+  if (checked.length === 0) { sel.textContent = '請勾選要執行的主機'; sel.style.color = 'var(--orange)'; }
+  else { sel.textContent = '選取: ' + Array.from(checked).map(function(cb){return cb.dataset.ip;}).join(', '); sel.style.color = 'var(--c3)'; }
+}
+
+function getLinitTargets() {
+  var checked = document.querySelectorAll('.linit-cb:checked');
+  var total = document.querySelectorAll('.linit-cb').length;
+  if (checked.length === 0) return null;
+  if (checked.length === total) return 'all';
+  return Array.from(checked).map(function(cb){return cb.value;}).join(',');
+}
+
+async function runLinuxInit() {
+  var target = getLinitTargets();
+  if (!target) { var m = document.getElementById('linit-msg'); m.style.color='var(--orange)'; m.textContent='⚠ 請先勾選至少一台主機'; return; }
+  // 判斷模式: 有勾項目 = items 模式, 沒勾 = --check 模式
+  var checkedItems = document.querySelectorAll('.linit-item-cb:checked');
+  var items = Array.from(checkedItems).map(function(c){return c.value;}).join(',');
+  var mode = items ? '' : '--check';
+  if (items && !confirm('⚠ 即將在選定主機上執行 ' + checkedItems.length + ' 個初始化項目（' + items + '），確定執行？')) return;
+
+  var btn = document.getElementById('linit-btn');
+  var msg = document.getElementById('linit-msg');
+  var panel = document.getElementById('linit-progress-panel');
+  btn.disabled = true; msg.textContent = '';
+  document.getElementById('linit-log-area').style.display = 'none';
+  panel.style.display = 'block';
+  document.getElementById('linit-spinner').style.display = 'inline-block';
+  document.getElementById('linit-phase').textContent = '啟動中...';
+  document.getElementById('linit-phase').style.color = 'var(--c1)';
+  document.getElementById('linit-bar').style.width = '0%';
+  _linitStartTime = Date.now();
+  if (_linitTimerInterval) clearInterval(_linitTimerInterval);
+  _linitTimerInterval = setInterval(function() {
+    var e = Math.floor((Date.now() - _linitStartTime) / 1000);
+    document.getElementById('linit-timer').textContent = String(Math.floor(e/60)).padStart(2,'0') + ':' + String(e%60).padStart(2,'0');
+  }, 1000);
+
+  try {
+    var body = {target:target};
+    if (items) body.items = items; else body.mode = mode;
+    var res = await fetch('/api/linux-init/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    var json = await res.json();
+    if (json.success && json.job_id) {
+      _linitJobId = json.job_id;
+      renderLinitHostProgress(json.target_hosts.map(function(h) {
+        var info = _linitHosts.find(function(x){return x.hostname===h;});
+        return {hostname:h, ip:info?info.ip:'', status:'waiting'};
+      }));
+      _linitPollTimer = setInterval(pollLinitProgress, 3000);
+    } else { finishLinit(false, json.error || '啟動失敗'); }
+  } catch(e) { finishLinit(false, '連線失敗: ' + e.message); }
+}
+
+function renderLinitHostProgress(hosts) {
+  var icons = {waiting:'⏳',running:'🔄',done:'✅',failed:'❌'};
+  var labels = {waiting:'等待中',running:'執行中',done:'完成',failed:'失敗'};
+  var colors = {done:{bg:'#e8f5e9',bd:'#a5d6a7'},failed:{bg:'#ffebee',bd:'#ef9a9a'},running:{bg:'#e3f2fd',bd:'#90caf9'},waiting:{bg:'#f5f5f5',bd:'#e0e0e0'}};
+  var html = '';
+  hosts.forEach(function(h) {
+    var c = colors[h.status] || colors.waiting;
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;background:'+c.bg+';border:1px solid '+c.bd+';">';
+    html += '<span>'+(icons[h.status]||'⏳')+'</span><span style="font-family:monospace;font-weight:600;">'+h.ip+'</span>';
+    html += '<span style="color:var(--c3);">('+h.hostname+')</span><span style="margin-left:auto;font-weight:600;">'+(labels[h.status]||h.status)+'</span></div>';
+  });
+  document.getElementById('linit-host-progress').innerHTML = html;
+}
+
+async function pollLinitProgress() {
+  if (!_linitJobId) return;
+  try {
+    var res = await fetch('/api/linux-init/progress/' + _linitJobId);
+    var json = await res.json();
+    if (!json.success) return;
+    document.getElementById('linit-phase').textContent = json.phase || '執行中';
+    var pct = json.total > 0 ? Math.round(json.completed / json.total * 100) : 0;
+    document.getElementById('linit-bar').style.width = pct + '%';
+    document.getElementById('linit-progress-text').textContent = json.completed + ' / ' + json.total + ' 台';
+    renderLinitHostProgress(json.hosts);
+    if (json.is_finished) {
+      clearInterval(_linitPollTimer); _linitPollTimer = null;
+      if (json.job_status === 'done') { document.getElementById('linit-bar').style.width = '100%'; finishLinit(true, (json.mode_label||'') + '完成 (' + document.getElementById('linit-timer').textContent + ')'); }
+      else if (json.job_status === 'timeout') finishLinit(false, '執行超時 (300s)');
+      else finishLinit(false, '執行失敗，請查看 LOG');
+    }
+  } catch(e) {}
+}
+
+function finishLinit(success, message) {
+  if (_linitTimerInterval) { clearInterval(_linitTimerInterval); _linitTimerInterval = null; }
+  if (_linitPollTimer) { clearInterval(_linitPollTimer); _linitPollTimer = null; }
+  document.getElementById('linit-spinner').style.display = 'none';
+  var msg = document.getElementById('linit-msg');
+  msg.style.color = success ? 'var(--g1)' : 'var(--red)';
+  msg.innerHTML = (success ? '✓ ' : '✗ ') + message;
+  if (!success && _linitJobId) msg.innerHTML += ' <button onclick="showLinitLog()" style="margin-left:8px;padding:2px 10px;background:var(--c4);color:var(--c1);border:none;border-radius:4px;cursor:pointer;font-size:12px;">查看 LOG</button>';
+  document.getElementById('linit-btn').disabled = false;
+  document.getElementById('linit-phase').textContent = success ? '全部完成 ✓' : '執行失敗';
+  document.getElementById('linit-phase').style.color = success ? 'var(--g1)' : 'var(--red)';
+  refreshLinitReports();
+}
+
+async function showLinitLog() {
+  if (!_linitJobId) return;
+  var area = document.getElementById('linit-log-area'); area.style.display = 'block';
+  var content = document.getElementById('linit-log-content'); content.textContent = '載入中...';
+  try {
+    var res = await fetch('/api/linux-init/progress/' + _linitJobId);
+    var json = await res.json();
+    content.textContent = (json.success && json.log) ? json.log : '（無法取得 LOG）';
+  } catch(e) { content.textContent = '載入失敗'; }
+}
+
+async function refreshLinitReports() {
+  var c = document.getElementById('linit-reports');
+  try {
+    var res = await fetch('/api/linux-init/reports');
+    var json = await res.json();
+    if (!json.success || !json.data.length) { c.innerHTML = '<div style="color:var(--c3);font-size:14px;">尚無報告</div>'; return; }
+    var html = '<table style="width:100%;border-collapse:collapse;"><thead><tr>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">主機</th>';
+    html += '<th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">日期</th>';
+    html += '<th style="padding:8px;text-align:right;border-bottom:2px solid #ddd;">大小</th>';
+    html += '<th style="padding:8px;text-align:center;border-bottom:2px solid #ddd;width:140px;">操作</th>';
+    html += '</tr></thead><tbody>';
+    json.data.forEach(function(r) {
+      html += '<tr><td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-weight:600;">'+r.hostname+'</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;">'+r.date+'</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:right;">'+r.size_kb+' KB</td>';
+      html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:center;">';
+      html += '<button onclick="previewLinitReport(\''+r.filename+'\')" style="padding:3px 10px;background:var(--g1);color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;margin-right:4px;">預覽</button>';
+      html += '<button onclick="window.open(\'/api/linux-init/reports/'+encodeURIComponent(r.filename)+'/download\')" style="padding:3px 10px;background:var(--g2);color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;">下載</button></td></tr>';
+    });
+    html += '</tbody></table>'; c.innerHTML = html;
+  } catch(e) { c.innerHTML = '<div style="color:var(--red);">載入失敗</div>'; }
+}
+
+async function previewLinitReport(filename) {
+  document.getElementById('linit-preview-title').textContent = '報告預覽 — ' + filename;
+  document.getElementById('linit-preview-content').textContent = '載入中...';
+  document.getElementById('linit-preview-modal').classList.add('active');
+  try {
+    var res = await fetch('/api/linux-init/reports/' + encodeURIComponent(filename) + '/preview');
+    var json = await res.json();
+    document.getElementById('linit-preview-content').textContent = json.success ? json.content : '載入失敗';
+  } catch(e) { document.getElementById('linit-preview-content').textContent = '連線失敗'; }
+}
+
+// ── 參數設定 ──
+async function loadLinitConfig() {
+  try {
+    var res = await fetch('/api/linux-init/config');
+    var json = await res.json();
+    if (!json.success) return;
+    var data = json.data;
+    var html = '';
+    LINIT_CONFIG_FIELDS.forEach(function(f) {
+      var val = data[f.key] || f.def;
+      html += '<div style="padding:12px;background:#fafafa;border:1px solid #e0e0e0;border-radius:8px;">';
+      html += '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">'+f.label;
+      html += ' <span style="font-weight:400;color:var(--c3);">('+f.item+')</span></label>';
+      html += '<div style="display:flex;gap:6px;align-items:center;">';
+      html += '<input type="text" id="lcfg-'+f.key+'" value="'+val+'" style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:4px;font-size:13px;">';
+      if (f.unit) html += '<span style="font-size:11px;color:var(--c3);">'+f.unit+'</span>';
+      html += '</div>';
+      html += '<div style="font-size:10px;color:var(--c3);margin-top:2px;">預設: '+f.def+'</div>';
+      html += '</div>';
+    });
+    document.getElementById('linit-config-form').innerHTML = html;
+  } catch(e) {}
+}
+
+async function saveLinitConfig() {
+  var body = {};
+  LINIT_CONFIG_FIELDS.forEach(function(f) {
+    var el = document.getElementById('lcfg-'+f.key);
+    if (el) body[f.key] = el.value;
+  });
+  try {
+    var res = await fetch('/api/linux-init/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    var json = await res.json();
+    var msg = document.getElementById('linit-config-msg');
+    msg.textContent = json.success ? '✓ 已儲存' : '✗ 儲存失敗';
+    msg.style.color = json.success ? 'var(--g1)' : 'var(--red)';
+    setTimeout(function(){msg.textContent='';}, 3000);
+  } catch(e) {}
+}
+
+// ── 備份還原 ──
+async function loadRollbackList() {
+  var hostname = document.getElementById('linit-rb-host').value;
+  if (!hostname) return;
+  var container = document.getElementById('linit-rb-result');
+  container.innerHTML = '<span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid var(--c4);border-top-color:var(--g1);border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle;"></span> 查詢中...';
+  try {
+    var res = await fetch('/api/linux-init/rollback/list', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({hostname:hostname})});
+    var json = await res.json();
+    if (!json.success) { container.innerHTML = '<span style="color:var(--red);">查詢失敗: '+(json.error||'')+'</span>'; return; }
+    if (!json.data || !json.data.length) { container.innerHTML = '<span style="color:var(--c3);">此主機無備份紀錄</span>'; return; }
+    var html = '';
+    json.data.forEach(function(bdir) {
+      html += '<div style="margin-bottom:16px;">';
+      html += '<div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--c1);">📁 '+bdir.dir+'</div>';
+      if (!bdir.files || !bdir.files.length) { html += '<div style="font-size:12px;color:var(--c3);margin-left:16px;">（無備份檔）</div>'; }
+      else {
+        html += '<table style="width:100%;border-collapse:collapse;margin-left:16px;font-size:12px;">';
+        html += '<thead><tr><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #ddd;">備份檔</th><th style="text-align:left;padding:4px 8px;border-bottom:1px solid #ddd;">原始路徑</th><th style="text-align:center;padding:4px 8px;border-bottom:1px solid #ddd;width:80px;">操作</th></tr></thead><tbody>';
+        bdir.files.forEach(function(f) {
+          html += '<tr><td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;font-family:monospace;font-size:11px;">'+f.name+'</td>';
+          html += '<td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;font-family:monospace;font-size:11px;">'+f.orig+'</td>';
+          html += '<td style="padding:4px 8px;border-bottom:1px solid #f0f0f0;text-align:center;">';
+          html += '<button onclick="doRollback(\''+hostname+'\',\''+f.bak+'\',\''+f.orig+'\')" style="padding:2px 10px;background:var(--orange);color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px;">↩ 還原</button>';
+          html += '</td></tr>';
+        });
+        html += '</tbody></table>';
+      }
+      html += '</div>';
+    });
+    container.innerHTML = html;
+  } catch(e) { container.innerHTML = '<span style="color:var(--red);">連線失敗</span>'; }
+}
+
+async function doRollback(hostname, bakPath, origPath) {
+  if (!confirm('確定要還原 ' + origPath + '？')) return;
+  try {
+    var res = await fetch('/api/linux-init/rollback/restore', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({hostname:hostname, bak_path:bakPath, orig_path:origPath})});
+    var json = await res.json();
+    alert(json.success ? '✓ 還原成功: ' + origPath : '✗ 還原失敗: ' + (json.error||json.message||''));
+  } catch(e) { alert('連線失敗'); }
+}
+</script>
+
+<!-- Account Settings Modal -->
+<div class="modal-overlay" id="account-modal">
+  <div class="modal">
+    <div class="modal-title">帳號設定</div>
+    <div id="account-msg" style="margin-bottom:12px;font-size:13px;"></div>
+    <div class="form-group">
+      <label>Email（忘記密碼重設用）</label>
+      <input type="email" id="acct-email" placeholder="your@email.com">
+    </div>
+    <div style="margin-bottom:16px;">
+      <button class="btn btn-primary btn-sm" onclick="saveEmail()">儲存 Email</button>
+    </div>
+    <hr style="border:none;border-top:1px solid #e0e0e0;margin:16px 0;">
+    <div class="form-group">
+      <label>新密碼</label>
+      <input type="password" id="acct-newpw" placeholder="輸入新密碼（至少 6 字元）">
+    </div>
+    <div class="form-group">
+      <label>確認新密碼</label>
+      <input type="password" id="acct-newpw2" placeholder="再次輸入新密碼">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="closeAccountModal()">關閉</button>
+      <button class="btn btn-primary" onclick="savePassword()">修改密碼</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function showAccountModal(){
+  document.getElementById("account-modal").classList.add("active");
+  document.getElementById("account-msg").textContent="";
+  fetch("/api/admin/me",{credentials:"include"}).then(function(r){return r.json();}).then(function(res){
+    if(res.success&&res.data.email) document.getElementById("acct-email").value=res.data.email;
+  });
+}
+function closeAccountModal(){document.getElementById("account-modal").classList.remove("active");}
+function saveEmail(){
+  var email=document.getElementById("acct-email").value.trim();
+  var msg=document.getElementById("account-msg");
+  if(!email||email.indexOf("@")<0){msg.textContent="請輸入有效的 Email";msg.style.color="var(--red)";return;}
+  fetch("/api/admin/update-email",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({email:email})})
+  .then(function(r){return r.json();}).then(function(res){
+    msg.textContent=res.success?"Email 已儲存":(res.error||"儲存失敗");
+    msg.style.color=res.success?"var(--g1)":"var(--red)";
+  });
+}
+function savePassword(){
+  var p1=document.getElementById("acct-newpw").value;
+  var p2=document.getElementById("acct-newpw2").value;
+  var msg=document.getElementById("account-msg");
+  if(p1.length<6){msg.textContent="密碼至少 6 個字元";msg.style.color="var(--red)";return;}
+  if(p1!==p2){msg.textContent="兩次密碼不一致";msg.style.color="var(--red)";return;}
+  fetch("/api/admin/change-password",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({new_password:p1})})
+  .then(function(r){return r.json();}).then(function(res){
+    msg.textContent=res.success?"密碼已更新":(res.error||"修改失敗");
+    msg.style.color=res.success?"var(--g1)":"var(--red)";
+    if(res.success){document.getElementById("acct-newpw").value="";document.getElementById("acct-newpw2").value="";}
+  });
+}
+</script>
+{% endblock %}

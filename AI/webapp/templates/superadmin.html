@@ -1,0 +1,428 @@
+{% extends "base.html" %}
+{% block title %}超級管理員{% endblock %}
+{% block content %}
+
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+  <h1 style="margin:0;color:var(--red);">超級管理員</h1>
+  <span id="authInfo" style="font-size:13px;color:var(--c3);"></span>
+</div>
+
+<!-- 未授權提示 -->
+<div id="noAuth" style="display:none;">
+  <div class="card" style="padding:60px;text-align:center;">
+    <div style="font-size:48px;margin-bottom:16px;">🔒</div>
+    <h2>此頁面需要超級管理員權限</h2>
+    <p style="color:var(--c3);">請使用超級管理員帳號登入 <a href="/admin">/admin</a></p>
+  </div>
+</div>
+
+<!-- 主內容 -->
+<div id="mainContent" style="display:none;">
+
+  <!-- GitHub 推送 -->
+  <div class="card" style="padding:24px;margin-bottom:20px;">
+    <h2 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+      GitHub 版本推送
+    </h2>
+
+    <!-- Git 狀態 -->
+    <div id="gitStatus" style="margin-bottom:16px;">
+      <div style="color:var(--c3);">載入中...</div>
+    </div>
+
+    <!-- Commit Message -->
+    <div style="margin-bottom:16px;">
+      <label style="font-size:13px;font-weight:600;color:var(--c2);display:block;margin-bottom:4px;">Commit 訊息（留空自動產生）</label>
+      <input type="text" id="commitMsg" class="input-field" style="width:100%;" placeholder="例：修復 TWGCB 例外管理 bug">
+    </div>
+
+    <!-- 按鈕 -->
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-primary" onclick="gitPush()" id="btnPush">推送到 GitHub</button>
+      <button class="btn" style="background:var(--orange);color:white;" onclick="downloadPackage()" id="btnDownload">📦 下載部署包</button>
+      <button class="btn btn-secondary" onclick="loadGitStatus()">重新整理狀態</button>
+    </div>
+
+    <!-- 推送結果 -->
+    <div id="pushResult" style="margin-top:12px;"></div>
+  </div>
+
+  <!-- 最近 Commits -->
+  <div class="card" style="padding:24px;">
+    <h2 style="margin:0 0 16px 0;">最近提交紀錄</h2>
+    <div id="commitLog" style="font-family:JetBrains Mono,monospace;font-size:12px;color:var(--c2);">載入中...</div>
+  </div>
+
+  <!-- 開發者文件 -->
+  <div class="card" style="padding:24px;">
+    <h2 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+      開發者文件
+    </h2>
+    <div id="docsTable">載入中...</div>
+  </div>
+
+  <!-- 檔案管理 -->
+  <div class="card" style="padding:24px;">
+    <h2 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      檔案管理
+    </h2>
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+      <input type="file" id="fileUploadInput" style="display:none;" onchange="uploadFile(this)">
+      <button class="btn btn-primary btn-sm" onclick="document.getElementById('fileUploadInput').click()">上傳檔案</button>
+      <button class="btn btn-secondary btn-sm" onclick="loadFiles()">重新整理</button>
+    </div>
+    <div id="fileList">載入中...</div>
+  </div>
+
+  <!-- 備忘錄 -->
+  <div class="card" style="padding:24px;">
+    <h2 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      備忘錄
+    </h2>
+    <div style="margin-bottom:12px;">
+      <input type="text" id="noteTitle" class="input-field" style="width:100%;margin-bottom:8px;" placeholder="標題（選填，留空自動產生）">
+      <textarea id="noteContent" class="input-field" style="width:100%;height:120px;resize:vertical;font-family:inherit;" placeholder="貼上筆記內容..."></textarea>
+    </div>
+    <div style="margin-bottom:16px;">
+      <button class="btn btn-primary btn-sm" onclick="saveNote()">儲存備忘錄</button>
+    </div>
+    <div id="notesList">載入中...</div>
+  </div>
+
+    <!-- 文件檢視 Modal -->
+  <div class="modal-overlay" id="doc-modal">
+    <div class="modal" style="max-width:900px;max-height:85vh;display:flex;flex-direction:column;">
+      <div class="flex-between" style="margin-bottom:16px;">
+        <div class="modal-title" id="doc-modal-title" style="margin:0;">文件</div>
+        <span onclick="closeDocModal()" style="cursor:pointer;font-size:20px;color:var(--c3);">&times;</span>
+      </div>
+      <pre id="doc-modal-content" style="flex:1;overflow:auto;background:var(--bg2);padding:16px;border-radius:8px;font-family:JetBrains Mono,monospace;font-size:12px;line-height:1.8;white-space:pre-wrap;word-break:break-word;margin:0;"></pre>
+      <div style="margin-top:12px;text-align:right;">
+        <button class="btn btn-secondary" onclick="closeDocModal()">關閉</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- styles moved to example_v3.css -->
+
+<script>
+document.addEventListener("DOMContentLoaded", checkAuth);
+
+async function checkAuth() {
+  try {
+    var res = await fetch("/api/superadmin/check-auth");
+    var json = await res.json();
+    if (json.success && json.is_superadmin) {
+      document.getElementById("mainContent").style.display = "block";
+      document.getElementById("authInfo").textContent = "登入為：" + json.username + " (superadmin)";
+      loadGitStatus();
+      loadDocs();
+      loadFiles();
+      loadNotes();
+    } else {
+      document.getElementById("noAuth").style.display = "block";
+    }
+  } catch(e) {
+    document.getElementById("noAuth").style.display = "block";
+  }
+}
+
+async function loadGitStatus() {
+  try {
+    var res = await fetch("/api/superadmin/git/status");
+    var json = await res.json();
+    if (!json.success) { document.getElementById("gitStatus").innerHTML = '<div style="color:var(--red);">'+json.error+'</div>'; return; }
+
+    var d = json.data;
+    var html = '<div style="display:flex;gap:24px;margin-bottom:12px;">';
+    html += '<div><strong>分支：</strong>'+d.branch+'</div>';
+    html += '<div><strong>變更檔案：</strong><span style="color:'+(d.changed_count>0?'var(--orange)':'var(--g1)')+';font-weight:700;">'+d.changed_count+' 個</span></div>';
+    html += '</div>';
+
+    if (d.changed_files.length > 0) {
+      html += '<div style="background:#f8f8f8;border-radius:8px;padding:12px 16px;max-height:200px;overflow-y:auto;">';
+      d.changed_files.forEach(function(f) {
+        var status = f.substring(0,2).trim();
+        var name = f.substring(3);
+        var cls = 'git-unknown';
+        var label = status;
+        if (status === 'M') { cls = 'git-modified'; label = 'M'; }
+        else if (status === 'A' || status === '??' || status === 'AM') { cls = 'git-added'; label = '+'; }
+        else if (status === 'D') { cls = 'git-deleted'; label = '-'; }
+        html += '<div class="git-file"><span class="git-file-status '+cls+'">'+label+'</span><span>'+name+'</span></div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="color:var(--g1);font-weight:600;">✓ 所有變更已推送，目前最新</div>';
+    }
+
+    document.getElementById("gitStatus").innerHTML = html;
+
+    // Commit log + notes
+    var notesRes = await fetch('/api/superadmin/git/notes',{credentials:'include'});
+    var notesData = await notesRes.json();
+    var notes = (notesData.success && notesData.data) ? notesData.data : {};
+
+    var logHtml = '';
+    d.recent_commits.forEach(function(line) {
+      var parts = line.split('|');
+      var hash = parts[0] || '';
+      var dt = parts[1] || '';
+      var msg = parts.slice(2).join('|');
+      var shortDate = '';
+      if (dt) {
+        var m = dt.trim().match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2})/);
+        if (m) shortDate = m[2]+'/'+m[3]+' '+m[4];
+      }
+      var noteData = notes[hash] || {};
+      if (typeof noteData === 'string') noteData = {note: noteData};
+      var displayMsg = noteData.msg || msg;
+      var note = noteData.note || '';
+      var noteHtml = note
+        ? '<span class="commit-note" onclick="editField(\''+hash+'\',\'note\',this)" title="點擊編輯備註">'+note+'</span>'
+        : '<span class="commit-note-add" onclick="editField(\''+hash+'\',\'note\',this)" title="新增備註">+ 備註</span>';
+      logHtml += '<div class="commit-line"><span class="commit-hash">'+hash+'</span><span class="commit-date">'+shortDate+'</span><span class="commit-msg" onclick="editField(\''+hash+'\',\'msg\',this)" title="點擊編輯訊息">'+displayMsg+'</span>'+noteHtml+'</div>';
+    });
+    document.getElementById("commitLog").innerHTML = logHtml || '<div style="color:var(--c3);">無提交紀錄</div>';
+
+  } catch(e) {
+    document.getElementById("gitStatus").innerHTML = '<div style="color:var(--red);">載入失敗：'+e.message+'</div>';
+  }
+}
+
+function editField(hash, field, el) {
+  var current = (field==='note' && el.classList.contains('commit-note-add')) ? '' : el.textContent;
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.className = 'input-field';
+  input.style.cssText = field==='msg' ? 'flex:1;padding:4px 8px;font-size:12px;' : 'width:160px;padding:4px 8px;font-size:12px;';
+  input.placeholder = field==='msg' ? '編輯 commit 訊息...' : '輸入備註...';
+  input.dataset.field = field;
+  input.dataset.hash = hash;
+  input.dataset.original = current;
+  el.replaceWith(input);
+  input.focus();
+  input.addEventListener('blur', function(){ saveField(hash, field, input); });
+  input.addEventListener('keydown', function(e){ if(e.key==='Enter') input.blur(); if(e.key==='Escape'){ input.value=current; input.blur(); } });
+}
+
+async function saveField(hash, field, input) {
+  var val = input.value.trim();
+  var body = {};
+  body[field] = val;
+  await fetch('/api/superadmin/git/notes/'+hash, {method:'PUT', headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify(body)});
+  var span = document.createElement('span');
+  if (field === 'msg') {
+    span.className = 'commit-msg';
+    span.textContent = val || input.dataset.original;
+    span.title = '點擊編輯訊息';
+    span.onclick = function(){ editField(hash, 'msg', span); };
+  } else if (val) {
+    span.className = 'commit-note';
+    span.textContent = val;
+    span.title = '點擊編輯備註';
+    span.onclick = function(){ editField(hash, 'note', span); };
+  } else {
+    span.className = 'commit-note-add';
+    span.textContent = '+ 備註';
+    span.title = '新增備註';
+    span.onclick = function(){ editField(hash, 'note', span); };
+  }
+  input.replaceWith(span);
+}
+
+async function downloadPackage() {  var btn=document.getElementById("btnDownload");  btn.textContent="打包中...";btn.disabled=true;  try {    var res=await fetch("/api/superadmin/download-package",{method:"POST",credentials:"include"});    var json=await res.json();    if(json.success){      btn.textContent="✓ "+json.filename+" ("+json.size_mb+"MB)";      window.open(json.download_url);      setTimeout(function(){btn.textContent="📦 下載部署包";btn.disabled=false;},3000);    }else{btn.textContent="✗ "+json.error;btn.disabled=false;}  }catch(e){btn.textContent="錯誤";btn.disabled=false;}}
+async function gitPush() {
+  var msg = document.getElementById("commitMsg").value.trim();
+  var btn = document.getElementById("btnPush");
+  btn.disabled = true;
+  btn.textContent = "推送中...";
+  document.getElementById("pushResult").innerHTML = '<div style="color:var(--c3);">正在推送到 GitHub...</div>';
+
+  try {
+    var body = {};
+    if (msg) body.message = msg;
+
+    var res = await fetch("/api/superadmin/git/push", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)
+    });
+    var json = await res.json();
+
+    if (json.success) {
+      if (json.pushed) {
+        document.getElementById("pushResult").innerHTML =
+          '<div style="background:#E8F5E9;border-radius:8px;padding:12px 16px;color:var(--g2);font-weight:600;">✓ '+json.message+'<br><span style="font-weight:400;font-size:12px;">Commit: '+json.commit_message+'</span></div>';
+      } else {
+        document.getElementById("pushResult").innerHTML =
+          '<div style="background:#FFF8E1;border-radius:8px;padding:12px 16px;color:var(--orange);">'+json.message+'</div>';
+      }
+      document.getElementById("commitMsg").value = "";
+      loadGitStatus();
+    } else {
+      document.getElementById("pushResult").innerHTML =
+        '<div style="background:#FFEBEE;border-radius:8px;padding:12px 16px;color:var(--red);">✗ '+json.error+'</div>';
+    }
+  } catch(e) {
+    document.getElementById("pushResult").innerHTML =
+      '<div style="background:#FFEBEE;border-radius:8px;padding:12px 16px;color:var(--red);">✗ '+e.message+'</div>';
+  }
+  btn.disabled = false;
+  btn.textContent = "推送到 GitHub";
+}
+
+// ========== Developer Docs ==========
+async function loadDocs() {
+  try {
+    var res = await fetch('/api/superadmin/docs/list', {credentials:'include'});
+    var json = await res.json();
+    if (!json.success) { document.getElementById('docsTable').textContent = '載入失敗'; return; }
+    var docs = json.data;
+    var html = '<table class="data-table"><thead><tr><th>文件</th><th>說明</th><th>大小</th><th>更新時間</th><th>操作</th></tr></thead><tbody>';
+    docs.forEach(function(d) {
+      var status = d.exists ? '' : ' <span class="badge badge-warn">不存在</span>';
+      html += '<tr>';
+      html += '<td style="font-weight:600;">'+d.name+status+'</td>';
+      html += '<td class="text-muted-sm">'+d.desc+'</td>';
+      html += '<td style="font-family:JetBrains Mono;font-size:12px;">'+d.size_kb+' KB</td>';
+      html += '<td style="font-family:JetBrains Mono;font-size:12px;">'+d.mtime+'</td>';
+      html += '<td>';
+      if (d.exists) {
+        html += '<button class="btn btn-sm" style="background:var(--g1);color:white;margin-right:4px;" onclick="viewDoc(\''+d.id+'\')">檢視</button>';
+        html += '<a href="/api/superadmin/docs/download/'+d.id+'" class="btn btn-sm btn-secondary" style="text-decoration:none;">下載</a>';
+      } else {
+        html += '<span class="text-muted-sm">-</span>';
+      }
+      html += '</td></tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('docsTable').innerHTML = html;
+  } catch(e) {
+    document.getElementById('docsTable').textContent = '載入失敗：'+e.message;
+  }
+}
+
+async function viewDoc(docId) {
+  document.getElementById('doc-modal').classList.add('active');
+  document.getElementById('doc-modal-title').textContent = '載入中...';
+  document.getElementById('doc-modal-content').textContent = '';
+  try {
+    var res = await fetch('/api/superadmin/docs/view/'+docId, {credentials:'include'});
+    var json = await res.json();
+    if (json.success) {
+      document.getElementById('doc-modal-title').textContent = json.data.name;
+      document.getElementById('doc-modal-content').textContent = json.data.content;
+    } else {
+      document.getElementById('doc-modal-title').textContent = '錯誤';
+      document.getElementById('doc-modal-content').textContent = json.error || '載入失敗';
+    }
+  } catch(e) {
+    document.getElementById('doc-modal-title').textContent = '錯誤';
+    document.getElementById('doc-modal-content').textContent = e.message;
+  }
+}
+
+function closeDocModal() {
+  document.getElementById('doc-modal').classList.remove('active');
+}
+
+// ========== File Manager ==========
+async function loadFiles() {
+  try {
+    var res = await fetch('/api/superadmin/file/list', {credentials:'include'});
+    var json = await res.json();
+    if (!json.success) { document.getElementById('fileList').textContent = '載入失敗'; return; }
+    var files = json.data;
+    if (!files.length) { document.getElementById('fileList').innerHTML = '<span class="text-muted-sm">尚無上傳檔案</span>'; return; }
+    var html = '<table class="data-table"><thead><tr><th>檔名</th><th>大小</th><th>上傳時間</th><th>操作</th></tr></thead><tbody>';
+    files.forEach(function(f) {
+      html += '<tr><td style="font-weight:600;">'+f.name+'</td>';
+      html += '<td style="font-family:JetBrains Mono;font-size:12px;">'+f.size_kb+' KB</td>';
+      html += '<td style="font-family:JetBrains Mono;font-size:12px;">'+f.mtime+'</td>';
+      html += '<td><a href="/api/superadmin/file/download/'+encodeURIComponent(f.name)+'" class="btn btn-sm btn-secondary" style="text-decoration:none;margin-right:4px;">下載</a>';
+      html += '<button class="btn btn-sm" style="background:var(--red);color:white;" onclick="deleteFile(this.dataset.fn)" data-fn="'+f.name+'">刪除</button></td></tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('fileList').innerHTML = html;
+  } catch(e) { document.getElementById('fileList').textContent = '錯誤: '+e.message; }
+}
+
+async function uploadFile(input) {
+  if (!input.files.length) return;
+  var fd = new FormData();
+  fd.append('file', input.files[0]);
+  try {
+    var res = await fetch('/api/superadmin/file/upload', {method:'POST', credentials:'include', body:fd});
+    var json = await res.json();
+    alert(json.success ? json.message : (json.error||'上傳失敗'));
+    input.value = '';
+    loadFiles();
+  } catch(e) { alert('錯誤: '+e.message); }
+}
+
+async function deleteFile(elOrName) {
+  var name = typeof elOrName === 'string' ? elOrName : elOrName.dataset.name;
+  if (!confirm('確定刪除 '+name+' ?')) return;
+  await fetch('/api/superadmin/file/delete/'+encodeURIComponent(name), {method:'DELETE', credentials:'include'});
+  loadFiles();
+}
+
+// ========== Notes ==========
+async function loadNotes() {
+  try {
+    var res = await fetch('/api/superadmin/notes/list', {credentials:'include'});
+    var json = await res.json();
+    if (!json.success) { document.getElementById('notesList').textContent = '載入失敗'; return; }
+    var notes = json.data;
+    if (!notes.length) { document.getElementById('notesList').innerHTML = '<span class="text-muted-sm">尚無備忘錄</span>'; return; }
+    var html = '';
+    notes.forEach(function(n) {
+      html += '<div style="border-bottom:1px solid #f0f0f0;padding:8px 0;display:flex;justify-content:space-between;align-items:center;">';
+      html += '<div><strong style="font-size:13px;">'+n.id+'</strong> <span class="text-muted-sm">'+n.mtime+'</span>';
+      html += '<div style="font-size:12px;color:var(--c3);margin-top:2px;">'+n.preview.substring(0,80)+(n.preview.length>80?'...':'')+'</div></div>';
+      html += '<div style="display:flex;gap:4px;">';
+      html += '<button class="btn btn-sm" style="background:var(--g1);color:white;" onclick="viewNote(this.dataset.nid)" data-nid="'+n.id+'">檢視</button>';
+      html += '<button class="btn btn-sm" style="background:var(--red);color:white;" onclick="deleteNote(this.dataset.nid)" data-nid="'+n.id+'">刪除</button>';
+      html += '</div></div>';
+    });
+    document.getElementById('notesList').innerHTML = html;
+  } catch(e) { document.getElementById('notesList').textContent = '錯誤: '+e.message; }
+}
+
+async function saveNote() {
+  var title = document.getElementById('noteTitle').value.trim();
+  var content = document.getElementById('noteContent').value;
+  if (!content.trim()) { alert('請輸入內容'); return; }
+  var res = await fetch('/api/superadmin/notes/save', {method:'POST', headers:{'Content-Type':'application/json'}, credentials:'include', body:JSON.stringify({title:title, content:content})});
+  var json = await res.json();
+  alert(json.success ? json.message : (json.error||'儲存失敗'));
+  if (json.success) { document.getElementById('noteTitle').value=''; document.getElementById('noteContent').value=''; loadNotes(); }
+}
+
+async function viewNote(elOrId) {
+  var id = typeof elOrId === 'string' ? elOrId : elOrId.dataset.id;
+  var res = await fetch('/api/superadmin/notes/view/'+id, {credentials:'include'});
+  var json = await res.json();
+  if (json.success) {
+    document.getElementById('doc-modal').classList.add('active');
+    document.getElementById('doc-modal-title').textContent = id;
+    document.getElementById('doc-modal-content').textContent = json.data.content;
+  }
+}
+
+async function deleteNote(elOrId) {
+  var id = typeof elOrId === 'string' ? elOrId : elOrId.dataset.id;
+  if (!confirm('確定刪除備忘錄 '+id+' ?')) return;
+  await fetch('/api/superadmin/notes/delete/'+id, {method:'DELETE', credentials:'include'});
+  loadNotes();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+{% block title %}{{ hostname }} - TWGCB 合規詳細{% endblock %}
+{% block content %}
+<div style="margin-bottom:12px;">
+  <a href="/twgcb" style="color:var(--g2);text-decoration:none;">&larr; 返回 TWGCB 合規報告</a>
+</div>
+
+<div class="page-header">
+  <div>
+    <h1 id="pageTitle">{{ hostname }} TWGCB 合規詳細</h1>
+    <div id="hostMeta" style="color:var(--c3);font-size:14px;"></div>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center;">
+    <div id="rateDisplay" style="font-size:28px;font-weight:700;font-family:'JetBrains Mono',monospace;"></div>
+    <a href="/twgcb/harden/{{ hostname }}" class="btn btn-primary" style="text-decoration:none;padding:12px 24px;font-size:15px;">進入強化管理</a> <button class="btn btn-primary" onclick="scanHost()">重新掃描</button>
+  </div>
+</div>
+
+<!-- KPI 小卡 -->
+<div class="mini-kpi" id="miniKpi"></div>
+
+<!-- 掃描/修復進度 -->
+<div id="actionProgress" style="display:none;margin:12px 0;">
+  <div style="background:#E8F5E9;border-radius:8px;padding:12px 16px;display:flex;align-items:center;gap:12px;">
+    <div class="spinner"></div>
+    <span id="actionMsg">處理中...</span>
+  </div>
+</div>
+
+<!-- 8 大分類表格 -->
+<div id="categoriesContainer"></div>
+
+<style>
+.page-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; }
+.btn { padding:8px 18px; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+.btn-primary { background:var(--g1); color:white; }
+.btn-primary:hover { background:var(--g2); }
+.btn-fix { background:var(--orange); color:white; padding:4px 12px; font-size:12px; border:none; border-radius:4px; cursor:pointer; }
+.btn-fix:hover { background:#d06c00; }
+.btn-fix:disabled { background:#ccc; cursor:not-allowed; }
+.btn-fixed { background:var(--g1); color:white; padding:4px 12px; font-size:12px; border:none; border-radius:4px; cursor:default; }
+.mini-kpi { display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
+.mini-kpi-item { background:white; border-radius:8px; padding:12px 20px; box-shadow:0 1px 4px rgba(0,0,0,0.06); text-align:center; min-width:100px; }
+.mini-kpi-num { font-size:22px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+.mini-kpi-label { font-size:12px; color:var(--c3); }
+.cat-card { background:white; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); margin-bottom:16px; overflow:hidden; }
+.cat-header { padding:14px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #f0f0f0; }
+.cat-title { font-size:16px; font-weight:700; display:flex; align-items:center; gap:10px; }
+.cat-stats { display:flex; gap:12px; align-items:center; }
+.cat-rate { font-family:'JetBrains Mono',monospace; font-weight:700; font-size:16px; }
+.cat-bar { width:80px; height:8px; background:#f0f0f0; border-radius:4px; overflow:hidden; }
+.cat-bar-fill { height:100%; border-radius:4px; }
+table.check-table { width:100%; border-collapse:collapse; }
+table.check-table th { padding:10px 16px; text-align:left; font-size:12px; color:var(--c3); font-weight:600; background:#fafafa; border-bottom:1px solid #e8e8e8; white-space:nowrap; }
+table.check-table td { padding:10px 16px; font-size:13px; border-bottom:1px solid #f5f5f5; vertical-align:top; }
+table.check-table tr:hover { background:#fafffe; }
+table.check-table tr.row-pass { }
+table.check-table tr.row-fail { background:#FFF9F9; }
+.badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+.badge-pass { background:#E8F5E9; color:#2E7D32; }
+.badge-fail { background:#FFEBEE; color:#C62828; }
+.badge-a { background:#E3F2FD; color:#1565C0; }
+.badge-b { background:#FFF8E1; color:#F57F17; }
+.badge-c { background:#FFF3E0; color:#E65100; }
+.badge-d { background:#FFEBEE; color:#B71C1C; }
+.cmd-text { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--c2); background:#f8f8f8; padding:4px 8px; border-radius:4px; display:inline-block; max-width:400px; word-break:break-all; }
+.fix-result { margin-top:4px; font-size:11px; padding:4px 8px; border-radius:4px; }
+.fix-ok { background:#E8F5E9; color:#2E7D32; }
+.fix-err { background:#FFEBEE; color:#C62828; }
+.spinner { width:18px; height:18px; border:3px solid #ddd; border-top:3px solid var(--g1); border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+</style>
+
+<script>
+const hostname = '{{ hostname }}';
+let hostData = null;
+
+document.addEventListener('DOMContentLoaded', loadData);
+
+async function loadData() {
+  try {
+    const res = await fetch('/api/twgcb/results/' + hostname);
+    const json = await res.json();
+    if (!json.success) {
+      document.getElementById('categoriesContainer').innerHTML =
+        '<div style="text-align:center;padding:60px;color:var(--c3);">找不到此主機的掃描結果，請先執行掃描。</div>';
+      return;
+    }
+    hostData = json.data;
+    render();
+  } catch(e) {
+    document.getElementById('categoriesContainer').innerHTML = '<div style="color:var(--red);">載入失敗</div>';
+  }
+}
+
+function render() {
+  const d = hostData;
+  const checks = d.checks || [];
+  const passed = checks.filter(c => c.status==='PASS').length;
+  const failed = checks.length - passed;
+  const rate = checks.length > 0 ? Math.round(passed/checks.length*100) : 0;
+
+  // Meta
+  document.getElementById('hostMeta').textContent =
+    `${d.os} | 掃描時間: ${(d.scan_time||'').replace('T',' ').substring(0,19)}`;
+
+  // Rate
+  const rateColor = rate>=80 ? 'var(--g1)' : rate>=50 ? 'var(--orange)' : 'var(--red)';
+  document.getElementById('rateDisplay').innerHTML = `<span style="color:${rateColor}">${rate}% 合規</span>`;
+
+  // Mini KPI
+  document.getElementById('miniKpi').innerHTML = `
+    <div class="mini-kpi-item"><div class="mini-kpi-num">${checks.length}</div><div class="mini-kpi-label">檢查項</div></div>
+    <div class="mini-kpi-item"><div class="mini-kpi-num" style="color:var(--g1)">${passed}</div><div class="mini-kpi-label">通過</div></div>
+    <div class="mini-kpi-item"><div class="mini-kpi-num" style="color:var(--red)">${failed}</div><div class="mini-kpi-label">未通過</div></div>
+    ${renderLevelKpi(checks)}
+  `;
+
+  // 依分類分組
+  const cats = {};
+  const catOrder = ['網路參數','檔案權限','存取控制','登入橫幅','日誌與安全','SSH 加固','密碼策略','Audit 規則'];
+  checks.forEach(c => {
+    const cat = c.category || '其他';
+    if (!cats[cat]) cats[cat] = [];
+    cats[cat].push(c);
+  });
+
+  // 渲染分類表格
+  const container = document.getElementById('categoriesContainer');
+  const orderedCats = catOrder.filter(c => cats[c]);
+  // 加入不在 order 裡的分類
+  Object.keys(cats).forEach(c => { if (!orderedCats.includes(c)) orderedCats.push(c); });
+
+  container.innerHTML = orderedCats.map(cat => {
+    const items = cats[cat];
+    const catPassed = items.filter(c => c.status==='PASS').length;
+    const catRate = Math.round(catPassed/items.length*100);
+    const barColor = catRate>=80 ? 'var(--g1)' : catRate>=50 ? 'var(--orange)' : 'var(--red)';
+
+    return `<div class="cat-card">
+      <div class="cat-header">
+        <div class="cat-title">
+          <span class="badge badge-${(items[0].level||'a').toLowerCase()}">${items[0].level}</span>
+          ${cat}
+        </div>
+        <div class="cat-stats">
+          <div class="cat-bar"><div class="cat-bar-fill" style="width:${catRate}%;background:${barColor}"></div></div>
+          <span class="cat-rate" style="color:${barColor}">${catPassed}/${items.length}</span>
+        </div>
+      </div>
+      <table class="check-table">
+        <thead>
+          <tr>
+            <th style="width:50px;">狀態</th>
+            <th style="width:60px;">編號</th>
+            <th style="width:200px;">檢查項目</th>
+            <th style="width:100px;">期望值</th>
+            <th style="width:100px;">實際值</th>
+            <th>修復指令</th>
+            <th style="width:80px;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map(c => {
+            const isPass = c.status === 'PASS';
+            return `<tr class="${isPass ? 'row-pass' : 'row-fail'}">
+              <td><span class="badge ${isPass?'badge-pass':'badge-fail'}">${isPass?'PASS':'FAIL'}</span></td>
+              <td style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--c3);">${c.id}</td>
+              <td><strong>${c.name}</strong></td>
+              <td><code style="font-size:12px;">${c.expected}</code></td>
+              <td><code style="font-size:12px;color:${isPass?'var(--g2)':'var(--red)'}">${c.actual}</code></td>
+              <td>${!isPass ? `<span class="cmd-text">${c.remediation||'N/A'}</span>` : '<span style="color:var(--c3);font-size:12px;">-</span>'}</td>
+              <td id="action-${c.id}">
+                ${!isPass ? `<button class="btn-fix" onclick="remediate('${c.id}','${escapeHtml(c.remediation||'')}')">修復</button>` : '<span style="color:var(--g1);font-size:12px;">&#10003;</span>'}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }).join('');
+}
+
+function renderLevelKpi(checks) {
+  const levels = {};
+  checks.forEach(c => {
+    const l = c.level || '?';
+    if (!levels[l]) levels[l] = {total:0, passed:0};
+    levels[l].total++;
+    if (c.status==='PASS') levels[l].passed++;
+  });
+  const labels = {A:'A級',B:'B級',C:'C級',D:'D級'};
+  return ['A','B','C','D'].filter(l => levels[l]).map(l => {
+    const lv = levels[l];
+    const r = Math.round(lv.passed/lv.total*100);
+    const c = r>=80?'var(--g1)':r>=50?'var(--orange)':'var(--red)';
+    return `<div class="mini-kpi-item"><div class="mini-kpi-num" style="color:${c}">${r}%</div><div class="mini-kpi-label">${labels[l]} (${lv.passed}/${lv.total})</div></div>`;
+  }).join('');
+}
+
+function escapeHtml(s) {
+  return s.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+async function remediate(checkId, cmd) {
+  if (!confirm(`確定要在 ${hostname} 執行修復 ${checkId}？\n\n指令: ${cmd}`)) return;
+
+  const actionEl = document.getElementById('action-' + checkId);
+  actionEl.innerHTML = '<div class="spinner" style="width:16px;height:16px;"></div>';
+
+  try {
+    const res = await fetch('/api/twgcb/remediate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({hostname, check_id: checkId, remediation: cmd})
+    });
+    const json = await res.json();
+
+    if (json.success) {
+      actionEl.innerHTML = `<button class="btn-fixed">已修復</button>
+        <div class="fix-result fix-ok">&#10003; 成功</div>`;
+    } else {
+      actionEl.innerHTML = `<button class="btn-fix" onclick="remediate('${checkId}','${escapeHtml(cmd)}')">重試</button>
+        <div class="fix-result fix-err">&#10007; ${json.error||json.output||'失敗'}</div>`;
+    }
+  } catch(e) {
+    actionEl.innerHTML = `<button class="btn-fix" onclick="remediate('${checkId}','${escapeHtml(cmd)}')">重試</button>
+      <div class="fix-result fix-err">&#10007; ${e.message}</div>`;
+  }
+}
+
+async function scanHost() {
+  const prog = document.getElementById('actionProgress');
+  prog.style.display = 'block';
+  document.getElementById('actionMsg').textContent = `正在掃描 ${hostname}...`;
+
+  try {
+    const res = await fetch('/api/twgcb/scan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({target: hostname})
+    });
+    const json = await res.json();
+    if (json.success) {
+      document.getElementById('actionMsg').textContent = '&#10003; ' + json.message + '，重新載入...';
+      setTimeout(() => { prog.style.display = 'none'; loadData(); }, 1500);
+    } else {
+      document.getElementById('actionMsg').textContent = '&#10007; 掃描失敗: ' + json.error;
+    }
+  } catch(e) {
+    document.getElementById('actionMsg').textContent = '&#10007; ' + e.message;
+  }
+}
+</script>
+{% endblock %}

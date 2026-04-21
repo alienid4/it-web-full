@@ -1,0 +1,35 @@
+---
+- name:  Log  ( OS family)
+  set_fact:
+    log_file: >-
+      {{ '/var/log/syslog' if ansible_os_family == 'Debian'
+         else '/var/log/messages' }}
+
+- name: 
+  shell: >
+    tail -n 5000 {{ log_file }} 2>/dev/null |
+    grep -iE '(error|critical|fail|panic)' |
+    tail -n 100
+  register: error_lines
+  changed_when: false
+  ignore_errors: true
+
+- name: 
+  shell: >
+    tail -n 5000 {{ log_file }} 2>/dev/null |
+    grep -iE '(warn|warning)' |
+    tail -n 50
+  register: warn_lines
+  changed_when: false
+  ignore_errors: true
+
+- name: 
+  set_fact:
+    error_log_result:
+      status: >-
+        {{ 'error' if (error_lines.stdout_lines | default([]) | length) > 0
+           else 'warn' if (warn_lines.stdout_lines | default([]) | length) > 0
+           else 'ok' }}
+      log_file: "{{ log_file }}"
+      error_count: "{{ error_lines.stdout_lines | default([]) | length }}"
+      warn_count:  "{{ warn_lines.stdout_lines | default([]) | length }}"

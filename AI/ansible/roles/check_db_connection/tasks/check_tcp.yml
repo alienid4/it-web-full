@@ -1,0 +1,41 @@
+# check_db_connection tasks/check_tcp.yml v1.0
+- name: TCP  DB
+  shell: >
+    (nc -z -w {{ db_connect_timeout }} {{ item.host }} {{ item.port }} 2>/dev/null &&
+     echo "ok") ||
+    (bash -c "echo >/dev/tcp/{{ item.host }}/{{ item.port }}" 2>/dev/null &&
+     echo "ok") ||
+    echo "error"
+  register: db_tcp_results
+  loop: "{{ db_check_list }}"
+  changed_when: false
+  failed_when: false
+  loop_control:
+    label: "{{ item.name }} ({{ item.host }}:{{ item.port }})"
+  async: 120
+  poll: 5
+- name:  DB 
+  set_fact:
+    _db_items: >-
+      {{
+        _db_items | default([]) + [{
+          'name':   item.item.name,
+          'type':   item.item.type | default('unknown'),
+          'host':   item.item.host,
+          'port':   item.item.port | int,
+          'status': 'ok' if item.stdout | trim == 'ok' else 'error',
+          'error':  none if item.stdout | trim == 'ok' else 'TCP '
+        }]
+      }}
+  loop: "{{ db_tcp_results.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+- name:  DB 
+  set_fact:
+    db_result:
+      status: >-
+        {{
+          'error' if _db_items | default([]) | selectattr('status','eq','error') | list | length > 0
+          else 'ok'
+        }}
+      connections: "{{ _db_items | default([]) }}"

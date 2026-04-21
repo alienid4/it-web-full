@@ -1,0 +1,69 @@
+---
+# =========================================================
+# 建立 ansible_svc 帳號 Playbook
+# 適用：所有 LAB 主機（ansible-host / client-host-1 / sec9c2）
+#
+# 執行方式：
+#   ansible-playbook -i inventory/hosts.yml \
+#     playbooks/create_ansible_svc.yml \
+#     -u root --ask-pass
+#
+# 執行內容：
+#   1. 建立 ansible_svc 帳號
+#   2. 設定密碼
+#   3. 加入 systemd-journal 群組（Rocky Linux）
+#   4. 建立 .ssh 目錄
+# =========================================================
+# 變更記錄：
+#   v1.0  2026-04-07  初版
+# =========================================================
+
+- name: 建立 ansible_svc 帳號
+  hosts: all
+  gather_facts: yes
+
+  vars_prompt:
+    - name: ansible_svc_password
+      prompt: "請輸入 ansible_svc 的密碼"
+      private: yes
+      confirm: yes
+
+  tasks:
+
+    - name: 建立 ansible_svc 帳號
+      user:
+        name: ansible_svc
+        shell: /bin/bash
+        comment: "Ansible Service Account"
+        create_home: yes
+        state: present
+
+    - name: 設定 ansible_svc 密碼
+      user:
+        name: ansible_svc
+        password: "{{ ansible_svc_password | password_hash('sha512') }}"
+        update_password: always
+
+    - name: 建立 .ssh 目錄
+      file:
+        path: /home/ansible_svc/.ssh
+        state: directory
+        owner: ansible_svc
+        group: ansible_svc
+        mode: '0700'
+
+    - name: 加入 systemd-journal 群組（僅 Rocky Linux）
+      user:
+        name: ansible_svc
+        groups: systemd-journal
+        append: yes
+      when: ansible_distribution == "Rocky"
+
+    - name: 驗證帳號已建立
+      command: id ansible_svc
+      register: id_result
+      changed_when: false
+
+    - name: 顯示帳號資訊
+      debug:
+        msg: "{{ id_result.stdout }}"

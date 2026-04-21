@@ -1,0 +1,27 @@
+---
+# =========================================================
+# test_check_disk.yml
+# 測試 check_disk role
+#
+# 執行方式：
+#   ansible-playbook -i /opt/inspection/ansible/inventory/hosts.yml \
+#     playbooks/test_check_disk.yml
+# =========================================================
+
+- name: 測試 check_disk role
+  hosts: linux
+  gather_facts: yes
+
+  roles:
+    - check_disk
+
+  post_tasks:
+    - name: 顯示磁碟巡檢結果
+      debug:
+        msg: |
+          主機：{{ inventory_hostname }}
+          狀態：{{ disk_result.status }}
+          分區數：{{ disk_result.partitions | length }}
+          {% for p in disk_result.partitions %}
+          {{ p.mount }}: {{ p.used }}/{{ p.size }} ({{ p.percent }}%) [{{ p.status }}]
+          {% endfor %}

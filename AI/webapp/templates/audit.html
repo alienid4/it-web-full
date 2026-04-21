@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}帳號盤點 - IT 每日巡檢系統{% endblock %}
+{% block content %}
+<h2 style="margin-bottom:20px;font-size:20px;">帳號盤點</h2>
+
+<div style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+  <div class="form-group" style="margin:0;"><label>主機</label><select id="audit-host" onchange="renderAuditTable()"><option value="">全部</option></select></div>
+  <div class="form-group" style="margin:0;"><label>部門</label><select id="audit-dept" onchange="renderAuditTable()"><option value="">全部</option></select></div>
+  <div class="form-group" style="margin:0;"><label>風險</label><select id="audit-risk" onchange="renderAuditTable()"><option value="">全部</option><option value="has_risk">有風險</option><option value="pw_old">密碼過老</option><option value="pw_expired">密碼到期</option><option value="no_login">未登入</option></select></div>
+  <a href="/api/audit/export" class="btn" style="background:var(--g2);color:white;text-decoration:none;margin-top:18px;">匯出 CSV</a>
+</div>
+
+<div class="card">
+  <div id="audit-content">
+    <div class="skeleton" style="height:200px;"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+var _auditData = [];
+
+document.addEventListener("DOMContentLoaded", function() {
+  fetch("/api/audit/accounts").then(function(r){return r.json();}).then(function(res) {
+    if (!res.success) return;
+    _auditData = res.data || [];
+
+    // Populate host filter
+    var hostSel = document.getElementById("audit-host");
+    var hosts = {};
+    _auditData.forEach(function(a){ hosts[a.hostname] = 1; });
+    hostSel.innerHTML = '<option value="">全部</option>' + Object.keys(hosts).map(function(h){return '<option value="'+h+'">'+h+'</option>';}).join("");
+
+    // Populate dept filter
+    var deptSel = document.getElementById("audit-dept");
+    var depts = {};
+    _auditData.forEach(function(a){ if(a.department) depts[a.department] = 1; });
+    deptSel.innerHTML = '<option value="">全部</option>' + Object.keys(depts).map(function(d){return '<option value="'+d+'">'+d+'</option>';}).join("");
+
+    renderAuditTable();
+  });
+});
+
+function renderAuditTable() {
+  var hostFilter = document.getElementById("audit-host").value;
+  var deptFilter = document.getElementById("audit-dept").value;
+  var riskFilter = document.getElementById("audit-risk").value;
+
+  var filtered = _auditData.filter(function(a) {
+    if (hostFilter && a.hostname !== hostFilter) return false;
+    if (deptFilter && a.department !== deptFilter) return false;
+    if (riskFilter === "has_risk" && a.risk_count === 0) return false;
+    if (riskFilter === "pw_old" && !a.risks.some(function(r){return r.type==="pw_old";})) return false;
+    if (riskFilter === "pw_expired" && !a.risks.some(function(r){return r.type==="pw_expired";})) return false;
+    if (riskFilter === "no_login" && !a.risks.some(function(r){return r.type==="no_login";})) return false;
+    return true;
+  });
+
+  var el = document.getElementById("audit-content");
+  if (!filtered.length) {
+    el.innerHTML = '<div class="no-data">無符合條件的帳號</div>';
+    return;
+  }
+
+  var html = '<div style="margin-bottom:8px;font-size:13px;color:var(--c3);">共 '+filtered.length+' 個帳號</div>';
+  html += '<div class="table-wrap"><table style="width:100%;"><thead><tr><th>主機</th><th>帳號</th><th>備註</th><th>部門</th><th>HR姓名</th><th>密碼變更</th><th>密碼到期</th><th>最後登入</th><th>風險</th></tr></thead><tbody>';
+  filtered.forEach(function(a) {
+    var riskBadges = "";
+    if (a.risk_count === 0) {
+      riskBadges = '<span class="badge badge-ok">OK</span>';
+    } else {
+      riskBadges = a.risks.map(function(r) {
+        return '<span class="badge badge-'+(r.level||"warn")+'" style="font-size:10px;margin:1px;">'+r.desc+'</span>';
+      }).join(" ");
+    }
+    html += '<tr style="'+(a.risk_count>0?"background:#FFF8E1;":"")+'">';
+    html += '<td style="font-size:12px;">'+a.hostname+'</td>';
+    html += '<td><strong>'+a.user+'</strong></td>';
+    html += '<td style="font-size:12px;">'+(a.note || '<span style="color:var(--c4);">-</span>')+'</td>';
+    html += '<td style="font-size:12px;">'+(a.department || '<span style="color:var(--c4);">-</span>')+'</td>';
+    html += '<td style="font-size:12px;">'+(a.hr_name || '-')+'</td>';
+    html += '<td style="font-family:JetBrains Mono;font-size:11px;">'+a.pw_last_change+'<br><span style="color:var(--c3);">('+a.pw_age_days+'天)</span></td>';
+    html += '<td style="font-family:JetBrains Mono;font-size:11px;">'+a.pw_expires+'</td>';
+    html += '<td style="font-family:JetBrains Mono;font-size:11px;">'+a.last_login+'<br><span style="color:var(--c3);">('+a.login_age_days+'天)</span></td>';
+    html += '<td>'+riskBadges+'</td>';
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+</script>
+{% endblock %}

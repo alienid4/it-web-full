@@ -1,0 +1,16 @@
+# check_system/defaults/main.yml
+# Page Space / IO / Load / Uptime / Users / FailLogin
+
+swap_warn_default: 50
+swap_crit_default: 80
+
+io_busy_warn_default: 70
+io_busy_crit_default: 90
+
+load_warn_factor_default: 2.0
+load_crit_factor_default: 4.0
+
+faillogin_threshold_default: 5
+faillogin_top_n_default: 3
+
+inspection_home: /opt/inspection

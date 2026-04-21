@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - IT 每日巡檢系統{% endblock %}
+{% block content %}
+<h2 style="margin-bottom:20px;font-size:20px;">系統總覽 Dashboard</h2>
+
+<!-- KPI Cards (clickable, with percentage) -->
+<div class="kpi-grid" id="kpi-area">
+  <div class="kpi-card ok" onclick="filterHosts('ok')" style="cursor:pointer;" title="點擊查看正常主機">
+    <div class="kpi-value ok" id="kpi-ok">-</div>
+    <div id="kpi-ok-pct" style="font-family:JetBrains Mono;font-size:14px;color:var(--g2);"></div>
+    <div class="kpi-label">正常主機</div>
+  </div>
+  <div class="kpi-card warn" onclick="filterHosts('warn')" style="cursor:pointer;" title="點擊查看警告主機">
+    <div class="kpi-value warn" id="kpi-warn">-</div>
+    <div id="kpi-warn-pct" style="font-family:JetBrains Mono;font-size:14px;color:var(--orange);"></div>
+    <div class="kpi-label">警告主機</div>
+  </div>
+  <div class="kpi-card error" onclick="filterHosts('error')" style="cursor:pointer;" title="點擊查看異常主機">
+    <div class="kpi-value error" id="kpi-error">-</div>
+    <div id="kpi-error-pct" style="font-family:JetBrains Mono;font-size:14px;color:var(--red);"></div>
+    <div class="kpi-label">異常主機</div>
+  </div>
+  <div class="kpi-card" onclick="filterHosts('all')" style="cursor:pointer;" title="點擊查看全部主機">
+    <div class="kpi-value" id="kpi-total" style="color:var(--c1)">-</div>
+    <div id="kpi-total-pct" style="font-family:JetBrains Mono;font-size:14px;color:var(--c3);"></div>
+    <div class="kpi-label">主機總數</div>
+  </div>
+</div>
+
+<!-- OS Distribution -->
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-title">OS 數量統計</div>
+  <div id="os-stats" style="display:flex;gap:16px;flex-wrap:wrap;">載入中...</div>
+</div>
+
+<!-- UID=0 Alert (hidden by default) -->
+<div id="uid0-alert-area" style="display:none;margin-bottom:16px;">
+  <div class="uid0-alert">UID=0 異動警示：偵測到高危特權帳號變更！</div>
+</div>
+
+<!-- Filtered Host List (shown when KPI clicked) -->
+<div class="card" id="filtered-hosts-area" style="display:none;margin-bottom:16px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <div class="card-title" id="filtered-title" style="margin:0;">篩選結果</div>
+    <button class="btn btn-sm" style="background:var(--c4);" onclick="closeFilter()">關閉篩選</button>
+  </div>
+  <div class="host-grid" id="filtered-grid"></div>
+</div>
+
+<!-- All Hosts -->
+<div class="card" id="all-hosts-area">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;gap:12px;"><div class="card-title" style="margin:0;">全部主機狀態</div><button id="rescan-all-btn" class="btn btn-sm" style="background:var(--g2);color:white;font-size:11px;padding:4px 12px;" onclick="dashPingAll()">🔄 重新掃描</button></div>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--c2);user-select:none;">
+      <span>只顯示異常</span>
+      <div style="position:relative;width:40px;height:22px;" onclick="toggleAbnormalFilter()">
+        <input type="checkbox" id="abnormal-toggle" checked style="display:none;">
+        <div id="toggle-track" style="width:40px;height:22px;border-radius:11px;background:var(--g1);transition:background 0.2s;"></div>
+        <div id="toggle-thumb" style="position:absolute;top:2px;left:20px;width:18px;height:18px;border-radius:50%;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.3);transition:left 0.2s;"></div>
+      </div>
+    </label>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>主機</th><th>IP</th><th>OS</th><th>狀態</th><th>磁碟</th><th>CPU</th><th>服務</th><th>帳號</th></tr></thead>
+      <tbody id="all-hosts-table"><tr><td colspan="8" class="no-data">載入中...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+var _allHostsData = [];
+
+function filterHosts(status) {
+  var filtered = [];
+  var titleMap = {"ok": "正常主機", "warn": "警告主機", "error": "異常主機", "all": "全部主機"};
+
+  if (status === "all") {
+    filtered = _allHostsData;
+  } else {
+    filtered = _allHostsData.filter(function(h) {
+      return (h.overall_status || "ok").trim() === status;
+    });
+  }
+
+  document.getElementById("filtered-title").textContent = titleMap[status] + " (" + filtered.length + " 台)";
+  var grid = document.getElementById("filtered-grid");
+
+  if (!filtered.length) {
+    grid.innerHTML = '<div class="no-data">無符合條件的主機</div>';
+  } else {
+    grid.innerHTML = filtered.map(function(h) {
+      var s = (h.overall_status || "ok").trim();
+      var disk = h.disk || (h.results && h.results.disk) || {};
+      var cpu = h.cpu || (h.results && h.results.cpu) || {};
+      var svc = h.service || (h.results && h.results.service) || {};
+      var acct = h.account || (h.results && h.results.account) || {};
+      var elog = h.error_log || (h.results && h.results.error_log) || {};
+      var sys = (h.results && h.results.system) || h.system || {};
+      var swap = sys.swap || {};
+      var load = sys.load || {};
+      var users = sys.users || {};
+
+      var statusColor = s === "error" ? "red" : s === "warn" ? "orange" : "g1";
+      var statusText = s === "ok" ? "正常" : s === "warn" ? "警告" : "異常";
+
+      var partitions = disk.partitions || [];
+      var diskStatus = (disk.status || "ok").trim();
+      var problemParts = partitions.filter(function(p){return (p.status||"ok").trim()!=="ok";});
+      var diskHtml = "";
+      if (diskStatus === "ok" && problemParts.length === 0) {
+        diskHtml = '<span class="badge badge-ok">OK</span> ' + partitions.length + ' 分區';
+      } else {
+        diskHtml = problemParts.map(function(p){return '<span class="badge badge-'+((p.status||"warn").trim())+'" style="font-size:11px;">'+p.mount+' '+p.percent+'%</span>';}).join(" ");
+      }
+
+      var cpuCount = parseInt(load.cpu_count) || 1;
+      var l1 = parseFloat(load.load_1) || 0;
+
+      var html = '<a href="/report/' + h.hostname + '" style="text-decoration:none;color:inherit;display:block;">';
+      html += '<div class="card" style="border-left:4px solid var(--' + statusColor + ');margin:0;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">';
+      html += '<strong>' + h.hostname + '</strong> <span class="badge badge-' + s + '">' + statusText + '</span></div>';
+      html += '<div style="font-size:11px;color:var(--c3);margin-bottom:8px;">' + (h.ip||"") + ' | ' + (h.os||"") + '</div>';
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-size:12px;">';
+      html += '<div><strong>CPU:</strong> ' + (cpu.cpu_percent||cpu.percent||"-") + '%</div>';
+      html += '<div><strong>MEM:</strong> ' + (cpu.mem_percent||"-") + '%</div>';
+      html += '<div><strong>Swap:</strong> ' + (parseFloat(swap.percent)||0) + '%</div>';
+      html += '<div><strong>Load:</strong> ' + l1.toFixed(2) + '/' + cpuCount + 'cpu</div>';
+      html += '<div><strong>Users:</strong> ' + (users.count||0) + '</div>';
+      html += '<div><strong>Disk:</strong> ' + diskHtml + '</div>';
+      html += '<div><strong>服務:</strong> <span class="badge badge-' + ((svc.status||"ok").trim()) + '" style="font-size:11px;">' + ((svc.status||"ok").trim()) + '</span></div>';
+      html += '<div><strong>帳號:</strong> <span class="badge badge-' + ((acct.status||"ok").trim()) + '" style="font-size:11px;">' + ((acct.status||"ok").trim()) + '</span></div>';
+      html += '<div><strong>錯誤:</strong> ' + (elog.error_count||elog.count||0) + '</div>';
+      html += '<div style="font-size:11px;color:var(--c3);"><strong>Uptime:</strong> ' + ((sys.uptime||{}).duration||(sys.uptime||{}).boot_time||"-") + '</div>';
+      html += '</div></div></a>';
+      return html;
+    }).join("");
+  }
+
+  document.getElementById("filtered-hosts-area").style.display = "block";
+  document.getElementById("filtered-hosts-area").scrollIntoView({behavior: "smooth"});
+
+  // Highlight active KPI
+  var cards = document.querySelectorAll(".kpi-card");
+  cards.forEach(function(c){c.style.outline="none";});
+  var idx = {"ok":0,"warn":1,"error":2,"all":3}[status];
+  if (idx !== undefined && cards[idx]) cards[idx].style.outline = "2px solid var(--c1)";
+}
+
+function closeFilter() {
+  document.getElementById("filtered-hosts-area").style.display = "none";
+  var cards = document.querySelectorAll(".kpi-card");
+  cards.forEach(function(c){c.style.outline="none";});
+}
+
+// Store data globally for filtering
+var _origRenderAllHostsTable = window.renderAllHostsTable;
+</script>
+{% endblock %}

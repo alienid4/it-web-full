@@ -1,0 +1,35 @@
+# check_error_log tasks/main.yml
+- name:  settings.json
+  slurp:
+    src: "{{ inspection_home }}/data/settings.json"
+  register: settings_raw
+  delegate_to: localhost
+  ignore_errors: yes
+- name:  settings.json
+  set_fact:
+    settings: "{{ settings_raw.content | b64decode | from_json }}"
+  when: settings_raw is succeeded
+  ignore_errors: yes
+- name: 
+  set_fact:
+    error_log_max_entries: "{{ settings.error_log_max_entries | default(error_log_max_entries_default) }}"
+    error_log_hours:       "{{ settings.error_log_hours       | default(error_log_hours_default) }}"
+- name:  Linux 
+  include_tasks: linux.yml
+  when: ansible_system == "Linux"
+- name:  AIX 
+  include_tasks: aix.yml
+  when: ansible_system == "AIX"
+- name:  OS
+  set_fact:
+    error_log_result:
+      status: "unevaluated"
+      reason: " OS{{ ansible_system }}"
+      entries: []
+  when:
+    - ansible_system != "Linux"
+    - ansible_system != "AIX"
+
+- name: Windows check_error_log
+  include_tasks: windows.yml
+  when: ansible_os_family == "Windows"

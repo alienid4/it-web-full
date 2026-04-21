@@ -1,0 +1,139 @@
+---
+# Windows TWGCB 合規檢查 (SSH + PowerShell)
+
+- name: "Win TWGCB - net accounts"
+  raw: "powershell -Command \"net accounts\""
+  register: net_accounts_raw
+  changed_when: false
+  ignore_errors: true
+
+- name: "Win TWGCB - audit policy"
+  raw: "powershell -Command \"auditpol /get /category:*\""
+  register: audit_raw
+  changed_when: false
+  ignore_errors: true
+
+- name: "Win TWGCB - firewall"
+  raw: "powershell -Command \"(Get-NetFirewallProfile | Select-Object Name,Enabled | ConvertTo-Json)\""
+  register: firewall_raw
+  changed_when: false
+  ignore_errors: true
+
+- name: "Win TWGCB - RDP NLA"
+  raw: "powershell -Command \"(Get-ItemProperty -Path HKLM:SYSTEMCurrentControlSetControlTerminal ServerWinStationsRDP-Tcp -Name UserAuthentication -EA SilentlyContinue).UserAuthentication\""
+  register: rdp_nla_raw
+  changed_when: false
+  ignore_errors: true
+
+- name: "Parse net accounts"
+  set_fact:
+    win_minpwlen: "{{ net_accounts_raw.stdout_lines | select('match', '.*Minimum password length.*') | first | default(0) | regex_replace('[^0-9]', '') | default(0) }}"
+    win_maxpwage: "{{ net_accounts_raw.stdout_lines | select('match', '.*Maximum password age.*') | first | default(0) | regex_replace('[^0-9]', '') | default(0) }}"
+    win_lockout_threshold: "{{ net_accounts_raw.stdout_lines | select('match', '.*Lockout threshold.*') | first | default(0) | regex_replace('[^0-9]', '') | default(0) }}"
+    win_lockout_duration: "{{ net_accounts_raw.stdout_lines | select('match', '.*Lockout duration.*') | first | default(0) | regex_replace('[^0-9]', '') | default(0) }}"
+  ignore_errors: true
+
+- name: "Parse firewall"
+  set_fact:
+    win_firewall_on: "{{ 'ON' if 'True' in (firewall_raw.stdout | default('')) else 'OFF' }}"
+  ignore_errors: true
+
+- name: "Parse audit - Logon"
+  set_fact:
+    win_audit_logon: "{{ 'enabled' if ('Success' in (audit_raw.stdout | default('')) and 'Failure' in (audit_raw.stdout | default(''))) else 'disabled' }}"
+    win_audit_acctmgmt: "{{ 'enabled' if 'User Account Management' in (audit_raw.stdout | default('')) else 'disabled' }}"
+  ignore_errors: true
+
+- name: "Compile Windows TWGCB results"
+  set_fact:
+    twgcb_result:
+      hostname: "{{ inventory_hostname }}"
+      scan_time: "{{ '%Y-%m-%dT%H:%M:%SZ' | strftime }}"
+      os: "Windows Server"
+      checks:
+        - id: "TWGCB-02-008-0001"
+          category: "密碼策略"
+          name: "密碼最短長度"
+          level: "A"
+          expected: "12"
+          actual: "{{ win_minpwlen | default(0) }}"
+          status: "{{ 'PASS' if (win_minpwlen | default(0) | int) >= 12 else 'FAIL' }}"
+          detail: "Minimum password length = {{ win_minpwlen | default(0) }}"
+          remediation: "net accounts /minpwlen:12"
+          gcb_ref: "TWGCB-02-008-0001"
+        - id: "TWGCB-02-008-0002"
+          category: "密碼策略"
+          name: "密碼最長使用期限"
+          level: "A"
+          expected: "90"
+          actual: "{{ win_maxpwage | default(0) }}"
+          status: "{{ 'PASS' if (win_maxpwage | default(999) | int) <= 90 else 'FAIL' }}"
+          detail: "Maximum password age = {{ win_maxpwage | default('unknown') }} days"
+          remediation: "net accounts /maxpwage:90"
+          gcb_ref: "TWGCB-02-008-0002"
+        - id: "TWGCB-02-008-0003"
+          category: "帳號鎖定"
+          name: "帳號鎖定閾值"
+          level: "A"
+          expected: "5"
+          actual: "{{ win_lockout_threshold | default(0) }}"
+          status: "{{ 'PASS' if (win_lockout_threshold | default(0) | int) > 0 and (win_lockout_threshold | default(0) | int) <= 5 else 'FAIL' }}"
+          detail: "Lockout threshold = {{ win_lockout_threshold | default(0) }}"
+          remediation: "net accounts /lockoutthreshold:5"
+          gcb_ref: "TWGCB-02-008-0003"
+        - id: "TWGCB-02-008-0004"
+          category: "帳號鎖定"
+          name: "帳號鎖定時間"
+          level: "A"
+          expected: "0"
+          actual: "{{ win_lockout_duration | default(-1) }}"
+          status: "{{ 'PASS' if (win_lockout_duration | default(-1) | int) == 0 else 'FAIL' }}"
+          detail: "Lockout duration = {{ win_lockout_duration | default('unknown') }} min (0=永久鎖定)"
+          remediation: "net accounts /lockoutduration:0"
+          gcb_ref: "TWGCB-02-008-0004"
+        - id: "TWGCB-02-008-0005"
+          category: "稽核策略"
+          name: "登入事件稽核"
+          level: "A"
+          expected: "enabled"
+          actual: "{{ win_audit_logon | default('disabled') }}"
+          status: "{{ 'PASS' if win_audit_logon | default('disabled') == 'enabled' else 'FAIL' }}"
+          detail: "Logon audit = {{ win_audit_logon | default('unknown') }}"
+          remediation: "auditpol /set /subcategory:Logon /success:enable /failure:enable"
+          gcb_ref: "TWGCB-02-008-0005"
+        - id: "TWGCB-02-008-0006"
+          category: "稽核策略"
+          name: "帳號管理稽核"
+          level: "A"
+          expected: "enabled"
+          actual: "{{ win_audit_acctmgmt | default('disabled') }}"
+          status: "{{ 'PASS' if win_audit_acctmgmt | default('disabled') == 'enabled' else 'FAIL' }}"
+          detail: "Account management audit = {{ win_audit_acctmgmt | default('unknown') }}"
+          remediation: 'auditpol /set /subcategory:"User Account Management" /success:enable /failure:enable'
+          gcb_ref: "TWGCB-02-008-0006"
+        - id: "TWGCB-02-008-0007"
+          category: "Windows 防火牆"
+          name: "防火牆啟用"
+          level: "B"
+          expected: "ON"
+          actual: "{{ win_firewall_on | default('OFF') }}"
+          status: "{{ 'PASS' if win_firewall_on | default('OFF') == 'ON' else 'FAIL' }}"
+          detail: "Firewall = {{ win_firewall_on | default('unknown') }}"
+          remediation: "netsh advfirewall set allprofiles state on"
+          gcb_ref: "TWGCB-02-008-0007"
+        - id: "TWGCB-02-008-0008"
+          category: "遠端桌面"
+          name: "NLA 驗證"
+          level: "B"
+          expected: "1"
+          actual: "{{ rdp_nla_raw.stdout | default(0) | trim }}"
+          status: "{{ 'PASS' if (rdp_nla_raw.stdout | default(0) | trim) == 1 else 'FAIL' }}"
+          detail: "RDP NLA UserAuthentication = {{ rdp_nla_raw.stdout | default('unknown') | trim }}"
+          remediation: 'reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v UserAuthentication /t REG_DWORD /d 1 /f'
+          gcb_ref: "TWGCB-02-008-0008"
+
+- name: "Save Windows TWGCB result"
+  copy:
+    content: "{{ twgcb_result | to_nice_json }}"
+    dest: "/opt/inspection/data/reports/twgcb_{{ inventory_hostname }}.json"
+  delegate_to: localhost

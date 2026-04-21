@@ -1,0 +1,70 @@
+---
+# Linux 初始化工具 Playbook
+# 支援: --auto / --check / --items A1,B3 / --rollback list|restore
+- name: Linux System Init
+  hosts: "{{ target_hosts | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    script_src: "{{ inspection_home | default('/opt/inspection') }}/scripts/sysexpert.sh"
+    reports_dir: "{{ inspection_home | default('/opt/inspection') }}/data/linux_init_reports"
+    run_mode: "{{ mode | default('--check') }}"
+    run_items: "{{ items | default('') }}"
+    # B 類參數（環境變數傳遞）
+    param_tmout: "{{ sysexpert_tmout | default('600') }}"
+    param_ulimit: "{{ sysexpert_ulimit | default('65535') }}"
+    param_tcp_fin: "{{ sysexpert_tcp_fin | default('30') }}"
+    param_histsize: "{{ sysexpert_histsize | default('10000') }}"
+    param_tmp_days: "{{ sysexpert_tmp_days | default('7') }}"
+    param_motd: "{{ sysexpert_motd | default('') }}"
+    param_disable_svcs: "{{ sysexpert_disable_svcs | default('avahi-daemon cups bluetooth') }}"
+    param_audit_path: "{{ sysexpert_audit_path | default('/etc/shadow') }}"
+    param_authpriv_log: "{{ sysexpert_authpriv_log | default('/var/log/secure') }}"
+
+  tasks:
+    - name: 建立本機報告目錄
+      file:
+        path: "{{ reports_dir }}"
+        state: directory
+        mode: '0755'
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: 複製初始化腳本到遠端主機
+      copy:
+        src: "{{ script_src }}"
+        dest: /tmp/sysexpert.sh
+        mode: '0755'
+
+    - name: 執行初始化腳本
+      shell: >
+        {% if run_items %}
+        bash /tmp/sysexpert.sh --items {{ run_items }}
+        {% else %}
+        bash /tmp/sysexpert.sh {{ run_mode }}
+        {% endif %}
+      environment: "{{ sysexpert_env | default({}) }}"
+      register: init_result
+      timeout: 300
+
+    - name: 取得報告檔路徑
+      shell: "ls -t /tmp/Init_Report_*.log 2>/dev/null | head -1"
+      register: report_file
+      changed_when: false
+
+    - name: 取回報告
+      fetch:
+        src: "{{ report_file.stdout }}"
+        dest: "{{ reports_dir }}/"
+        flat: true
+      when: report_file.stdout | length > 0
+
+    - name: 清理遠端暫存
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/sysexpert.sh
+        - "{{ report_file.stdout | default('') }}"
+      when: report_file.stdout is defined and report_file.stdout | length > 0

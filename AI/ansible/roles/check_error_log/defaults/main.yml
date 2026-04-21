@@ -1,0 +1,4 @@
+# check_error_log defaults v1.0
+error_log_max_entries_default: 50
+error_log_hours_default: 24
+inspection_home: /opt/inspection

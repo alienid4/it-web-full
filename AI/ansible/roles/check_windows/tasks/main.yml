@@ -1,0 +1,58 @@
+# check_windows/tasks/main.yml - via SSH EncodedCommand
+- name: Windows checks
+  when: ansible_os_family is defined and ansible_os_family == "Windows"
+  block:
+    - name: Get Windows Updates
+      raw: "powershell -EncodedCommand dAByAHkAewAkAHUAPQBHAGUAdAAtAEgAbwB0AEYAaQB4AHwAVwBoAGUAcgBlAC0ATwBiAGoAZQBjAHQAewAkAF8ALgBJAG4AcwB0AGEAbABsAGUAZABPAG4AIAAtAGcAdAAgACgARwBlAHQALQBEAGEAdABlACkALgBBAGQAZABEAGEAeQBzACgALQAzADAAKQB9AHwAUwBvAHIAdAAtAE8AYgBqAGUAYwB0ACAASQBuAHMAdABhAGwAbABlAGQATwBuACAALQBEAGUAcwBjADsAJAByAD0AQAAoACkAOwBmAG8AcgBlAGEAYwBoACgAJABoACAAaQBuACAAKAAkAHUAfABTAGUAbABlAGMAdAAtAE8AYgBqAGUAYwB0ACAALQBGAGkAcgBzAHQAIAAxADAAKQApAHsAJAByACsAPQBAAHsAaQBkAD0AJABoAC4ASABvAHQARgBpAHgASQBEADsAZABlAHMAYwA9ACQAaAAuAEQAZQBzAGMAcgBpAHAAdABpAG8AbgA7AGQAYQB0AGUAPQAkAGgALgBJAG4AcwB0AGEAbABsAGUAZABPAG4ALgBUAG8AUwB0AHIAaQBuAGcAKAAnAHkAeQB5AHkALQBNAE0ALQBkAGQAJwApAH0AfQA7AEAAewBjAG8AdQBuAHQAPQAkAHUALgBDAG8AdQBuAHQAOwB1AHAAZABhAHQAZQBzAD0AJAByAH0AfABDAG8AbgB2AGUAcgB0AFQAbwAtAEoAcwBvAG4AIAAtAEQAZQBwAHQAaAAgADMAfQBjAGEAdABjAGgAewBAAHsAYwBvAHUAbgB0AD0AMAA7AHUAcABkAGEAdABlAHMAPQBAACgAKQB9AHwAQwBvAG4AdgBlAHIAdABUAG8ALQBKAHMAbwBuAH0A"
+      register: w_upd_raw
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Get IIS
+      raw: "powershell -EncodedCommand JABpAGkAcwA9AEcAZQB0AC0AUwBlAHIAdgBpAGMAZQAgAFcAMwBTAFYAQwAgAC0ARQBBACAAUwBpAGwAZQBuAHQAbAB5AEMAbwBuAHQAaQBuAHUAZQA7AGkAZgAoACQAaQBpAHMAKQB7AEAAewBpAG4AcwB0AGEAbABsAGUAZAA9ACQAdAByAHUAZQA7AHMAdABhAHQAdQBzAD0AJABpAGkAcwAuAFMAdABhAHQAdQBzAC4AVABvAFMAdAByAGkAbgBnACgAKQA7AHMAaQB0AGUAcwA9AEAAKAApAH0AfABDAG8AbgB2AGUAcgB0AFQAbwAtAEoAcwBvAG4AfQBlAGwAcwBlAHsAQAB7AGkAbgBzAHQAYQBsAGwAZQBkAD0AJABmAGEAbABzAGUAOwBzAHQAYQB0AHUAcwA9ACcATgBvAHQASQBuAHMAdABhAGwAbABlAGQAJwA7AHMAaQB0AGUAcwA9AEAAKAApAH0AfABDAG8AbgB2AGUAcgB0AFQAbwAtAEoAcwBvAG4AfQA="
+      register: w_iis_raw
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Get Firewall
+      raw: "powershell -EncodedCommand JABmAHcAPQBAACgAKQA7AGYAbwByAGUAYQBjAGgAKAAkAHAAIABpAG4AIAAoAEcAZQB0AC0ATgBlAHQARgBpAHIAZQB3AGEAbABsAFAAcgBvAGYAaQBsAGUAKQApAHsAJABmAHcAKwA9AEAAewBuAGEAbQBlAD0AJABwAC4ATgBhAG0AZQA7AGUAbgBhAGIAbABlAGQAPQBbAGIAbwBvAGwAXQAkAHAALgBFAG4AYQBiAGwAZQBkAH0AfQA7ACQAZgB3AHwAQwBvAG4AdgBlAHIAdABUAG8ALQBKAHMAbwBuAA=="
+      register: w_fw_raw
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Get Defender
+      raw: "powershell -EncodedCommand dAByAHkAewAkAGQAPQBHAGUAdAAtAE0AcABDAG8AbQBwAHUAdABlAHIAUwB0AGEAdAB1AHMAOwBAAHsAZQBuAGEAYgBsAGUAZAA9AFsAYgBvAG8AbABdACQAZAAuAEEAbgB0AGkAdgBpAHIAdQBzAEUAbgBhAGIAbABlAGQAOwByAGUAYQBsAHQAaQBtAGUAPQBbAGIAbwBvAGwAXQAkAGQALgBSAGUAYQBsAFQAaQBtAGUAUAByAG8AdABlAGMAdABpAG8AbgBFAG4AYQBiAGwAZQBkADsAcwBpAGcAXwBkAGEAdABlAD0AJABkAC4AQQBuAHQAaQB2AGkAcgB1AHMAUwBpAGcAbgBhAHQAdQByAGUATABhAHMAdABVAHAAZABhAHQAZQBkAC4AVABvAFMAdAByAGkAbgBnACgAJwB5AHkAeQB5AC0ATQBNAC0AZABkACAASABIADoAbQBtACcAKQA7AHMAaQBnAF8AYQBnAGUAPQBbAG0AYQB0AGgAXQA6ADoAUgBvAHUAbgBkACgAKAAoAEcAZQB0AC0ARABhAHQAZQApAC0AJABkAC4AQQBuAHQAaQB2AGkAcgB1AHMAUwBpAGcAbgBhAHQAdQByAGUATABhAHMAdABVAHAAZABhAHQAZQBkACkALgBUAG8AdABhAGwARABhAHkAcwAsADAAKQA7AHMAYwBhAG4AXwBkAGEAdABlAD0AJABkAC4AUQB1AGkAYwBrAFMAYwBhAG4ARQBuAGQAVABpAG0AZQAuAFQAbwBTAHQAcgBpAG4AZwAoACcAeQB5AHkAeQAtAE0ATQAtAGQAZAAgAEgASAA6AG0AbQAnACkAOwB0AGgAcgBlAGEAdABzAD0AJABkAC4AVABoAHIAZQBhAHQARABlAHQAZQBjAHQAZQBkAH0AfABDAG8AbgB2AGUAcgB0AFQAbwAtAEoAcwBvAG4AfQBjAGEAdABjAGgAewBAAHsAZQBuAGEAYgBsAGUAZAA9ACQAZgBhAGwAcwBlADsAcgBlAGEAbAB0AGkAbQBlAD0AJABmAGEAbABzAGUAOwBzAGkAZwBfAGQAYQB0AGUAPQAnAE4ALwBBACcAOwBzAGkAZwBfAGEAZwBlAD0AOQA5ADkAOwBzAGMAYQBuAF8AZABhAHQAZQA9ACcATgAvAEEAJwA7AHQAaAByAGUAYQB0AHMAPQAwAH0AfABDAG8AbgB2AGUAcgB0AFQAbwAtAEoAcwBvAG4AfQA="
+      register: w_def_raw
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Parse all
+      set_fact:
+        _wu: "{{ (w_upd_raw.stdout | trim | from_json) if w_upd_raw is succeeded and w_upd_raw.stdout | trim != '' and (w_upd_raw.stdout | trim)[0] == '{' else {'count':0,'updates':[]} }}"
+        _wi: "{{ (w_iis_raw.stdout | trim | from_json) if w_iis_raw is succeeded and w_iis_raw.stdout | trim != '' and (w_iis_raw.stdout | trim)[0] == '{' else {'installed':false} }}"
+        _wf_raw: "{{ (w_fw_raw.stdout | trim | from_json) if w_fw_raw is succeeded and w_fw_raw.stdout | trim != '' else [] }}"
+        _wd: "{{ (w_def_raw.stdout | trim | from_json) if w_def_raw is succeeded and w_def_raw.stdout | trim != '' and (w_def_raw.stdout | trim)[0] == '{' else {'enabled':false,'realtime':false,'sig_age':999} }}"
+
+    - name: Normalize firewall
+      set_fact:
+        _wf: "{{ [_wf_raw] if _wf_raw is mapping else _wf_raw | default([]) }}"
+
+    - name: Set windows_result
+      set_fact:
+        windows_result:
+          updates: {"count": "{{ _wu.count | default(0) }}", "recent": "{{ _wu.updates | default([]) }}"}
+          iis: {"installed": "{{ _wi.installed | default(false) }}", "status": "{{ _wi.status | default('N/A') }}", "sites": "{{ _wi.sites | default([]) }}"}
+          firewall: "{{ _wf }}"
+          defender:
+            enabled: "{{ _wd.enabled | default(false) }}"
+            realtime: "{{ _wd.realtime | default(false) }}"
+            signature_date: "{{ _wd.sig_date | default('N/A') }}"
+            signature_age_days: "{{ _wd.sig_age | default(999) }}"
+            last_scan: "{{ _wd.scan_date | default('N/A') }}"
+            threats_detected: "{{ _wd.threats | default(0) }}"
+          status: "{{ 'warn' if ((_wd.sig_age | default(999) | int) > 7) or (not (_wd.realtime | default(false) | bool)) else 'ok' }}"
+
+- name: Non-Windows default
+  set_fact:
+    windows_result: {"updates":{"count":0,"recent":[]},"iis":{"installed":false},"firewall":[],"defender":{"enabled":false},"status":"ok"}
+  when: ansible_os_family is not defined or ansible_os_family != "Windows"

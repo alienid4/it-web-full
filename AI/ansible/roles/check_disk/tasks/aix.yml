@@ -1,0 +1,36 @@
+---
+- name:  AIX  (df -g)
+  shell: "df -g 2>/dev/null | tail -n +2"
+  register: disk_raw
+  changed_when: false
+
+- name: 
+  set_fact:
+    disk_items: >-
+      {% set items = [] %}
+      {% for line in disk_raw.stdout_lines %}
+        {% set cols = line.split() %}
+        {% if cols | length >= 7 %}
+          {% set fs = cols[0] %}
+          {% set pct_str = cols[3] | regex_replace('%','') %}
+          {% set mount = cols[6] %}
+          {% if fs not in disk_exclude %}
+            {% set _ = items.append({'fs': fs, 'mount': mount, 'pct': pct_str | int}) %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+      {{ items }}
+
+- name: 
+  set_fact:
+    disk_result:
+      status: >-
+        {{ 'error' if disk_items | selectattr('pct', 'ge', disk_error_threshold | int) | list | length > 0
+           else 'warn' if disk_items | selectattr('pct', 'ge', disk_warn_threshold | int) | list | length > 0
+           else 'ok' }}
+      filesystems: "{{ disk_items }}"
+      error_fs: "{{ disk_items | selectattr('pct', 'ge', disk_error_threshold | int) | list }}"
+      warn_fs: >-
+        {{ disk_items | selectattr('pct', 'ge', disk_warn_threshold | int)
+                      | rejectattr('pct', 'ge', disk_error_threshold | int) | list }}
+      os: "AIX"

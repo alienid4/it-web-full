@@ -1,0 +1,3 @@
+# check_windows/defaults/main.yml
+defender_sig_warn_days: 7
+inspection_home: /opt/inspection

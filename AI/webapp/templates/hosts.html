@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}主機管理 - IT 每日巡檢系統{% endblock %}
+{% block content %}
+<h2 style="margin-bottom:20px;font-size:20px;">主機管理</h2>
+<div class="card" style="margin-bottom:16px;">
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <div class="form-group" style="margin:0">
+      <label>OS 類型</label>
+      <select id="filter-os" onchange="loadHosts()"><option value="">全部</option><option value="rocky">Rocky</option><option value="debian">Debian</option><option value="rhel">RHEL</option></select>
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>狀態</label>
+      <select id="filter-status" onchange="loadHosts()"><option value="">全部</option><option value="使用中">使用中</option><option value="停用">停用</option></select>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>主機名稱</th><th>IP</th><th>OS</th><th>狀態</th><th>環境</th><th>群組</th><th>保管者</th><th>操作</th></tr></thead>
+      <tbody id="hosts-table"><tr><td colspan="8" class="no-data">載入中...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal-overlay" id="group-modal">
+  <div class="modal">
+    <div class="modal-title">設定主機群組</div>
+    <div class="form-group">
+      <label>主機</label>
+      <input type="text" id="modal-hostname" readonly>
+    </div>
+    <div class="form-group">
+      <label>群組名稱</label>
+      <input type="text" id="modal-group" placeholder="輸入群組名稱">
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="closeModal()" style="background:var(--c4)">取消</button>
+      <button class="btn btn-primary" onclick="saveGroup()">儲存</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function loadHosts(){
+  const os = document.getElementById("filter-os").value;
+  const status = document.getElementById("filter-status").value;
+  let url = "/api/hosts?per_page=200";
+  if(os) url += "&os_group="+os;
+  if(status) url += "&status="+encodeURIComponent(status);
+  fetch(url).then(r=>r.json()).then(res => {
+    const tbody = document.getElementById("hosts-table");
+    const data = res.data || [];
+    if(!data.length){
+      tbody.innerHTML = '<tr><td colspan="8" class="no-data">無主機資料</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(h => {
+      return '<tr><td><strong>'+h.hostname+'</strong></td><td>'+h.ip+'</td><td>'+h.os+'</td><td>'+h.status+'</td><td>'+(h.environment||"-")+'</td><td>'+(h.group||"-")+'</td><td>'+(h.custodian||h.custodian_ad||"-")+'</td><td><button class="btn btn-sm btn-primary" onclick="openGroupModal(\''+h.hostname+'\',\''+(h.group||"")+'\')">群組</button></td></tr>';
+    }).join("");
+  });
+}
+function openGroupModal(hostname, group){
+  document.getElementById("modal-hostname").value = hostname;
+  document.getElementById("modal-group").value = group;
+  document.getElementById("group-modal").classList.add("active");
+}
+function closeModal(){
+  document.getElementById("group-modal").classList.remove("active");
+}
+function saveGroup(){
+  const hostname = document.getElementById("modal-hostname").value;
+  const group = document.getElementById("modal-group").value;
+  fetch("/api/hosts/"+hostname+"/group", {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify({group:group})})
+    .then(r=>r.json()).then(() => { closeModal(); loadHosts(); });
+}
+document.addEventListener("DOMContentLoaded", loadHosts);
+</script>
+{% endblock %}

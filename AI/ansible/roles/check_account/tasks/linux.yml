@@ -1,0 +1,44 @@
+---
+- name:  (UID >= 1000)
+  shell: "awk -F: '$3>=1000 && $3<65534 {print $1}' /etc/passwd | sort"
+  register: current_accounts_raw
+  changed_when: false
+
+- name: 
+  set_fact:
+    current_accounts: "{{ current_accounts_raw.stdout_lines | sort }}"
+
+- name: 
+  file:
+    path: "{{ account_snapshot_dir }}"
+    state: directory
+    mode: '0750'
+  delegate_to: localhost
+
+- name: 
+  set_fact:
+    prev_accounts: >-
+      {{ (lookup('file', account_snapshot_dir ~ '/' ~ inventory_hostname ~ '_accounts.json',
+          errors='ignore') or '[]') | from_json }}
+  delegate_to: localhost
+
+- name: 
+  copy:
+    content: "{{ current_accounts | to_nice_json }}"
+    dest: "{{ account_snapshot_dir }}/{{ inventory_hostname }}_accounts.json"
+  delegate_to: localhost
+
+- name: 
+  set_fact:
+    account_result:
+      status: >-
+        {{ 'warn' if (current_accounts | difference(prev_accounts) | length > 0)
+                  or (prev_accounts | difference(current_accounts) | length > 0)
+           else 'ok' }}
+      total_accounts: "{{ current_accounts | length }}"
+      accounts_added:   "{{ current_accounts | difference(prev_accounts) | list }}"
+      accounts_removed: "{{ prev_accounts | difference(current_accounts) | list }}"
+      note: >-
+        {{ ':' ~ (current_accounts | difference(prev_accounts) | join(','))
+           if current_accounts | difference(prev_accounts) | length > 0
+           else '' }}

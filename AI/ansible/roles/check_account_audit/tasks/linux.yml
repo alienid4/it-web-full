@@ -1,0 +1,73 @@
+# check_account_audit/tasks/linux.yml
+# 採集所有非內建帳號的密碼/登入資訊
+
+- name: Linux - Get account audit data
+  shell: |
+    TODAY=$(date +%s)
+    echo "["
+    FIRST=1
+    while IFS=: read -r user _ uid _ _ _ _; do
+      [ "$uid" -lt {{ audit_min_uid }} ] 2>/dev/null && continue
+      [ "$user" = "nobody" ] && continue
+      [ "$user" = "nfsnobody" ] && continue
+
+      # chage info
+      CHAGE=$(chage -l "$user" 2>/dev/null)
+      PW_LAST=$(echo "$CHAGE" | grep "Last password change" | cut -d: -f2- | xargs)
+      PW_EXPIRE=$(echo "$CHAGE" | grep "Password expires" | cut -d: -f2- | xargs)
+      PW_MAX=$(echo "$CHAGE" | grep "Maximum number" | cut -d: -f2- | xargs)
+      ACCT_EXPIRE=$(echo "$CHAGE" | grep "Account expires" | cut -d: -f2- | xargs)
+
+      # lastlog
+      LASTLOG=$(lastlog -u "$user" 2>/dev/null | tail -1)
+      LAST_LOGIN=$(echo "$LASTLOG" | awk '{if(NF>3) print $4,$5,$6,$7,$9; else print "Never"}')
+      if echo "$LAST_LOGIN" | grep -q "Never"; then
+        LAST_LOGIN="Never"
+        LOGIN_DAYS=9999
+      else
+        LOGIN_TS=$(date -d "$LAST_LOGIN" +%s 2>/dev/null || echo 0)
+        if [ "$LOGIN_TS" -gt 0 ]; then
+          LOGIN_DAYS=$(( (TODAY - LOGIN_TS) / 86400 ))
+        else
+          LOGIN_DAYS=9999
+        fi
+      fi
+
+      # password age
+      if echo "$PW_LAST" | grep -qi "never\|must"; then
+        PW_DAYS=9999
+      else
+        PW_TS=$(date -d "$PW_LAST" +%s 2>/dev/null || echo 0)
+        if [ "$PW_TS" -gt 0 ]; then
+          PW_DAYS=$(( (TODAY - PW_TS) / 86400 ))
+        else
+          PW_DAYS=9999
+        fi
+      fi
+
+      # password expired?
+      PW_EXPIRED="false"
+      if echo "$PW_EXPIRE" | grep -qi "never\|password must"; then
+        PW_EXPIRED="false"
+      else
+        EXP_TS=$(date -d "$PW_EXPIRE" +%s 2>/dev/null || echo 0)
+        [ "$EXP_TS" -gt 0 ] && [ "$EXP_TS" -lt "$TODAY" ] && PW_EXPIRED="true"
+      fi
+
+      # enabled?
+      LOCKED=$(passwd -S "$user" 2>/dev/null | awk '{print $2}')
+      ENABLED="true"
+      [ "$LOCKED" = "L" ] || [ "$LOCKED" = "LK" ] && ENABLED="false"
+
+      [ $FIRST -eq 1 ] && FIRST=0 || echo ","
+      cat <<JSONEOF
+      {"user":"$user","uid":$uid,"enabled":$ENABLED,"pw_last_change":"$PW_LAST","pw_expires":"$PW_EXPIRE","pw_max_days":"$PW_MAX","acct_expires":"$ACCT_EXPIRE","last_login":"$LAST_LOGIN","pw_age_days":$PW_DAYS,"login_age_days":$LOGIN_DAYS,"pw_expired":$PW_EXPIRED,"locked":"$LOCKED"}
+    JSONEOF
+    done < /etc/passwd
+    echo "]"
+  register: linux_audit_raw
+  changed_when: false
+
+- name: Linux - Parse audit data
+  set_fact:
+    account_audit_result: "{{ linux_audit_raw.stdout | from_json | default([]) }}"

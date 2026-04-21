@@ -1,0 +1,16 @@
+---
+# TWGCB 合規掃描 Playbook (Linux + Windows)
+
+- name: TWGCB Compliance Scan - Linux
+  hosts: all:!windows
+  gather_facts: true
+  become: no
+  roles:
+    - check_twgcb
+
+- name: TWGCB Compliance Scan - Windows
+  hosts: windows
+  gather_facts: false
+  become: no
+  roles:
+    - check_twgcb_win

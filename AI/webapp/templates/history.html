@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}歷史查詢 - IT 每日巡檢系統{% endblock %}
+{% block content %}
+<h2 style="margin-bottom:20px;font-size:20px;">歷史報告查詢</h2>
+<div class="card" style="margin-bottom:16px;">
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+    <div class="form-group" style="margin:0">
+      <label>主機</label>
+      <select id="hist-host" style="min-width:180px"><option value="">載入中...</option></select>
+    </div>
+    <div class="form-group" style="margin:0">
+      <label>天數</label>
+      <select id="hist-days"><option value="7">7天</option><option value="14">14天</option><option value="30">30天</option></select>
+    </div>
+    <button class="btn btn-primary" onclick="loadHistory()" style="margin-top:18px">查詢</button>
+  </div>
+</div>
+<div class="card">
+  <div class="card-title">歷史趨勢</div>
+  <div class="chart-container"><canvas id="historyChart"></canvas></div>
+</div>
+<div class="card">
+  <div class="card-title">歷史記錄</div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>日期</th><th>時間</th><th>狀態</th><th>CPU%</th><th>磁碟最高%</th><th>錯誤日誌</th></tr></thead>
+      <tbody id="hist-table"><tr><td colspan="6" class="no-data">請選擇主機後查詢</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let histChart = null;
+document.addEventListener("DOMContentLoaded", () => {
+  fetch("/api/hosts").then(r=>r.json()).then(res => {
+    const sel = document.getElementById("hist-host");
+    sel.innerHTML = (res.data||[]).map(h => '<option value="'+h.hostname+'">'+h.hostname+'</option>').join("");
+  });
+});
+function loadHistory(){
+  const hostname = document.getElementById("hist-host").value;
+  const days = document.getElementById("hist-days").value;
+  if(!hostname) return;
+  fetch("/api/inspections/"+hostname+"/history?days="+days).then(r=>r.json()).then(res => {
+    const data = res.data || [];
+    const tbody = document.getElementById("hist-table");
+    if(!data.length){
+      tbody.innerHTML = '<tr><td colspan="6" class="no-data">無歷史資料</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(d => {
+      const s = (d.overall_status||"ok").trim();
+      const cpu = d.cpu || (d.results&&d.results.cpu) || {};
+      const disk = d.disk || (d.results&&d.results.disk) || {};
+      const elog = d.error_log || (d.results&&d.results.error_log) || {};
+      const maxDisk = (disk.partitions||[]).reduce((m,p)=>Math.max(m,parseInt(p.percent)||0),0);
+      return '<tr><td>'+d.run_date+'</td><td>'+d.run_time+'</td><td><span class="badge badge-'+s+'">'+s+'</span></td><td>'+(cpu.cpu_percent||cpu.percent||"-")+'</td><td>'+maxDisk+'</td><td>'+(elog.error_count||elog.count||0)+'</td></tr>';
+    }).join("");
+    // Chart
+    if(histChart) histChart.destroy();
+    const ctx = document.getElementById("historyChart").getContext("2d");
+    histChart = new Chart(ctx, {
+      type:"line",
+      data:{
+        labels: data.map(d=>d.run_date),
+        datasets:[
+          {label:"CPU%", data:data.map(d=>{const c=d.cpu||(d.results&&d.results.cpu)||{};return parseInt(c.cpu_percent||c.percent)||0;}), borderColor:"#4AB234", tension:0.3},
+          {label:"磁碟最高%", data:data.map(d=>{const dk=d.disk||(d.results&&d.results.disk)||{};return (dk.partitions||[]).reduce((m,p)=>Math.max(m,parseInt(p.percent)||0),0);}), borderColor:"#E87C07", tension:0.3},
+        ]
+      },
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"top"}}}
+    });
+  });
+}
+</script>
+{% endblock %}

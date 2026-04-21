@@ -1,0 +1,29 @@
+# check_snmp/defaults/main.yml
+# 網路設備 SNMP 監控預設值
+
+snmp_version: "2c"
+snmp_community: "public"
+snmp_timeout: 10
+
+# 閾值
+snmp_cpu_warn: 80
+snmp_cpu_crit: 95
+snmp_mem_warn: 80
+snmp_mem_crit: 95
+snmp_bandwidth_warn: 80
+snmp_bandwidth_crit: 95
+snmp_error_threshold: 100
+
+# 標準 OIDs
+oid_sys_descr: "1.3.6.1.2.1.1.1.0"
+oid_sys_uptime: "1.3.6.1.2.1.1.3.0"
+oid_sys_name: "1.3.6.1.2.1.1.5.0"
+oid_if_descr: "1.3.6.1.2.1.2.2.1.2"
+oid_if_oper_status: "1.3.6.1.2.1.2.2.1.8"
+oid_if_in_octets: "1.3.6.1.2.1.2.2.1.10"
+oid_if_out_octets: "1.3.6.1.2.1.2.2.1.16"
+oid_if_in_errors: "1.3.6.1.2.1.2.2.1.14"
+oid_if_out_errors: "1.3.6.1.2.1.2.2.1.20"
+oid_if_speed: "1.3.6.1.2.1.2.2.1.5"
+
+inspection_home: /opt/inspection

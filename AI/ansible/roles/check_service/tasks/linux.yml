@@ -1,0 +1,28 @@
+---
+- name: 
+  command: "systemctl is-active {{ item }}"
+  register: svc_check
+  loop: "{{ service_check_list }}"
+  ignore_errors: true
+  changed_when: false
+
+- name: 
+  set_fact:
+    _svc_list: []
+
+- name: 
+  set_fact:
+    _svc_list: >-
+      {{ _svc_list + [{'name': item.item,
+         'state': item.stdout | default('unknown'),
+         'status': 'ok' if item.rc | default(1) == 0 else 'error'}] }}
+  loop: "{{ svc_check.results }}"
+  no_log: true
+
+- name: 
+  set_fact:
+    service_result:
+      status: >-
+        {{ 'error' if _svc_list | selectattr('status', 'eq', 'error') | list | length > 0
+           else 'ok' }}
+      services: "{{ _svc_list }}"

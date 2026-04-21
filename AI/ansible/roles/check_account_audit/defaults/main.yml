@@ -1,0 +1,5 @@
+# check_account_audit/defaults/main.yml
+audit_password_days: 180
+audit_login_days: 180
+audit_min_uid: 500
+inspection_home: /opt/inspection

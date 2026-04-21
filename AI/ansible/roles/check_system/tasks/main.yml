@@ -1,0 +1,34 @@
+# check_system/tasks/main.yml
+- name: Load settings
+  slurp:
+    src: "{{ inspection_home }}/data/settings.json"
+  register: settings_raw
+  delegate_to: localhost
+  ignore_errors: yes
+
+- name: Parse settings
+  set_fact:
+    settings: "{{ settings_raw.content | b64decode | from_json }}"
+  when: settings_raw is succeeded
+  ignore_errors: yes
+
+- name: Set thresholds
+  set_fact:
+    swap_warn: "{{ settings.thresholds.swap_warn | default(swap_warn_default) }}"
+    swap_crit: "{{ settings.thresholds.swap_crit | default(swap_crit_default) }}"
+    io_busy_warn: "{{ settings.io_busy_warn | default(io_busy_warn_default) }}"
+    io_busy_crit: "{{ settings.io_busy_crit | default(io_busy_crit_default) }}"
+    faillogin_threshold: "{{ settings.faillogin_threshold | default(faillogin_threshold_default) }}"
+    faillogin_top_n: "{{ settings.faillogin_top_n | default(faillogin_top_n_default) }}"
+
+- name: Linux system checks
+  include_tasks: linux.yml
+  when: ansible_system == "Linux"
+
+- name: AIX system checks
+  include_tasks: aix.yml
+  when: ansible_system == "AIX"
+
+- name: Windows check_system
+  include_tasks: windows.yml
+  when: ansible_os_family == "Windows"

@@ -1,0 +1,36 @@
+# check_cpu tasks/main.yml
+- name:  settings.json
+  slurp:
+    src: "{{ inspection_home }}/data/settings.json"
+  register: settings_raw
+  delegate_to: localhost
+  ignore_errors: yes
+- name:  settings.json
+  set_fact:
+    settings: "{{ settings_raw.content | b64decode | from_json }}"
+  when: settings_raw is succeeded
+  ignore_errors: yes
+- name: 
+  set_fact:
+    cpu_warn: "{{ settings.thresholds.cpu_warn | default(cpu_warn_default) }}"
+    cpu_crit: "{{ settings.thresholds.cpu_crit | default(cpu_crit_default) }}"
+    mem_warn: "{{ settings.thresholds.mem_warn | default(mem_warn_default) }}"
+    mem_crit: "{{ settings.thresholds.mem_crit | default(mem_crit_default) }}"
+- name:  Linux CPU/Memory 
+  include_tasks: linux.yml
+  when: ansible_system == "Linux"
+- name:  AIX CPU/Memory 
+  include_tasks: aix.yml
+  when: ansible_system == "AIX"
+- name:  OS
+  set_fact:
+    cpu_result:
+      status: "unevaluated"
+      reason: " OS{{ ansible_system }}"
+  when:
+    - ansible_system != "Linux"
+    - ansible_system != "AIX"
+
+- name: Windows check_cpu
+  include_tasks: windows.yml
+  when: ansible_os_family == "Windows"

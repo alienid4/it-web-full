@@ -1,0 +1,198 @@
+# check_system/tasks/linux.yml
+# Swap / IO Busy / Load Average / Uptime / Users / FailLogin
+
+# === 1. Page Space (Swap) ===
+- name: Get swap info
+  shell: "free -m | awk '/Swap/{print $2,$3,$4}'"
+  register: swap_raw
+  changed_when: false
+
+- name: Parse swap
+  set_fact:
+    _swap_total: "{{ swap_raw.stdout.split()[0] | default('0') | int }}"
+    _swap_used: "{{ swap_raw.stdout.split()[1] | default('0') | int }}"
+    _swap_free: "{{ swap_raw.stdout.split()[2] | default('0') | int }}"
+
+- name: Calculate swap percent
+  set_fact:
+    _swap_percent: "{{ ((_swap_used | int) * 100 / (_swap_total | int)) | round(1) if (_swap_total | int) > 0 else 0 }}"
+
+- name: Set swap result
+  set_fact:
+    swap_result:
+      total_mb: "{{ _swap_total }}"
+      used_mb: "{{ _swap_used }}"
+      free_mb: "{{ _swap_free }}"
+      percent: "{{ _swap_percent }}"
+      status: >-
+        {{ 'error' if (_swap_percent | float) >= (swap_crit | float)
+           else 'warn' if (_swap_percent | float) >= (swap_warn | float)
+           else 'ok' }}
+
+# === 2. Disk IO Busy ===
+- name: Get IO stats
+  shell: "iostat -dx 1 2 2>/dev/null | awk 'NR>3 && $1 ~ /^[a-z]/ {print $1, $NF}' | tail -n +$(iostat -dx 1 2 2>/dev/null | awk 'NR>3 && $1 ~ /^[a-z]/' | wc -l | awk '{print $1+1}')"
+  register: io_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: Parse IO busy (fallback if iostat not available)
+  set_fact:
+    io_result:
+      devices: []
+      max_busy: 0
+      status: "ok"
+  when: io_raw is failed or io_raw.stdout == ""
+
+- name: Parse IO busy
+  set_fact:
+    _io_devices: "{{ _io_devices | default([]) + [{'device': item.split()[0], 'busy_percent': item.split()[1] | default('0') | float | round(1)}] }}"
+  loop: "{{ io_raw.stdout_lines }}"
+  when: io_raw is succeeded and io_raw.stdout != "" and item.split() | length >= 2
+
+- name: Set IO result
+  set_fact:
+    io_result:
+      devices: "{{ _io_devices | default([]) }}"
+      max_busy: "{{ (_io_devices | default([]) | map(attribute='busy_percent') | max | default(0)) | round(1) }}"
+      status: >-
+        {{ 'error' if ((_io_devices | default([]) | map(attribute='busy_percent') | max | default(0)) | float) >= (io_busy_crit | float)
+           else 'warn' if ((_io_devices | default([]) | map(attribute='busy_percent') | max | default(0)) | float) >= (io_busy_warn | float)
+           else 'ok' }}
+  when: _io_devices is defined
+
+# === 3. CPU Load Average ===
+- name: Get load average
+  shell: "cat /proc/loadavg | awk '{print $1,$2,$3}'"
+  register: load_raw
+  changed_when: false
+
+- name: Get CPU count
+  shell: "nproc"
+  register: nproc_raw
+  changed_when: false
+
+- name: Set load result
+  set_fact:
+    load_result:
+      load_1: "{{ load_raw.stdout.split()[0] | default('0') }}"
+      load_5: "{{ load_raw.stdout.split()[1] | default('0') }}"
+      load_15: "{{ load_raw.stdout.split()[2] | default('0') }}"
+      cpu_count: "{{ nproc_raw.stdout | default('1') | int }}"
+      status: >-
+        {{ 'error' if ((load_raw.stdout.split()[0] | default('0') | float) / (nproc_raw.stdout | default('1') | int)) >= (load_crit_factor_default | float)
+           else 'warn' if ((load_raw.stdout.split()[0] | default('0') | float) / (nproc_raw.stdout | default('1') | int)) >= (load_warn_factor_default | float)
+           else 'ok' }}
+
+# === 4. Uptime / Boot Time ===
+- name: Get uptime
+  shell: "uptime -s 2>/dev/null || who -b | awk '{print $3,$4}'"
+  register: uptime_raw
+  changed_when: false
+
+- name: Get uptime duration
+  shell: "uptime -p 2>/dev/null || uptime | sed 's/.*up/up/;s/,.*user.*//' "
+  register: uptime_duration_raw
+  changed_when: false
+
+- name: Set uptime result
+  set_fact:
+    uptime_result:
+      boot_time: "{{ uptime_raw.stdout | trim }}"
+      duration: "{{ uptime_duration_raw.stdout | trim }}"
+
+# === 5. Logged-in Users ===
+- name: Get logged-in users
+  shell: "who | wc -l"
+  register: users_count_raw
+  changed_when: false
+
+- name: Get user list
+  shell: "who | awk '{print $1}' | sort -u"
+  register: users_list_raw
+  changed_when: false
+
+- name: Set users result
+  set_fact:
+    users_result:
+      count: "{{ users_count_raw.stdout | trim | int }}"
+      users: "{{ users_list_raw.stdout_lines | default([]) }}"
+
+# === 6. Failed Login ===
+- name: Get failed logins (lastb)
+  shell: "lastb --time-format iso 2>/dev/null | head -500 | awk '$1 != \"\" && $1 != \"btmp\" {print $1}' | sort | uniq -c | sort -rn | head -20"
+  register: faillogin_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: Parse failed logins
+  set_fact:
+    _faillogin_all: "{{ _faillogin_all | default([]) + [{'user': item.split()[1] | default(''), 'count': item.split()[0] | default('0') | int}] }}"
+  loop: "{{ faillogin_raw.stdout_lines | default([]) }}"
+  when: faillogin_raw is succeeded and item.split() | length >= 2
+
+# === 6b. Raw Data (recent 30 entries) ===
+- name: Get recent failed login raw data
+  shell: "lastb --time-format iso 2>/dev/null | head -30 | awk 'NF>=4 && $1 != \"btmp\" {print $1\"|\"$3\"|\"$4\" \"$5\" \"$6}'"
+  register: faillogin_raw_data
+  changed_when: false
+  ignore_errors: yes
+
+- name: Parse raw entries
+  set_fact:
+    _fl_raw_entries: "{{ _fl_raw_entries | default([]) + [{'user': item.split('|')[0] | default(''), 'source': item.split('|')[1] | default(''), 'time': item.split('|')[2] | default('')}] }}"
+  loop: "{{ faillogin_raw_data.stdout_lines | default([]) }}"
+  when: faillogin_raw_data is succeeded and item | length > 2
+
+# === 6c. Check account lock status ===
+- name: Build offender user list
+  set_fact:
+    _fl_offender_users: "{{ _faillogin_all | default([]) | selectattr('count', 'ge', faillogin_threshold | int) | map(attribute='user') | list }}"
+
+- name: Check account lock status for each offender
+  shell: "passwd -S {{ item }} 2>/dev/null | awk '{print $2}' || echo 'UNKNOWN'"
+  register: _lock_check_results
+  loop: "{{ _fl_offender_users | default([]) }}"
+  changed_when: false
+  ignore_errors: yes
+  when: _fl_offender_users | default([]) | length > 0
+
+- name: Build locked accounts list
+  set_fact:
+    _locked_accounts: "{{ _locked_accounts | default([]) + [{'user': item.item, 'status': item.stdout | default('UNKNOWN') | trim, 'locked': (item.stdout | default('') | trim) in ['L', 'LK']}] }}"
+  loop: "{{ _lock_check_results.results | default([]) }}"
+  when: _lock_check_results is defined and _lock_check_results.results is defined
+
+# === 6d. Final faillogin result ===
+- name: Set faillogin result with raw data
+  set_fact:
+    faillogin_result:
+      total_failures: "{{ _faillogin_all | default([]) | map(attribute='count') | sum | default(0) }}"
+      top_offenders: "{{ (_faillogin_all | default([]) | selectattr('count', 'ge', faillogin_threshold | int) | list)[:faillogin_top_n | int] }}"
+      raw_entries: "{{ _fl_raw_entries | default([]) }}"
+      locked_accounts: "{{ _locked_accounts | default([]) }}"
+      status: >-
+        {{ 'warn' if (_faillogin_all | default([]) | selectattr('count', 'ge', faillogin_threshold | int) | list | length) > 0
+           else 'ok' }}
+
+# === Combine system_result ===
+- name: Set combined system_result
+  set_fact:
+    system_result:
+      swap: "{{ swap_result | default({}) }}"
+      io: "{{ io_result | default({'devices':[],'max_busy':0,'status':'ok'}) }}"
+      load: "{{ load_result | default({}) }}"
+      uptime: "{{ uptime_result | default({}) }}"
+      users: "{{ users_result | default({}) }}"
+      faillogin: "{{ faillogin_result | default({}) }}"
+      status: >-
+        {{ 'error' if (
+             (swap_result | default({'status':'ok'})).status == 'error' or
+             (io_result | default({'status':'ok'})).status == 'error' or
+             (load_result | default({'status':'ok'})).status == 'error'
+           ) else 'warn' if (
+             (swap_result | default({'status':'ok'})).status == 'warn' or
+             (io_result | default({'status':'ok'})).status == 'warn' or
+             (load_result | default({'status':'ok'})).status == 'warn' or
+             (faillogin_result | default({'status':'ok'})).status == 'warn'
+           ) else 'ok' }}

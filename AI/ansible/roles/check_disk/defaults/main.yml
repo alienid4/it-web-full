@@ -1,0 +1,28 @@
+# =========================================================
+# roles/check_disk/defaults/main.yml
+# 
+# data/settings.json > 
+# =========================================================
+
+# 
+disk_warn_default: 85
+disk_crit_default: 95
+
+# 
+disk_exclude_mounts_default:
+  - /dev
+  - /run
+  - /sys
+  - /proc
+  - /tmp
+
+# v1.3 
+disk_exclude_prefixes_default:
+  - /run/
+  - /dev/
+  - /sys/
+  - /proc/
+
+# 
+inspection_home: /opt/inspection
+report_base: "{{ inspection_home }}/reports"

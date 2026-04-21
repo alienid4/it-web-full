@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block title %}TWGCB 設定管理{% endblock %}
+{% block content %}
+<div style="margin-bottom:12px;">
+  <a href="/twgcb" style="color:var(--g2);text-decoration:none;">&larr; 返回 TWGCB 合規報告</a>
+</div>
+<h1>TWGCB 設定管理</h1>
+
+<!-- Tab -->
+<div class="tab-row">
+  <button class="tab-btn active" onclick="switchTab('checks')">檢查項目設定</button>
+  <button class="tab-btn" onclick="switchTab('report')">報表設定</button>
+</div>
+
+<!-- 檢查項目設定 -->
+<div id="tabChecks" class="card">
+  <p style="color:var(--c3);font-size:13px;margin-bottom:16px;">每項可獨立啟用/停用，調整閾值，或設定例外主機。</p>
+  <table class="settings-table" id="configTable">
+    <thead>
+      <tr>
+        <th style="width:50px;">啟用</th>
+        <th style="width:60px;">編號</th>
+        <th style="width:50px;">等級</th>
+        <th>分類</th>
+        <th>檢查項目</th>
+        <th style="width:120px;">閾值/期望值</th>
+        <th style="width:150px;">例外主機</th>
+        <th style="width:80px;">操作</th>
+      </tr>
+    </thead>
+    <tbody id="configBody"></tbody>
+  </table>
+</div>
+
+<!-- 報表設定 -->
+<div id="tabReport" class="card" style="display:none;">
+  <h3>報表抬頭與簽核設定</h3>
+  <div class="form-grid">
+    <div class="form-group">
+      <label>公司名稱</label>
+      <input type="text" id="rptCompany" class="input-field" value="Example Corp">
+    </div>
+    <div class="form-group">
+      <label>部門</label>
+      <input type="text" id="rptDept" class="input-field" value="">
+    </div>
+    <div class="form-group">
+      <label>承辦人</label>
+      <input type="text" id="rptHandler" class="input-field" value="">
+    </div>
+    <div class="form-group">
+      <label>科長</label>
+      <input type="text" id="rptChief" class="input-field" value="">
+    </div>
+    <div class="form-group">
+      <label>部長</label>
+      <input type="text" id="rptDirector" class="input-field" value="">
+    </div>
+  </div>
+  <button class="btn btn-primary" onclick="saveReportConfig()" style="margin-top:16px;">儲存報表設定</button>
+  <span id="rptMsg" style="margin-left:12px;font-size:13px;"></span>
+</div>
+
+<!-- 編輯 Modal -->
+<div id="editModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeEdit()">
+  <div class="modal-box">
+    <h2 id="editTitle">編輯檢查項</h2>
+    <div class="form-group">
+      <label>閾值/期望值</label>
+      <input type="text" id="editThreshold" class="input-field" style="width:100%;">
+      <small id="editDesc" style="color:var(--c3);"></small>
+    </div>
+    <div class="form-group">
+      <label>修復指令</label>
+      <textarea id="editRemediation" class="input-field" style="width:100%;height:60px;font-family:'JetBrains Mono',monospace;font-size:12px;"></textarea>
+    </div>
+    <div class="form-group">
+      <label>例外主機（逗號分隔）</label>
+      <input type="text" id="editExceptions" class="input-field" style="width:100%;" placeholder="host1,host2">
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="btn btn-primary" onclick="saveEdit()">儲存</button>
+      <button class="btn btn-secondary" onclick="closeEdit()">取消</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.card { background:white; border-radius:12px; padding:24px; box-shadow:0 2px 8px rgba(0,0,0,0.06); margin-bottom:20px; }
+.tab-row { display:flex; gap:0; margin-bottom:0; }
+.tab-btn { padding:10px 24px; border:none; background:#e8e8e8; cursor:pointer; font-size:14px; font-weight:600; color:var(--c2); }
+.tab-btn:first-child { border-radius:8px 0 0 0; }
+.tab-btn:last-child { border-radius:0 8px 0 0; }
+.tab-btn.active { background:white; color:var(--g2); border-bottom:3px solid var(--g1); }
+.settings-table { width:100%; border-collapse:collapse; }
+.settings-table th { padding:10px 12px; text-align:left; font-size:12px; color:var(--c3); border-bottom:2px solid #e0e0e0; }
+.settings-table td { padding:10px 12px; font-size:13px; border-bottom:1px solid #f0f0f0; vertical-align:middle; }
+.settings-table tr:hover { background:#fafafa; }
+.toggle { position:relative; width:44px; height:24px; display:inline-block; }
+.toggle input { display:none; }
+.toggle-slider { position:absolute; top:0; left:0; right:0; bottom:0; background:#ccc; border-radius:24px; cursor:pointer; transition:.3s; }
+.toggle-slider:before { content:""; position:absolute; height:18px; width:18px; left:3px; bottom:3px; background:white; border-radius:50%; transition:.3s; }
+.toggle input:checked + .toggle-slider { background:var(--g1); }
+.toggle input:checked + .toggle-slider:before { transform:translateX(20px); }
+.badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+.badge-a { background:#E3F2FD; color:#1565C0; }
+.badge-b { background:#FFF8E1; color:#F57F17; }
+.badge-c { background:#FFF3E0; color:#E65100; }
+.badge-d { background:#FFEBEE; color:#B71C1C; }
+.btn { padding:8px 18px; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+.btn-primary { background:var(--g1); color:white; }
+.btn-secondary { background:#e0e0e0; color:#333; }
+.btn-sm { padding:4px 12px; font-size:12px; background:var(--g1); color:white; border:none; border-radius:4px; cursor:pointer; }
+.input-field { padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px; box-sizing:border-box; }
+.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.form-group { margin-bottom:12px; }
+.form-group label { display:block; font-size:13px; font-weight:600; margin-bottom:4px; color:var(--c2); }
+.modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; display:flex; justify-content:center; align-items:center; }
+.modal-box { background:white; border-radius:16px; padding:32px; width:500px; max-width:90%; }
+.exception-tag { display:inline-block; background:#FFF3E0; color:#E65100; padding:1px 6px; border-radius:4px; font-size:11px; margin:1px; }
+</style>
+
+<script>
+let allConfigs = [];
+let editingId = null;
+
+document.addEventListener('DOMContentLoaded', () => { loadConfigs(); loadReportConfig(); });
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach((b,i) => b.classList.toggle('active', (tab==='checks'&&i===0)||(tab==='report'&&i===1)));
+  document.getElementById('tabChecks').style.display = tab==='checks' ? 'block' : 'none';
+  document.getElementById('tabReport').style.display = tab==='report' ? 'block' : 'none';
+}
+
+async function loadConfigs() {
+  const res = await fetch('/api/twgcb/config');
+  const json = await res.json();
+  if (!json.success) return;
+  allConfigs = json.data;
+  renderConfigs();
+}
+
+function renderConfigs() {
+  const tbody = document.getElementById('configBody');
+  tbody.innerHTML = allConfigs.map(c => {
+    const ex = (c.exception_hosts||[]);
+    return `<tr style="${c.enabled?'':'opacity:0.5'}">
+      <td>
+        <label class="toggle">
+          <input type="checkbox" ${c.enabled?'checked':''} onchange="toggleCheck('${c.check_id}',this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+      </td>
+      <td style="font-family:'JetBrains Mono',monospace;">${c.check_id}</td>
+      <td><span class="badge badge-${(c.level||'').toLowerCase()}">${c.level||""}</span></td>
+      <td>${c.category||""}</td>
+      <td><strong>${c.name||c.check_id||""}</strong><br><small style="color:var(--c3);">${c.description||''}</small></td>
+      <td><code style="font-size:12px;background:#f5f5f5;padding:2px 6px;border-radius:4px;">${c.threshold||c.expected||'-'}</code></td>
+      <td>${ex.length > 0 ? ex.map(h=>`<span class="exception-tag">${h}</span>`).join(' ') : '<span style="color:#ccc">無</span>'}</td>
+      <td><button class="btn-sm" onclick="openEdit('${c.check_id}')">編輯</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function toggleCheck(checkId, enabled) {
+  await fetch('/api/twgcb/config/' + checkId, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({enabled})
+  });
+  loadConfigs();
+}
+
+function openEdit(checkId) {
+  const c = allConfigs.find(x => x.check_id === checkId);
+  if (!c) return;
+  editingId = checkId;
+  document.getElementById('editTitle').textContent = `編輯 ${c.check_id} - ${c.name}`;
+  document.getElementById('editThreshold').value = c.threshold || c.expected || '';
+  document.getElementById('editDesc').textContent = c.description || '';
+  document.getElementById('editRemediation').value = c.remediation || '';
+  document.getElementById('editExceptions').value = (c.exception_hosts||[]).join(',');
+  document.getElementById('editModal').style.display = 'flex';
+}
+
+function closeEdit() {
+  document.getElementById('editModal').style.display = 'none';
+  editingId = null;
+}
+
+async function saveEdit() {
+  if (!editingId) return;
+  const threshold = document.getElementById('editThreshold').value.trim();
+  const remediation = document.getElementById('editRemediation').value.trim();
+  const exceptions = document.getElementById('editExceptions').value.trim();
+  const exception_hosts = exceptions ? exceptions.split(',').map(h=>h.trim()).filter(Boolean) : [];
+
+  await fetch('/api/twgcb/config/' + editingId, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({threshold, expected: threshold, remediation, exception_hosts})
+  });
+  closeEdit();
+  loadConfigs();
+}
+
+async function loadReportConfig() {
+  const res = await fetch('/api/twgcb/report-config');
+  const json = await res.json();
+  if (!json.success) return;
+  const d = json.data;
+  document.getElementById('rptCompany').value = d.company_name || '';
+  document.getElementById('rptDept').value = d.department || '';
+  document.getElementById('rptHandler').value = d.handler || '';
+  document.getElementById('rptChief').value = d.section_chief || '';
+  document.getElementById('rptDirector').value = d.director || '';
+}
+
+async function saveReportConfig() {
+  const res = await fetch('/api/twgcb/report-config', {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      company_name: document.getElementById('rptCompany').value,
+      department: document.getElementById('rptDept').value,
+      handler: document.getElementById('rptHandler').value,
+      section_chief: document.getElementById('rptChief').value,
+      director: document.getElementById('rptDirector').value
+    })
+  });
+  const json = await res.json();
+  document.getElementById('rptMsg').textContent = json.success ? '✓ 已儲存' : '✗ 儲存失敗';
+  setTimeout(() => document.getElementById('rptMsg').textContent = '', 3000);
+}
+
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeEdit(); });
+</script>
+{% endblock %}

@@ -1,0 +1,23 @@
+# check_account_audit/tasks/windows.yml
+# Write script to Windows via pipe, then execute
+
+- name: Windows - Write audit script to remote
+  shell: |
+    cat {{ inspection_home }}/ansible/roles/check_account_audit/files/win_audit.ps1 | sshpass -p "{{ ansible_password }}" ssh -o StrictHostKeyChecking=no {{ ansible_user }}@{{ ansible_host }} "powershell -Command \"Set-Content -Path C:\\temp_audit.ps1 -Value (\$input | Out-String)\""
+  delegate_to: localhost
+  changed_when: false
+  ignore_errors: yes
+
+- name: Windows - Execute audit script
+  raw: "powershell -ExecutionPolicy Bypass -File C:\\temp_audit.ps1"
+  register: win_audit_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: Windows - Parse audit data
+  set_fact:
+    _wa_raw: "{{ (win_audit_raw.stdout | trim | from_json) if win_audit_raw is succeeded and win_audit_raw.stdout | trim != '' else [] }}"
+
+- name: Windows - Normalize
+  set_fact:
+    account_audit_result: "{{ [_wa_raw] if _wa_raw is mapping else _wa_raw | default([]) }}"

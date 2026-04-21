@@ -1,0 +1,39 @@
+---
+- name:  (AIX)
+  shell: >
+    perl -e 'use POSIX; my $t=time()-{{ error_log_hours | default(24) }}*3600;
+    print strftime("%m%d%H%M%y", localtime($t));'
+  register: start_time_raw
+  changed_when: false
+  ignore_errors: true
+
+- name:  errpt 
+  shell: "errpt -s {{ start_time_raw.stdout | trim }} 2>/dev/null | tail -50"
+  register: errpt_raw
+  changed_when: false
+  ignore_errors: true
+
+- name:  PERM 
+  shell: "errpt -s {{ start_time_raw.stdout | trim }} 2>/dev/null | awk 'NR>1 && $2=="PERM"' | wc -l | tr -d ' '"
+  register: perm_count
+  changed_when: false
+  ignore_errors: true
+
+- name:  TEMP 
+  shell: "errpt -s {{ start_time_raw.stdout | trim }} 2>/dev/null | awk 'NR>1 && $2=="TEMP"' | wc -l | tr -d ' '"
+  register: temp_count
+  changed_when: false
+  ignore_errors: true
+
+- name: 
+  set_fact:
+    error_log_result:
+      status: >-
+        {{ 'error' if (perm_count.stdout | default('0') | trim | int) > 0
+           else 'warn' if (temp_count.stdout | default('0') | trim | int) > 0
+           else 'ok' }}
+      log_file: "errpt"
+      error_count: "{{ perm_count.stdout | default('0') | trim | int }}"
+      warn_count:  "{{ temp_count.stdout | default('0') | trim | int }}"
+      recent_entries: "{{ errpt_raw.stdout_lines | default([]) }}"
+      os: "AIX"

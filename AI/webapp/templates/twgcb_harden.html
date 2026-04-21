@@ -1,0 +1,418 @@
+{% extends "base.html" %}
+{% block title %}{{ hostname }} - 強化管理{% endblock %}
+{% block content %}
+<div style="margin-bottom:12px;">
+  <a href="/twgcb" style="color:var(--g2);text-decoration:none;">&larr; 返回 TWGCB 合規報告</a>
+</div>
+
+<div class="page-header">
+  <div>
+    <h1>{{ hostname }} 強化管理</h1>
+    <div id="hostMeta" style="color:var(--c3);font-size:14px;"></div>
+  </div>
+</div>
+
+<!-- 步驟指示器 -->
+<div class="steps">
+  <div class="step active" id="step1indicator">
+    <div class="step-num">1</div>
+    <div class="step-label">備份</div>
+  </div>
+  <div class="step-line"></div>
+  <div class="step" id="step2indicator">
+    <div class="step-num">2</div>
+    <div class="step-label">強化</div>
+  </div>
+  <div class="step-line"></div>
+  <div class="step" id="step3indicator">
+    <div class="step-num">3</div>
+    <div class="step-label">驗證</div>
+  </div>
+</div>
+
+<!-- 步驟 1: 備份 -->
+<div id="step1" class="card">
+  <h2>步驟 1：備份設定檔</h2>
+  <p style="color:var(--c2);margin-bottom:16px;">強化前必須備份，備份同時存於<strong>目標主機 local</strong> 和 <strong>ansible-host 管理主機</strong>，雙份保險。</p>
+
+  <div class="backup-files">
+    <h4>備份範圍（共 18 個設定檔 + 3 個目錄）：</h4>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--c2);margin:8px 0;">
+      <span>/etc/ssh/sshd_config</span>
+      <span>/etc/login.defs</span>
+      <span>/etc/security/pwquality.conf</span>
+      <span>/etc/pam.d/system-auth</span>
+      <span>/etc/pam.d/password-auth</span>
+      <span>/etc/passwd, shadow, group</span>
+      <span>/etc/sysctl.conf + sysctl.d/</span>
+      <span>/etc/crontab, cron.allow</span>
+      <span>/etc/audit/auditd.conf + rules.d/</span>
+      <span>/etc/issue, issue.net, motd</span>
+      <span>/etc/security/limits.conf + limits.d/</span>
+    </div>
+  </div>
+
+  <div id="backupStatus" style="margin:16px 0;"></div>
+
+  <div style="display:flex;gap:12px;">
+    <button class="btn btn-primary btn-lg" onclick="fullBackup()" id="btnFullBackup">一鍵備份全部設定檔</button>
+    <button class="btn btn-secondary" onclick="listBackups()">查看備份紀錄</button>
+  </div>
+
+  <div id="backupHistory" style="margin-top:16px;display:none;"></div>
+
+  <!-- 備份完成後顯示下一步按鈕 -->
+  <div id="nextStep1" style="display:none;margin-top:20px;text-align:right;">
+    <button class="btn btn-primary btn-lg" onclick="goStep(2)">下一步：開始強化 &rarr;</button>
+  </div>
+</div>
+
+<!-- 步驟 2: 逐項強化 -->
+<div id="step2" class="card" style="display:none;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h2>步驟 2：逐項強化</h2>
+    <button class="btn btn-secondary" onclick="goStep(1)">&larr; 返回備份</button>
+  </div>
+
+  <!-- 進度條 -->
+  <div style="margin:16px 0;">
+    <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+      <span id="progressText">0/0 項</span>
+      <span id="progressRate">0%</span>
+    </div>
+    <div style="height:8px;background:#f0f0f0;border-radius:4px;overflow:hidden;">
+      <div id="progressBar" style="height:100%;background:var(--g1);border-radius:4px;width:0%;transition:width 0.3s;"></div>
+    </div>
+  </div>
+
+  <!-- 檢查項列表 -->
+  <div id="hardenItems"></div>
+
+  <div style="margin-top:20px;text-align:right;">
+    <button class="btn btn-primary btn-lg" onclick="goStep(3)">下一步：驗證結果 &rarr;</button>
+  </div>
+</div>
+
+<!-- 步驟 3: 驗證 -->
+<div id="step3" class="card" style="display:none;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h2>步驟 3：驗證結果</h2>
+    <button class="btn btn-secondary" onclick="goStep(2)">&larr; 返回強化</button>
+  </div>
+  <p style="color:var(--c2);margin-bottom:16px;">重新掃描確認強化結果，如有問題可一鍵還原。</p>
+
+  <div style="display:flex;gap:12px;margin-bottom:20px;">
+    <button class="btn btn-primary" onclick="rescan()">重新掃描</button>
+    <button class="btn btn-danger" onclick="restoreBackup()">一鍵還原到備份點</button>
+  </div>
+
+  <div id="verifyResult"></div>
+</div>
+
+<style>
+.page-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:20px; }
+.card { background:white; border-radius:12px; padding:28px; box-shadow:0 2px 8px rgba(0,0,0,0.06); margin-bottom:20px; }
+.btn { padding:8px 18px; border:none; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600; }
+.btn-lg { padding:12px 28px; font-size:15px; }
+.btn-primary { background:var(--g1); color:white; }
+.btn-primary:hover { background:var(--g2); }
+.btn-primary:disabled { background:#ccc; cursor:not-allowed; }
+.btn-secondary { background:#e0e0e0; color:#333; }
+.btn-danger { background:var(--red); color:white; }
+.btn-danger:hover { background:#C62828; }
+.btn-fix { background:var(--orange); color:white; padding:6px 16px; font-size:13px; border:none; border-radius:6px; cursor:pointer; font-weight:600; }
+.btn-fix:hover { background:#d06c00; }
+.btn-skip { background:#e0e0e0; color:#555; padding:6px 16px; font-size:13px; border:none; border-radius:6px; cursor:pointer; }
+.btn-exception { background:#FFF3E0; color:#E65100; padding:6px 16px; font-size:13px; border:1px solid #FFB74D; border-radius:6px; cursor:pointer; }
+
+/* 步驟指示器 */
+.steps { display:flex; align-items:center; justify-content:center; margin-bottom:24px; }
+.step { display:flex; flex-direction:column; align-items:center; gap:4px; }
+.step-num { width:36px; height:36px; border-radius:50%; background:#e0e0e0; color:#888; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:16px; }
+.step.active .step-num { background:var(--g1); color:white; }
+.step.done .step-num { background:var(--g2); color:white; }
+.step-label { font-size:12px; color:var(--c3); }
+.step.active .step-label { color:var(--g2); font-weight:600; }
+.step-line { width:80px; height:2px; background:#e0e0e0; margin:0 8px; margin-bottom:20px; }
+
+/* 強化項目 */
+.harden-item { border:1px solid #e8e8e8; border-radius:10px; padding:20px; margin-bottom:12px; }
+.harden-item.item-pass { border-left:4px solid var(--g1); background:#FAFFF9; }
+.harden-item.item-fail { border-left:4px solid var(--red); }
+.harden-item.item-skip { border-left:4px solid #ccc; opacity:0.6; }
+.harden-item.item-exception { border-left:4px solid var(--orange); background:#FFFAF5; }
+.harden-item.item-fixed { border-left:4px solid var(--g1); background:#E8F5E9; }
+.item-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.item-id { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--c3); }
+.item-name { font-size:16px; font-weight:700; }
+.item-detail { font-size:13px; color:var(--c2); margin:8px 0; }
+.item-cmd { background:#f8f8f8; padding:8px 12px; border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:12px; margin:8px 0; word-break:break-all; }
+.item-actions { display:flex; gap:8px; margin-top:12px; }
+.item-result { margin-top:8px; padding:8px 12px; border-radius:6px; font-size:13px; }
+.result-ok { background:#E8F5E9; color:#2E7D32; }
+.result-err { background:#FFEBEE; color:#C62828; }
+.spinner-sm { width:16px; height:16px; border:3px solid #ddd; border-top:3px solid var(--g1); border-radius:50%; animation:spin 0.8s linear infinite; display:inline-block; vertical-align:middle; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.light { display:inline-block; width:14px; height:14px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+.light-pass { background:#4CAF50; }
+.light-fail { background:#F44336; }
+.light-skip { background:#ccc; }
+.light-exception { background:#FF9800; }
+</style>
+
+<script>
+const hostname = '{{ hostname }}';
+let hardenData = null;
+let backupDone = false;
+let lastBackupId = null;
+let itemStates = {}; // check_id -> 'pending'|'fixed'|'skipped'|'exception'
+
+document.addEventListener('DOMContentLoaded', loadStatus);
+
+async function loadStatus() {
+  const res = await fetch('/api/harden/status/' + hostname);
+  const json = await res.json();
+  if (!json.success) return;
+  const d = json.data;
+
+  if (d.scan_result) {
+    document.getElementById('hostMeta').textContent =
+      (d.scan_result.os||'') + ' | 檢查項: ' + d.enabled_checks + ' 項';
+  }
+
+  if (d.has_backup && d.last_backup) {
+    backupDone = true;
+    lastBackupId = d.last_backup.timestamp;
+    document.getElementById('backupStatus').innerHTML =
+      '<div class="item-result result-ok">✓ 已有備份：' + d.last_backup.timestamp + '（' + d.last_backup.created_at + '）</div>';
+    document.getElementById('nextStep1').style.display = 'block';
+  }
+
+  loadHardenItems();
+}
+
+async function fullBackup() {
+  const btn = document.getElementById('btnFullBackup');
+  btn.disabled = true;
+  btn.textContent = '備份中...';
+  document.getElementById('backupStatus').innerHTML = '<div class="spinner-sm"></div> 正在備份目標主機設定檔（local + ansible-host 雙份）...';
+
+  try {
+    const res = await fetch('/api/harden/backup/full', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({hostname})
+    });
+    const json = await res.json();
+    if (json.success) {
+      backupDone = true;
+      lastBackupId = json.backup_id;
+      document.getElementById('backupStatus').innerHTML =
+        '<div class="item-result result-ok">✓ ' + json.message + '</div>';
+      document.getElementById('nextStep1').style.display = 'block';
+      document.getElementById('step1indicator').className = 'step done';
+    } else {
+      document.getElementById('backupStatus').innerHTML =
+        '<div class="item-result result-err">✗ ' + (json.error||'備份失敗') + '</div>';
+    }
+  } catch(e) {
+    document.getElementById('backupStatus').innerHTML =
+      '<div class="item-result result-err">✗ ' + e.message + '</div>';
+  }
+  btn.disabled = false;
+  btn.textContent = '一鍵備份全部設定檔';
+}
+
+async function listBackups() {
+  const div = document.getElementById('backupHistory');
+  div.style.display = 'block';
+  const res = await fetch('/api/harden/backups/' + hostname);
+  const json = await res.json();
+  if (!json.success || !json.data.length) {
+    div.innerHTML = '<p style="color:var(--c3);">尚無備份紀錄</p>';
+    return;
+  }
+  let html = '<h4>備份紀錄</h4><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr><th style="padding:6px;text-align:left;border-bottom:1px solid #ddd;">時間</th><th>類型</th><th>local</th><th>ansible-host</th><th>操作</th></tr></thead><tbody>';
+  json.data.forEach(b => {
+    html += '<tr><td style="padding:6px;border-bottom:1px solid #f0f0f0;">' + b.created_at + '</td>';
+    html += '<td style="padding:6px;border-bottom:1px solid #f0f0f0;">' + (b.type==='full'?'全備份':'單項 '+b.check_id) + '</td>';
+    html += '<td style="padding:6px;border-bottom:1px solid #f0f0f0;">' + (b.local_ok!==false?'✓':'✗') + '</td>';
+    html += '<td style="padding:6px;border-bottom:1px solid #f0f0f0;">' + (b.mgmt_ok?'✓':'-') + '</td>';
+    html += '<td style="padding:6px;border-bottom:1px solid #f0f0f0;">' + (b.restored_at ? '已還原 '+b.restored_at : '') + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  div.innerHTML = html;
+}
+
+async function loadHardenItems() {
+  const res = await fetch('/api/twgcb/results/' + hostname);
+  const json = await res.json();
+  if (!json.success) return;
+  hardenData = json.data;
+  renderItems();
+}
+
+function renderItems() {
+  if (!hardenData) return;
+  const checks = hardenData.checks || [];
+  const container = document.getElementById('hardenItems');
+  const done = Object.values(itemStates).filter(s => s!=='pending').length;
+  const total = checks.length;
+
+  document.getElementById('progressText').textContent = done + '/' + total + ' 項';
+  const pct = total > 0 ? Math.round(done/total*100) : 0;
+  document.getElementById('progressRate').textContent = pct + '%';
+  document.getElementById('progressBar').style.width = pct + '%';
+
+  container.innerHTML = checks.map((c, i) => {
+    const state = itemStates[c.id] || (c.status==='PASS' ? 'pass' : 'pending');
+    const isPass = c.status === 'PASS' || state === 'fixed';
+    const cls = state==='fixed' ? 'item-fixed' : state==='skipped' ? 'item-skip' : state==='exception' ? 'item-exception' : isPass ? 'item-pass' : 'item-fail';
+
+    let statusIcon = '';
+    if (isPass || state==='fixed') statusIcon = '<span class="light light-pass"></span>合規';
+    else if (state==='skipped') statusIcon = '<span class="light light-skip"></span>略過';
+    else if (state==='exception') statusIcon = '<span class="light light-exception"></span>例外';
+    else statusIcon = '<span class="light light-fail"></span>不合規';
+
+    let actions = '';
+    if (!isPass && state==='pending') {
+      actions = '<div class="item-actions">' +
+        '<button class="btn-fix" onclick="doRemediate(\'' + c.id + '\',' + i + ')">執行修復</button>' +
+        '<button class="btn-skip" onclick="doSkip(\'' + c.id + '\')">略過</button>' +
+        '<button class="btn-exception" onclick="doException(\'' + c.id + '\')">設為例外</button></div>';
+    }
+
+    return '<div class="harden-item ' + cls + '" id="item-' + c.id + '">' +
+      '<div class="item-header"><div><span class="item-id">' + c.id + ' | ' + c.category + ' | ' + c.level + '級</span><div class="item-name">' + c.name + '</div></div><div>' + statusIcon + '</div></div>' +
+      '<div class="item-detail">期望: <code>' + c.expected + '</code> | 實際: <code style="color:' + (isPass?'var(--g2)':'var(--red)') + '">' + c.actual + '</code></div>' +
+      (!isPass && state==='pending' ? '<div class="item-cmd">修復指令: ' + (c.remediation||'N/A') + '</div>' : '') +
+      actions +
+      '<div id="result-' + c.id + '"></div></div>';
+  }).join('');
+}
+
+async function doRemediate(checkId, idx) {
+  if (!backupDone) { alert('請先執行備份！'); goStep(1); return; }
+
+  const c = hardenData.checks[idx];
+  if (!confirm('確定修復 ' + checkId + '？\\n\\n指令: ' + c.remediation)) return;
+
+  const resultDiv = document.getElementById('result-' + checkId);
+  resultDiv.innerHTML = '<div class="spinner-sm"></div> 備份中...';
+
+  // 1. 單項次備份
+  const filesRes = await fetch('/api/harden/check-files/' + checkId);
+  const filesJson = await filesRes.json();
+  const files = filesJson.data?.files || [];
+
+  if (files.length > 0) {
+    const bkRes = await fetch('/api/harden/backup/item', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({hostname, check_id: checkId, files})
+    });
+    const bkJson = await bkRes.json();
+    if (!bkJson.success) {
+      resultDiv.innerHTML = '<div class="item-result result-err">✗ 單項備份失敗，取消修復</div>';
+      return;
+    }
+  }
+
+  // 2. 執行修復
+  resultDiv.innerHTML = '<div class="spinner-sm"></div> 修復中...';
+  const res = await fetch('/api/twgcb/remediate', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({hostname, check_id: checkId, remediation: c.remediation})
+  });
+  const json = await res.json();
+
+  if (json.success) {
+    itemStates[checkId] = 'fixed';
+    resultDiv.innerHTML = '<div class="item-result result-ok">✓ 修復成功</div>';
+  } else {
+    resultDiv.innerHTML = '<div class="item-result result-err">✗ ' + (json.error||json.output||'修復失敗') + '</div>';
+  }
+  renderItems();
+}
+
+function doSkip(checkId) {
+  itemStates[checkId] = 'skipped';
+  renderItems();
+}
+
+async function doException(checkId) {
+  if (!confirm('將 ' + hostname + ' 設為 ' + checkId + ' 的例外主機？')) return;
+  await fetch('/api/twgcb/config/' + checkId, {
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({exception_hosts: [hostname]})
+  });
+  itemStates[checkId] = 'exception';
+  renderItems();
+}
+
+function goStep(n) {
+  if (n === 2 && !backupDone) { alert('請先完成備份！'); return; }
+  [1,2,3].forEach(i => {
+    document.getElementById('step'+i).style.display = i===n ? 'block' : 'none';
+    const ind = document.getElementById('step'+i+'indicator');
+    ind.className = i < n ? 'step done' : i === n ? 'step active' : 'step';
+  });
+  if (n === 2) renderItems();
+}
+
+async function rescan() {
+  document.getElementById('verifyResult').innerHTML = '<div class="spinner-sm"></div> 重新掃描中...';
+  const res = await fetch('/api/twgcb/scan', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({target: hostname})
+  });
+  const json = await res.json();
+  if (json.success) {
+    // 重新載入結果
+    const r2 = await fetch('/api/twgcb/results/' + hostname);
+    const j2 = await r2.json();
+    if (j2.success) {
+      hardenData = j2.data;
+      const checks = hardenData.checks || [];
+      const passed = checks.filter(c => c.status==='PASS').length;
+      const rate = checks.length > 0 ? Math.round(passed/checks.length*100) : 0;
+      const color = rate>=80?'var(--g1)':rate>=50?'var(--orange)':'var(--red)';
+
+      let html = '<div style="text-align:center;padding:20px;"><div style="font-size:48px;font-weight:700;color:' + color + ';">' + rate + '%</div><div style="font-size:16px;color:var(--c2);">合規率（' + passed + '/' + checks.length + '）</div></div>';
+      html += '<table style="width:100%;border-collapse:collapse;"><thead><tr><th style="padding:8px;text-align:left;border-bottom:2px solid #ddd;">狀態</th><th>編號</th><th>項目</th><th>結果</th></tr></thead><tbody>';
+      checks.forEach(c => {
+        const isPass = c.status === 'PASS';
+        html += '<tr><td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;"><span class="light ' + (isPass?'light-pass':'light-fail') + '"></span></td>';
+        html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;font-family:monospace;font-size:11px;">' + c.id + '</td>';
+        html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;">' + c.name + '</td>';
+        html += '<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;"><code style="color:' + (isPass?'var(--g2)':'var(--red)') + '">' + c.actual + '</code></td></tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('verifyResult').innerHTML = html;
+    }
+  } else {
+    document.getElementById('verifyResult').innerHTML = '<div class="item-result result-err">✗ 掃描失敗: ' + json.error + '</div>';
+  }
+}
+
+async function restoreBackup() {
+  if (!lastBackupId) { alert('沒有可還原的備份'); return; }
+  if (!confirm('確定要還原到備份點 ' + lastBackupId + '？\\n\\n這會覆蓋所有已修改的設定檔。')) return;
+
+  document.getElementById('verifyResult').innerHTML = '<div class="spinner-sm"></div> 還原中...';
+  const res = await fetch('/api/harden/restore', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({hostname, backup_id: lastBackupId})
+  });
+  const json = await res.json();
+  if (json.success) {
+    document.getElementById('verifyResult').innerHTML =
+      '<div class="item-result result-ok">✓ ' + json.message + '。建議重新掃描確認。</div>';
+    itemStates = {};
+  } else {
+    document.getElementById('verifyResult').innerHTML =
+      '<div class="item-result result-err">✗ ' + (json.error||'還原失敗') + '</div>';
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,60 @@
+---
+# 系統安全稽核 Playbook（完整版）
+# 取回報告 .txt + 壓縮封存 .tar.gz
+- name: Linux Security Audit
+  hosts: "{{ target_hosts | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    audit_script_src: "{{ inspection_home | default('/opt/inspection') }}/scripts/security_audit.sh"
+    audit_reports_dir: "{{ inspection_home | default('/opt/inspection') }}/data/security_audit_reports"
+
+  tasks:
+    - name: 建立本機報告目錄
+      file:
+        path: "{{ audit_reports_dir }}"
+        state: directory
+        mode: '0755'
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: 複製稽核腳本到遠端主機
+      copy:
+        src: "{{ audit_script_src }}"
+        dest: /tmp/security_audit.sh
+        mode: '0755'
+
+    - name: 執行安全稽核腳本
+      shell: bash /tmp/security_audit.sh
+      environment: "{{ audit_env | default({}) }}"
+      register: audit_result
+      timeout: 180
+
+    - name: 取得報告檔路徑
+      shell: ls -t /tmp/Audit_Report_*.txt 2>/dev/null | head -1
+      register: report_file
+      changed_when: false
+
+    - name: 取得壓縮封存路徑
+      shell: ls -t /tmp/Audit_*_{{ inventory_hostname }}*.tar.gz 2>/dev/null | head -1
+      register: archive_file
+      changed_when: false
+
+    - name: 取回稽核報告 (txt)
+      fetch:
+        src: "{{ report_file.stdout }}"
+        dest: "{{ audit_reports_dir }}/"
+        flat: true
+      when: report_file.stdout | length > 0
+
+    - name: 取回壓縮封存 (tar.gz)
+      fetch:
+        src: "{{ archive_file.stdout }}"
+        dest: "{{ audit_reports_dir }}/"
+        flat: true
+      when: archive_file.stdout | default('') | length > 0
+
+    - name: 清理遠端暫存檔
+      shell: rm -f /tmp/security_audit.sh /tmp/Audit_Report_*.txt /tmp/Audit_*.tar.gz /tmp/Audit_*.{{ ansible_date_time.date | default('') | regex_replace('-','') }} 2>/dev/null || true
+      changed_when: false

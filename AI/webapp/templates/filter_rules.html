@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}過濾規則管理 - IT 每日巡檢系統{% endblock %}
+{% block content %}
+<h2 style="margin-bottom:20px;font-size:20px;">過濾規則管理</h2>
+<div style="margin-bottom:16px;"><button class="btn btn-primary" onclick="openAddModal()">新增規則</button></div>
+<div id="rules-list"><div class="skeleton" style="height:60px;margin-bottom:8px"></div></div>
+
+<div class="modal-overlay" id="rule-modal">
+  <div class="modal">
+    <div class="modal-title" id="rule-modal-title">新增規則</div>
+    <input type="hidden" id="rule-id">
+    <div class="form-group"><label>名稱</label><input type="text" id="rule-name"></div>
+    <div class="form-group"><label>類型</label><select id="rule-type"><option value="keyword">關鍵字</option><option value="regex">正規表達式</option><option value="level">等級過濾</option></select></div>
+    <div class="form-group"><label>匹配模式</label><input type="text" id="rule-pattern"></div>
+    <div class="form-group"><label>套用範圍</label><select id="rule-apply"><option value="all">全部主機</option></select></div>
+    <div class="form-group"><label><input type="checkbox" id="rule-known"> 標記為已知問題</label></div>
+    <div class="form-group"><label>已知問題原因</label><textarea id="rule-reason" rows="2"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" onclick="closeRuleModal()" style="background:var(--c4)">取消</button>
+      <button class="btn btn-primary" onclick="saveRule()">儲存</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function loadRules(){
+  fetch("/api/rules").then(r=>r.json()).then(res => {
+    const list = document.getElementById("rules-list");
+    const data = res.data || [];
+    if(!data.length){
+      list.innerHTML = '<div class="no-data">尚無過濾規則</div>';
+      return;
+    }
+    list.innerHTML = data.map(r => {
+      const en = r.enabled !== false;
+      return '<div class="card rule-card"><div><strong>'+r.name+'</strong><br><span style="font-size:12px;color:var(--c3)">'+r.type+' | '+r.pattern+' | 命中: '+(r.hit_count||0)+' 次'+(r.is_known_issue?' | 已知問題':'')+'</span></div><div style="display:flex;gap:8px;align-items:center"><span class="badge '+(en?"badge-ok":"badge-warn")+'">'+(en?"啟用":"停用")+'</span><button class="btn btn-sm btn-primary" onclick="toggleRule(\''+r.rule_id+'\')">'+(en?"停用":"啟用")+'</button><button class="btn btn-sm btn-danger" onclick="deleteRule(\''+r.rule_id+'\')">刪除</button></div></div>';
+    }).join("");
+  });
+}
+function openAddModal(){
+  document.getElementById("rule-modal-title").textContent = "新增規則";
+  document.getElementById("rule-id").value = "";
+  document.getElementById("rule-name").value = "";
+  document.getElementById("rule-pattern").value = "";
+  document.getElementById("rule-known").checked = false;
+  document.getElementById("rule-reason").value = "";
+  document.getElementById("rule-modal").classList.add("active");
+}
+function closeRuleModal(){ document.getElementById("rule-modal").classList.remove("active"); }
+function saveRule(){
+  const id = document.getElementById("rule-id").value;
+  const body = {
+    name: document.getElementById("rule-name").value,
+    type: document.getElementById("rule-type").value,
+    pattern: document.getElementById("rule-pattern").value,
+    apply_to: document.getElementById("rule-apply").value,
+    is_known_issue: document.getElementById("rule-known").checked,
+    known_issue_reason: document.getElementById("rule-reason").value,
+  };
+  const url = id ? "/api/rules/"+id : "/api/rules";
+  const method = id ? "PUT" : "POST";
+  fetch(url, {method:method, headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)})
+    .then(r=>r.json()).then(() => { closeRuleModal(); loadRules(); });
+}
+function toggleRule(id){
+  fetch("/api/rules/"+id+"/toggle", {method:"PUT"}).then(r=>r.json()).then(() => loadRules());
+}
+function deleteRule(id){
+  if(!confirm("確定刪除此規則？")) return;
+  fetch("/api/rules/"+id, {method:"DELETE"}).then(r=>r.json()).then(() => loadRules());
+}
+document.addEventListener("DOMContentLoaded", loadRules);
+</script>
+{% endblock %}

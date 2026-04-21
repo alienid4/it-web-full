@@ -1,0 +1,39 @@
+# 敏感檔案
+.vault_pass
+.env
+*.pem
+*.key
+
+# MongoDB 資料
+container/mongodb_data/
+
+# 巡檢報告（含主機IP和帳號資訊）
+data/reports/*.json
+data/reports/*.html
+data/snapshots/
+
+# 日誌
+logs/
+*.log
+
+# 部署包和備份
+*.tar.gz
+*.zip
+deploy_pkg/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+.ssh/
+
+config.py

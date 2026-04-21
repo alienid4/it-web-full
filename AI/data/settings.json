@@ -1,0 +1,50 @@
+{
+  "thresholds": {
+    "disk_warn": 85,
+    "disk_crit": 95,
+    "cpu_warn": 80,
+    "cpu_crit": 95,
+    "mem_warn": 80,
+    "mem_crit": 95
+  },
+  "disk_exclude_mounts": [
+    "/dev",
+    "/run",
+    "/sys",
+    "/proc",
+    "/tmp"
+  ],
+  "disk_exclude_prefixes": [
+    "/run/",
+    "/dev/",
+    "/sys/",
+    "/proc/",
+    "/var/lib/containers/"
+  ],
+  "cpu_sample_minutes": 10,
+  "error_log_max_entries": 50,
+  "error_log_hours": 24,
+  "service_check_list": [
+    "sshd",
+    "crond"
+  ],
+  "db_check_list": [],
+  "db_connect_timeout": 10,
+  "account_snapshot_dir": "/opt/inspection/data/snapshots",
+  "notify_email": {
+    "enabled": true,
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 587,
+    "smtp_tls": true,
+    "smtp_user": "admin@example.com",
+    "smtp_pass": "ENV:SMTP_PASSWORD",
+    "from": "admin@example.com",
+    "to": [
+      "admin@example.com"
+    ],
+    "send_on": [
+      "error",
+      "warn"
+    ]
+  }
+}

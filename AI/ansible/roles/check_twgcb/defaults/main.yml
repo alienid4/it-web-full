@@ -1,0 +1,70 @@
+---
+# TWGCB 檢查項目閾值設定
+twgcb_checks:
+  # A級 - 即時生效
+  net_ip_forward:
+    id: "TWGCB-01-008-0108"
+    category: "網路參數"
+    name: "禁止 IP 轉發"
+    level: "A"
+    expected: "0"
+    description: "net.ipv4.ip_forward 應為 0，防止主機被當作路由器"
+
+  file_crontab_perm:
+    id: "TWGCB-01-008-0194"
+    category: "檔案權限"
+    name: "/etc/crontab 權限"
+    level: "A"
+    expected: "600"
+    description: "/etc/crontab 權限應為 600，僅 root 可讀寫"
+
+  cron_allow:
+    id: "TWGCB-01-008-0205"
+    category: "存取控制"
+    name: "/etc/cron.allow 存在"
+    level: "A"
+    expected: "exists"
+    description: "/etc/cron.allow 應存在且僅含 root"
+
+  login_banner:
+    id: "TWGCB-01-008-0039"
+    category: "登入橫幅"
+    name: "/etc/issue 警告橫幅"
+    level: "A"
+    expected: "configured"
+    description: "/etc/issue 應包含授權警告文字，不洩漏系統資訊"
+
+  core_dump:
+    id: "TWGCB-01-008-0042"
+    category: "日誌與安全"
+    name: "禁止 Core Dump"
+    level: "A"
+    expected: "hard core 0"
+    description: "應限制 core dump 防止記憶體洩漏"
+
+  # B級 - 需重啟服務
+  ssh_max_auth:
+    id: "TWGCB-01-008-0274"
+    category: "SSH 加固"
+    name: "SSH MaxAuthTries"
+    level: "B"
+    expected: "4"
+    description: "MaxAuthTries 應 <=4，減少暴力破解機會"
+
+  # C級 - 影響用戶
+  pass_max_days:
+    id: "TWGCB-01-008-0227"
+    category: "密碼策略"
+    name: "密碼最長使用天數"
+    level: "C"
+    expected: "90"
+    description: "PASS_MAX_DAYS 應 <=90 天"
+
+  # D級 - 需 Reboot
+  audit_account:
+    id: "TWGCB-01-008-0156"
+    category: "Audit 規則"
+    name: "稽核帳號檔案修改"
+    level: "D"
+    expected: "configured"
+    description: "應有 auditd 規則監控 /etc/passwd, /etc/shadow 異動"

@@ -1,0 +1,121 @@
+/* Admin Panel Styles - Dropdown Navigation */
+.admin-nav {
+  display: flex;
+  gap: 0;
+  margin-bottom: 24px;
+  border-bottom: 2px solid #e0e0e0;
+}
+.admin-nav-group {
+  position: relative;
+  flex: 1;
+}
+.admin-nav-title {
+  padding: 12px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--g2);
+  cursor: default;
+  text-align: center;
+  border-bottom: 3px solid transparent;
+  font-family: "Noto Sans TC", sans-serif;
+}
+.admin-nav-group:hover .admin-nav-title {
+  border-bottom-color: var(--g1);
+}
+.admin-nav-items {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border-radius: 0 0 12px 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  z-index: 100;
+  padding: 8px 0;
+  min-width: 160px;
+}
+.admin-nav-group:hover .admin-nav-items {
+  display: block;
+}
+.admin-tab {
+  display: block;
+  width: 100%;
+  padding: 10px 20px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c2);
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: left;
+  transition: all 0.15s;
+  font-family: "Noto Sans TC", sans-serif;
+}
+.admin-tab:hover {
+  background: #f0faf0;
+  color: var(--g2);
+}
+.admin-tab.active {
+  color: var(--g-text);
+  background: #E8F5E9;
+  font-weight: 700;
+}
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Log Viewer */
+.log-viewer {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  padding: 16px;
+  border-radius: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-viewer .log-error { color: #f44747; }
+.log-viewer .log-warn { color: #cca700; }
+.log-viewer .log-info { color: #3dc9b0; }
+
+/* Status indicators */
+.status-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.status-dot.green { background: var(--g1); }
+.status-dot.red { background: var(--red); }
+.status-dot.yellow { background: var(--yellow); }
+
+/* Admin KPI override - smaller */
+.admin-kpi {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.admin-kpi-item {
+  background: var(--white);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+}
+.admin-kpi-value {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 20px;
+  font-weight: 500;
+}
+.admin-kpi-label {
+  font-size: 11px;
+  color: var(--c3);
+  margin-top: 4px;
+  text-transform: uppercase;
+}

@@ -1,0 +1,36 @@
+---
+# test_all_roles.yml -  roles
+# ansible-playbook -i /opt/inspection/ansible/inventory/hosts.yml \
+#     ansible/playbooks/test_all_roles.yml
+- name:  roles
+  hosts: linux
+  gather_facts: yes
+  roles:
+    - check_cpu
+    - check_service
+    - check_account
+    - check_error_log
+    - check_db_connection
+  post_tasks:
+    - name:  CPU/Memory 
+      debug:
+        msg: |
+          [{{ inventory_hostname }}] CPU={{ cpu_result.cpu_percent }}% {{ cpu_result.cpu_status }}  MEM={{ cpu_result.mem_percent }}% {{ cpu_result.mem_status }}  ={{ cpu_result.status }}
+    - name: 
+      debug:
+        msg: |
+          [{{ inventory_hostname }}] ={{ service_result.status }}
+          {% for s in service_result.services %}  {{ s.name }}: {{ s.state }} [{{ s.status }}]
+          {% endfor %}
+    - name: 
+      debug:
+        msg: |
+          [{{ inventory_hostname }}] ={{ account_result.status }}  ={{ account_result.total_accounts }}  ={{ account_result.accounts_added | length }}  ={{ account_result.accounts_removed | length }}  {{ account_result.note | default('') }}
+    - name: 
+      debug:
+        msg: |
+          [{{ inventory_hostname }}] ={{ error_log_result.status }}  Log={{ error_log_result.log_file }}  ERROR={{ error_log_result.error_count }}  WARN={{ error_log_result.warn_count }}
+    - name:  DB 
+      debug:
+        msg: |
+          [{{ inventory_hostname }}] DB={{ db_result.status }}  {{ db_result.reason | default('') }}

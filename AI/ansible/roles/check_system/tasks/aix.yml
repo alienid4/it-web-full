@@ -1,0 +1,54 @@
+# check_system/tasks/aix.yml
+# AIX fallback - use raw module
+
+- name: AIX swap info
+  raw: "lsps -s | tail -1 | awk '{print $2}'"
+  register: aix_swap_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: AIX load average
+  raw: "uptime | sed 's/.*load average: //' | tr -d ' '"
+  register: aix_load_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: AIX uptime
+  raw: "who -b | awk '{print $3,$4}'"
+  register: aix_uptime_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: AIX users
+  raw: "who | wc -l"
+  register: aix_users_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: Set AIX system_result
+  set_fact:
+    system_result:
+      swap:
+        percent: "{{ aix_swap_raw.stdout | default('0') | regex_replace('%','') | trim }}"
+        status: "ok"
+      io:
+        devices: []
+        max_busy: 0
+        status: "ok"
+      load:
+        load_1: "{{ (aix_load_raw.stdout | default('0,0,0')).split(',')[0] | default('0') | trim }}"
+        load_5: "{{ (aix_load_raw.stdout | default('0,0,0')).split(',')[1] | default('0') | trim }}"
+        load_15: "{{ (aix_load_raw.stdout | default('0,0,0')).split(',')[2] | default('0') | trim }}"
+        cpu_count: 1
+        status: "ok"
+      uptime:
+        boot_time: "{{ aix_uptime_raw.stdout | default('unknown') | trim }}"
+        duration: ""
+      users:
+        count: "{{ aix_users_raw.stdout | default('0') | trim | int }}"
+        users: []
+      faillogin:
+        total_failures: 0
+        top_offenders: []
+        status: "ok"
+      status: "ok"

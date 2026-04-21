@@ -1,0 +1,6 @@
+# check_cpu defaults v1.0
+cpu_warn_default: 80
+cpu_crit_default: 95
+mem_warn_default: 80
+mem_crit_default: 95
+inspection_home: /opt/inspection

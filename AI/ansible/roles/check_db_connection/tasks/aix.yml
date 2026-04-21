@@ -1,0 +1,4 @@
+---
+# AIX TCP  Linux  check_tcp.yml
+- name:  DB TCP  (AIX)
+  include_tasks: check_tcp.yml

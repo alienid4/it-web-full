@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% block title %}今日巡檢報告 - IT 每日巡檢系統{% endblock %}
+{% block content %}
+<h2 style="margin-bottom:20px;font-size:20px;">今日巡檢報告</h2>
+
+<!-- OS 分類 Tab -->
+<div class="os-tabs" style="margin-bottom:0;">
+  <button class="os-tab active" onclick="switchOS('linux')">Linux <span class="os-tab-count" id="countLinux">0</span></button>
+  <button class="os-tab" onclick="switchOS('windows')">Windows <span class="os-tab-count" id="countWindows">0</span></button>
+  <button class="os-tab" onclick="switchOS('aix')">AIX <span class="os-tab-count" id="countAix">0</span></button>
+  <button class="os-tab" onclick="switchOS('as400')">AS/400 <span class="os-tab-count" id="countAs400">0</span></button>
+</div>
+
+<!-- 篩選列 -->
+<div class="filter-bar" style="margin-bottom:16px;">
+  <input type="text" id="filterSearch" class="input-field" placeholder="搜尋主機、IP、保管者..." oninput="applyFilter()" style="flex:1;min-width:200px;">
+  <button id="report-rescan-btn" class="btn btn-sm" style="background:var(--g2);color:white;font-size:12px;padding:6px 14px;white-space:nowrap;" onclick="rescanAll()">🔄 重新掃描</button>
+  <label class="toggle-label">只顯示異常
+    <input type="checkbox" id="toggleAbnormal" onchange="applyFilter()">
+    <span class="toggle-slider"></span>
+  </label>
+</div>
+
+<div class="host-grid" id="report-grid">
+  <div class="skeleton" style="height:200px;"></div>
+  <div class="skeleton" style="height:200px;"></div>
+  <div class="skeleton" style="height:200px;"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+var allData = [];
+var currentOS = "linux";
+
+function sc(s){s=(s||"ok").trim();return s==="error"?"var(--red)":s==="warn"?"var(--orange)":"var(--g1)";}
+
+function getOSType(os) {
+  os = (os || "").toLowerCase();
+  if (os.indexOf("windows") >= 0) return "windows";
+  if (os.indexOf("aix") >= 0) return "aix";
+  if (os.indexOf("as400") >= 0 || os.indexOf("ibm i") >= 0) return "as400";
+  return "linux";
+}
+
+function switchOS(os) {
+  currentOS = os;
+  document.querySelectorAll(".os-tab").forEach(function(t, i) {
+    t.classList.toggle("active", ["linux","windows","aix","as400"][i] === os);
+  });
+  applyFilter();
+}
+
+function updateCounts() {
+  var counts = {linux:0, windows:0, aix:0, as400:0};
+  allData.forEach(function(h) { counts[getOSType(h.os)]++; });
+  document.getElementById("countLinux").textContent = counts.linux;
+  document.getElementById("countWindows").textContent = counts.windows;
+  document.getElementById("countAix").textContent = counts.aix;
+  document.getElementById("countAs400").textContent = counts.as400;
+}
+
+function applyFilter() {
+  var keyword = (document.getElementById("filterSearch").value || "").trim().toLowerCase();
+  var abnormalOnly = document.getElementById("toggleAbnormal").checked;
+
+  var filtered = allData.filter(function(h) {
+    if (getOSType(h.os) !== currentOS) return false;
+    if (keyword) {
+      var searchText = [h.hostname, h.ip, h.custodian||"", h.os||""].join(" ").toLowerCase();
+      if (searchText.indexOf(keyword) === -1) return false;
+    }
+    if (abnormalOnly) {
+      var s = (h.overall_status || "ok").trim();
+      if (s === "ok") return false;
+    }
+    return true;
+  });
+
+  renderCards(filtered);
+  applyPingOverlay();
+}
+
+function renderCards(data) {
+  var grid = document.getElementById("report-grid");
+  if (!data.length) {
+    grid.innerHTML = '<div class="no-data" style="grid-column:1/-1;"><div class="no-data-icon">&#128203;</div>無符合條件的主機</div>';
+    return;
+  }
+  grid.innerHTML = data.map(function(h) {
+    var s = (h.overall_status||"ok").trim();
+    var disk = h.disk || (h.results&&h.results.disk) || {};
+    var cpu = h.cpu || (h.results&&h.results.cpu) || {};
+    var svc = h.service || (h.results&&h.results.service) || {};
+    var acct = h.account || (h.results&&h.results.account) || {};
+    var elog = h.error_log || (h.results&&h.results.error_log) || {};
+    var sys = (h.results&&h.results.system) || h.system || {};
+    var swap = sys.swap || {};
+    var io = sys.io || {};
+    var load = sys.load || {};
+    var uptime = sys.uptime || {};
+    var users = sys.users || {};
+    var fl = sys.faillogin || {};
+
+    var statusColor = s==="error"?"red":s==="warn"?"orange":"g1";
+    var statusText = s==="ok"?"正常":s==="warn"?"警告":"異常";
+
+    var partitions = disk.partitions || [];
+    var diskStatus = (disk.status||"ok").trim();
+    var problemParts = partitions.filter(function(p){return (p.status||"ok").trim()!=="ok";});
+    var diskHtml = "";
+    if (diskStatus === "ok" && problemParts.length === 0) {
+      diskHtml = '<span class="badge badge-ok">OK</span> <span style="font-size:11px;color:var(--c3);">' + partitions.length + ' 分區正常</span>';
+    } else {
+      diskHtml = problemParts.map(function(p){
+        var pct=parseInt(p.percent)||0;
+        return '<span class="badge badge-'+((p.status||"warn").trim())+'" style="font-size:11px;">'+p.mount+' '+pct+'%</span> ';
+      }).join("");
+    }
+
+    var uid0 = acct.uid0_alert || (acct.accounts_added||[]).some(function(a){return (a.uid||"")==="0";});
+    var cpuCount = parseInt(load.cpu_count)||1;
+    var l1 = parseFloat(load.load_1)||0;
+    var flTop = fl.top_offenders || [];
+    var flTotal = parseInt(fl.total_failures)||0;
+
+    var html = '<a href="/report/' + h.hostname + '" style="text-decoration:none;color:inherit;display:block;">';
+    html += '<div class="card" id="host-card-' + h.hostname + '" style="border-left:4px solid var(--'+statusColor+');position:relative;">';
+
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+    var osIcon = (typeof CTIcon!=="undefined") ? ((h.os||"").indexOf("Windows")>=0?CTIcon.windows : (h.os||"").indexOf("Cisco")>=0||(h.os||"").indexOf("SNMP")>=0?CTIcon.network : CTIcon.linux) : "";
+    html += '<span style="display:flex;align-items:center;gap:6px;color:var(--c3);">'+osIcon+'<strong style="color:var(--c1);">'+h.hostname+'</strong></span> <span class="badge badge-'+s+'">'+statusText+'</span></div>';
+    html += '<div style="font-size:11px;color:var(--c3);margin-bottom:10px">'+(h.ip||"")+' | '+(h.os||"")+' | '+(h.run_date||"")+'</div>';
+
+    if(uid0) html += '<div class="uid0-alert" style="font-size:12px;margin-bottom:8px;padding:6px;">UID=0 警示</div>';
+
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:12px;">';
+    html += '<div><strong>CPU:</strong> <span style="color:'+sc(cpu.cpu_status||cpu.status)+'">'+(cpu.cpu_percent||cpu.percent||"-")+'%</span></div>';
+    html += '<div><strong>MEM:</strong> <span style="color:'+sc(cpu.mem_status)+'">'+(cpu.mem_percent||"-")+'%</span></div>';
+    html += '<div><strong>Swap:</strong> <span style="color:'+sc(swap.status)+'">'+(parseFloat(swap.percent)||0)+'%</span></div>';
+    html += '<div><strong>IO:</strong> <span style="color:'+sc(io.status)+'">'+(parseFloat(io.max_busy)||0)+'%</span></div>';
+    html += '<div><strong>Load:</strong> <span style="color:'+sc(load.status)+'">'+l1.toFixed(2)+'</span> <span style="font-size:10px;color:var(--c3);">/'+cpuCount+'cpu</span></div>';
+    html += '<div><strong>Users:</strong> '+(users.count||0)+'</div>';
+    html += '<div style="grid-column:1/-1;"><strong>Disk:</strong> '+diskHtml+'</div>';
+    html += '<div><strong>服務:</strong> <span class="badge badge-'+((svc.status||"ok").trim())+'" style="font-size:11px;">'+((svc.status||"ok").trim())+'</span></div>';
+    html += '<div><strong>帳號:</strong> <span class="badge badge-'+((acct.status||"ok").trim())+'" style="font-size:11px;">'+((acct.status||"ok").trim())+'</span></div>';
+    html += '<div><strong>錯誤:</strong> '+(elog.error_count||elog.count||0)+' 筆</div>';
+    if (flTop.length > 0) {
+      html += '<div><strong style="color:var(--red);">FailLogin:</strong> '+flTop.map(function(f){return f.user+"("+f.count+")";}).join(",")+' </div>';
+    } else {
+      html += '<div><strong>FailLogin:</strong> <span style="color:var(--c3);">'+flTotal+'</span></div>';
+    }
+    html += '<div style="grid-column:1/-1;font-size:11px;color:var(--c3);margin-top:2px;"><strong>Uptime:</strong> '+(uptime.duration||uptime.boot_time||"-")+'</div>';
+
+    html += '</div>';
+    html += '</div></a>';
+    return html;
+  }).join("");
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  fetch("/api/inspections/latest").then(function(r){return r.json();}).then(function(res) {
+    if(!res.success || !res.data.length) {
+      document.getElementById("report-grid").innerHTML = '<div class="no-data"><div class="no-data-icon">&#128203;</div>等待排程採集資料中</div>';
+      return;
+    }
+    allData = res.data;
+    updateCounts();
+    applyFilter();
+    // 自動檢查主機連線狀態（快取結果）
+    fetch("/api/admin/hosts/ping-all").then(function(r){return r.json();}).then(function(res) {
+      if (res.success) { window._pingData = res.data; applyPingOverlay(); }
+    }).catch(function(){});
+  });
+});
+
+function rescanAll() {
+  var btn = document.getElementById("report-rescan-btn");
+  btn.textContent = "掃描中..."; btn.disabled = true;
+  fetch("/api/admin/hosts/ping-all").then(function(r){return r.json();}).then(function(res) {
+    if (res.success) { window._pingData = res.data; applyPingOverlay(); }
+    btn.textContent = "🔄 重新掃描"; btn.disabled = false;
+  }).catch(function(){ btn.textContent = "🔄 重新掃描"; btn.disabled = false; });
+}
+
+function applyPingOverlay() {
+  if (!window._pingData) return;
+  var data = window._pingData;
+  for (var hostname in data) {
+    var card = document.getElementById("host-card-" + hostname);
+    if (!card) continue;
+    // 移除舊的 overlay/dot
+    var old = card.querySelector(".ping-overlay,.ping-dot");
+    if (old) old.remove();
+    if (!data[hostname].reachable) {
+      var overlay = document.createElement("div");
+      overlay.className = "ping-overlay";
+      overlay.style.cssText = "position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.65);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;pointer-events:none;";
+      overlay.innerHTML = '<div style="background:var(--red);color:white;padding:10px 24px;border-radius:8px;font-size:18px;font-weight:700;margin-bottom:6px;animation:uid0-flash 1.5s infinite;">⛔ 離線</div>'
+        + '<div style="color:white;font-size:13px;">' + hostname + ' (' + data[hostname].ip + ')</div>'
+        + '<div style="color:rgba(255,255,255,0.7);font-size:11px;margin-top:4px;">主機無回應 — 請確認網路或開機狀態</div>';
+      card.appendChild(overlay);
+    } else {
+      var dot = document.createElement("div");
+      dot.className = "ping-dot";
+      dot.style.cssText = "position:absolute;top:10px;right:10px;width:10px;height:10px;background:var(--g1);border-radius:50%;box-shadow:0 0 6px var(--g1);";
+      dot.title = "主機在線";
+      card.appendChild(dot);
+    }
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,18 @@
+# check_cpu/tasks/windows.yml - via SSH EncodedCommand
+- name: Windows - Get CPU and Memory
+  raw: "powershell -EncodedCommand JABjAHAAdQA9ACgARwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAFAAcgBvAGMAZQBzAHMAbwByAHwATQBlAGEAcwB1AHIAZQAtAE8AYgBqAGUAYwB0ACAALQBQAHIAbwBwAGUAcgB0AHkAIABMAG8AYQBkAFAAZQByAGMAZQBuAHQAYQBnAGUAIAAtAEEAdgBlAHIAYQBnAGUAKQAuAEEAdgBlAHIAYQBnAGUAOwAkAG8AcwA9AEcAZQB0AC0AVwBtAGkATwBiAGoAZQBjAHQAIABXAGkAbgAzADIAXwBPAHAAZQByAGEAdABpAG4AZwBTAHkAcwB0AGUAbQA7ACQAbQB0AD0AWwBtAGEAdABoAF0AOgA6AFIAbwB1AG4AZAAoACQAbwBzAC4AVABvAHQAYQBsAFYAaQBzAGkAYgBsAGUATQBlAG0AbwByAHkAUwBpAHoAZQAvADEASwBCACwAMAApADsAJABtAGYAPQBbAG0AYQB0AGgAXQA6ADoAUgBvAHUAbgBkACgAJABvAHMALgBGAHIAZQBlAFAAaAB5AHMAaQBjAGEAbABNAGUAbQBvAHIAeQAvADEASwBCACwAMAApADsAJABtAHUAPQAkAG0AdAAtACQAbQBmADsAJABtAHAAPQBbAG0AYQB0AGgAXQA6ADoAUgBvAHUAbgBkACgAJABtAHUALwAkAG0AdAAqADEAMAAwACwAMAApADsAQAB7AGMAcAB1AD0AJABjAHAAdQA7AG0AZQBtAF8AcABjAHQAPQAkAG0AcAA7AG0AZQBtAF8AdABvAHQAYQBsAD0AJABtAHQAOwBtAGUAbQBfAHUAcwBlAGQAPQAkAG0AdQB9AHwAQwBvAG4AdgBlAHIAdABUAG8ALQBKAHMAbwBuAA=="
+  register: win_cpu_raw
+  changed_when: false
+
+- name: Windows - Parse
+  set_fact:
+    _wc: "{{ win_cpu_raw.stdout | trim | from_json }}"
+
+- name: Windows - Set CPU result
+  set_fact:
+    cpu_result:
+      cpu_percent: "{{ _wc.cpu | default(0) }}"
+      mem_percent: "{{ _wc.mem_pct | default(0) }}"
+      cpu_status: "{{ 'error' if (_wc.cpu | default(0) | int) >= (cpu_crit | int) else 'warn' if (_wc.cpu | default(0) | int) >= (cpu_warn | int) else 'ok' }}"
+      mem_status: "{{ 'error' if (_wc.mem_pct | default(0) | int) >= (mem_crit | int) else 'warn' if (_wc.mem_pct | default(0) | int) >= (mem_warn | int) else 'ok' }}"
+      status: "{{ 'error' if ((_wc.cpu | default(0) | int) >= (cpu_crit | int)) or ((_wc.mem_pct | default(0) | int) >= (mem_crit | int)) else 'warn' if ((_wc.cpu | default(0) | int) >= (cpu_warn | int)) or ((_wc.mem_pct | default(0) | int) >= (mem_warn | int)) else 'ok' }}"

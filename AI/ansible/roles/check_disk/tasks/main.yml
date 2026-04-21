@@ -1,0 +1,47 @@
+# =========================================================
+# roles/check_disk/tasks/main.yml
+#  OS 
+# v1.3  disk_exclude_prefixes
+# =========================================================
+
+- name:  settings.json
+  slurp:
+    src: "{{ inspection_home }}/data/settings.json"
+  register: settings_raw
+  delegate_to: localhost
+  ignore_errors: yes
+
+- name:  settings.json
+  set_fact:
+    settings: "{{ settings_raw.content | b64decode | from_json }}"
+  when: settings_raw is succeeded
+  ignore_errors: yes
+
+- name: settings.json 
+  set_fact:
+    disk_warn:             "{{ settings.thresholds.disk_warn        | default(disk_warn_default) }}"
+    disk_crit:             "{{ settings.thresholds.disk_crit        | default(disk_crit_default) }}"
+    disk_exclude:          "{{ settings.disk_exclude_mounts         | default(disk_exclude_mounts_default) }}"
+    disk_exclude_prefixes: "{{ settings.disk_exclude_prefixes       | default(disk_exclude_prefixes_default) }}"
+
+- name:  Linux 
+  include_tasks: linux.yml
+  when: ansible_system == "Linux"
+
+- name:  AIX 
+  include_tasks: aix.yml
+  when: ansible_system == "AIX"
+
+- name:  OS
+  set_fact:
+    disk_result:
+      status: "unevaluated"
+      reason: " OS{{ ansible_system }}"
+      partitions: []
+  when:
+    - ansible_system != "Linux"
+    - ansible_system != "AIX"
+
+- name: Windows check_disk
+  include_tasks: windows.yml
+  when: ansible_os_family == "Windows"

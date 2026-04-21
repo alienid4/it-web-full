@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}異常總結報告 - IT 每日巡檢系統{% endblock %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+  <h2 style="font-size:20px;">異常總結報告</h2>
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-primary" onclick="exportReport()">匯出報告</button>
+    <button class="btn" style="background:var(--c4)" onclick="location.reload()">重新整理</button>
+  </div>
+</div>
+
+<!-- Summary KPI -->
+<div class="kpi-grid" id="summary-kpi" style="margin-bottom:24px;">
+  <div class="kpi-card"><div class="kpi-value" id="s-total" style="color:var(--c1)">-</div><div class="kpi-label">監控主機</div></div>
+  <div class="kpi-card ok"><div class="kpi-value ok" id="s-ok">-</div><div class="kpi-label">正常</div></div>
+  <div class="kpi-card error"><div class="kpi-value error" id="s-abnormal">-</div><div class="kpi-label">異常/警告</div></div>
+  <div class="kpi-card"><div class="kpi-value" id="s-time" style="color:var(--c3);font-size:16px;">-</div><div class="kpi-label">報告產生時間</div></div>
+</div>
+
+<!-- No abnormal -->
+<div id="summary-ok" style="display:none;">
+  <div class="card" style="text-align:center;padding:48px;">
+    <div style="font-size:48px;opacity:0.3;margin-bottom:12px;">&#9989;</div>
+    <div style="font-size:18px;font-weight:700;color:var(--g1);">所有主機狀態正常</div>
+    <div style="font-size:14px;color:var(--c3);margin-top:8px;">無異常項目需要處理</div>
+  </div>
+</div>
+
+<!-- Report items -->
+<div id="summary-items"></div>
+
+<!-- Loading -->
+<div id="summary-loading">
+  <div class="skeleton" style="height:80px;margin-bottom:12px;"></div>
+  <div class="skeleton" style="height:200px;margin-bottom:12px;"></div>
+  <div class="skeleton" style="height:200px;"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+  fetch("/api/inspections/summary").then(function(r){return r.json();}).then(function(res) {
+    document.getElementById("summary-loading").style.display = "none";
+    if (!res.success || !res.data) return;
+    var d = res.data;
+
+    // KPI
+    document.getElementById("s-total").textContent = d.total_hosts || 0;
+    document.getElementById("s-ok").textContent = d.ok_count || 0;
+    document.getElementById("s-abnormal").textContent = d.abnormal_count || 0;
+    var genTime = d.generated_at ? d.generated_at.replace("T", " ").substring(0, 19) : "-";
+    document.getElementById("s-time").textContent = genTime;
+
+    var items = d.items || [];
+    if (!items.length) {
+      document.getElementById("summary-ok").style.display = "block";
+      return;
+    }
+
+    var html = "";
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var s = item.overall_status || "warn";
+      var statusColor = s === "error" ? "red" : "orange";
+      var statusText = s === "error" ? "異常" : "警告";
+      var trendIcon = {"degraded": "&#9660; 惡化", "unchanged": "&#9644; 持平", "worsened": "&#9660; 加重", "improved": "&#9650; 改善", "new": "&#9733; 新增"}[item.trend] || item.trend;
+      var trendColor = (item.trend === "degraded" || item.trend === "worsened") ? "var(--red)" : item.trend === "improved" ? "var(--g1)" : "var(--c3)";
+
+      html += '<div class="card" style="border-left:4px solid var(--' + statusColor + ');margin-bottom:16px;">';
+
+      // Header
+      html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">';
+      html += '<div>';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">';
+      html += '<a href="/report/' + item.hostname + '" style="font-size:18px;font-weight:700;color:var(--c1);text-decoration:none;">' + item.hostname + '</a>';
+      html += '<span class="badge badge-' + s + '">' + statusText + '</span>';
+      html += '<span style="font-size:12px;color:' + trendColor + ';">' + trendIcon + '</span>';
+      html += '</div>';
+      html += '<div style="font-size:12px;color:var(--c3);">' + (item.ip || "") + ' | ' + (item.os || "") + ' | ' + item.run_date + ' ' + item.run_time + '</div>';
+      html += '<div style="font-size:12px;color:var(--c3);margin-top:2px;">負責人: <strong>' + item.custodian + '</strong> (' + item.department + ')</div>';
+      html += '</div>';
+      html += '<div style="text-align:right;font-family:JetBrains Mono;"><span style="font-size:24px;font-weight:700;color:var(--' + statusColor + ');">' + item.issue_count + '</span><br><span style="font-size:11px;color:var(--c3);">異常項目</span></div>';
+      html += '</div>';
+
+      // Issues table
+      if (item.issues && item.issues.length) {
+        html += '<table style="width:100%;margin-bottom:12px;">';
+        html += '<thead><tr><th>嚴重度</th><th>類別</th><th>詳細說明</th></tr></thead><tbody>';
+        for (var j = 0; j < item.issues.length; j++) {
+          var issue = item.issues[j];
+          var isev = issue.severity || "warn";
+          html += '<tr><td><span class="badge badge-' + isev + '">' + (isev === "error" ? "嚴重" : "警告") + '</span></td>';
+          html += '<td style="font-weight:500;">' + issue.category + '</td>';
+          html += '<td>' + issue.detail + '</td></tr>';
+        }
+        html += '</tbody></table>';
+      }
+
+      // Suggestions
+      if (item.suggestions && item.suggestions.length) {
+        html += '<div style="background:var(--g-light);border-radius:6px;padding:12px;font-size:13px;">';
+        html += '<div style="font-weight:700;color:var(--g-text);margin-bottom:6px;">建議處理動作</div>';
+        for (var k = 0; k < item.suggestions.length; k++) {
+          html += '<div style="margin-bottom:4px;color:var(--c1);">' + (k+1) + '. ' + item.suggestions[k] + '</div>';
+        }
+        html += '</div>';
+      }
+
+      html += '</div>';
+    }
+
+    document.getElementById("summary-items").innerHTML = html;
+  });
+});
+
+function exportReport() {
+  fetch("/api/inspections/summary").then(function(r){return r.json();}).then(function(res) {
+    if (!res.success) return;
+    var d = res.data;
+    var lines = [];
+    lines.push("=== 異常總結報告 ===");
+    lines.push("產生時間: " + (d.generated_at || "").replace("T", " ").substring(0, 19));
+    lines.push("監控主機: " + d.total_hosts + " | 正常: " + d.ok_count + " | 異常/警告: " + d.abnormal_count);
+    lines.push("");
+
+    var items = d.items || [];
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      lines.push("--- " + item.hostname + " [" + item.overall_status.toUpperCase() + "] ---");
+      lines.push("IP: " + item.ip + " | OS: " + item.os + " | 負責人: " + item.custodian + " (" + item.department + ")");
+      lines.push("巡檢時間: " + item.run_date + " " + item.run_time + " | 趨勢: " + item.trend);
+      lines.push("異常項目:");
+      for (var j = 0; j < (item.issues || []).length; j++) {
+        var issue = item.issues[j];
+        lines.push("  [" + issue.severity.toUpperCase() + "] " + issue.category + ": " + issue.detail);
+      }
+      lines.push("建議處理:");
+      for (var k = 0; k < (item.suggestions || []).length; k++) {
+        lines.push("  " + (k+1) + ". " + item.suggestions[k]);
+      }
+      lines.push("");
+    }
+
+    var blob = new Blob([lines.join("\n")], {type: "text/plain;charset=utf-8"});
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "inspection_summary_" + new Date().toISOString().slice(0,10) + ".txt";
+    a.click();
+  });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,26 @@
+# check_db_connection tasks/main.yml
+- name:  settings.json
+  slurp:
+    src: "{{ inspection_home }}/data/settings.json"
+  register: settings_raw
+  delegate_to: localhost
+  ignore_errors: yes
+- name:  settings.json
+  set_fact:
+    settings: "{{ settings_raw.content | b64decode | from_json }}"
+  when: settings_raw is succeeded
+  ignore_errors: yes
+- name:  DB 
+  set_fact:
+    db_check_list:      "{{ settings.db_check_list      | default(db_check_list_default) }}"
+    db_connect_timeout: "{{ settings.db_connect_timeout | default(db_connect_timeout_default) }}"
+- name:  DB 
+  set_fact:
+    db_result:
+      status: "unevaluated"
+      reason: "db_check_list  DB "
+      connections: []
+  when: db_check_list | length == 0
+- name:  DB TCP 
+  include_tasks: check_tcp.yml
+  when: db_check_list | length > 0

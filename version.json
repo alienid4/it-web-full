@@ -1,8 +1,8 @@
 {
-  "version": "3.5.0.0-testenv",
+  "version": "3.5.1.0-testenv",
   "name": "it-web-full",
   "released_at": "2026-04-21",
-  "description": "IT Inspection System — 公司測試區離線部署版",
+  "description": "IT Inspection System - 加入完整程式碼（AI/ 下的 ansible + webapp + scripts）",
   "deploy_mode": "dual_track",
   "deps_package": "inspection_deps_v3.5.0.0-testenv.tar.gz"
 }

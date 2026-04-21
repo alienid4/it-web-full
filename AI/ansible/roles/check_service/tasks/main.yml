@@ -1,0 +1,40 @@
+---
+- name:  settings.json
+  set_fact:
+    _svc_settings: "{{ lookup('file', inspection_home ~ '/data/settings.json') | from_json }}"
+  delegate_to: localhost
+
+- name: 
+  set_fact:
+    service_check_list: "{{ _svc_settings.service_check_list | default(service_check_list_default) }}"
+
+- name: Debian  crond  cron
+  set_fact:
+    service_check_list: >-
+      {{ service_check_list
+         | map('regex_replace', '^crond$', 'cron')
+         | map('regex_replace', '^httpd$', 'apache2')
+         | list }}
+  when: ansible_os_family == 'Debian'
+
+- name: Linux
+  include_tasks: linux.yml
+  when: ansible_system == "Linux"
+
+- name: AIX
+  include_tasks: aix.yml
+  when: ansible_system == "AIX"
+
+- name: OS
+  set_fact:
+    service_result:
+      status: "unevaluated"
+      reason: " OS{{ ansible_system }}"
+      services: []
+  when:
+    - ansible_system != "Linux"
+    - ansible_system != "AIX"
+
+- name: Windows check_service
+  include_tasks: windows.yml
+  when: ansible_os_family == "Windows"

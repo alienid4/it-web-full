@@ -1,0 +1,32 @@
+# check_disk/tasks/windows.yml - EncodedCommand
+- name: Windows - Get disk info
+  raw: "powershell -EncodedCommand JABkAGkAcwBrAHMAIAA9ACAARwBlAHQALQBXAG0AaQBPAGIAagBlAGMAdAAgAFcAaQBuADMAMgBfAEwAbwBnAGkAYwBhAGwARABpAHMAawAgAC0ARgBpAGwAdABlAHIAIAAnAEQAcgBpAHYAZQBUAHkAcABlAD0AMwAnADsAIAAkAHIAZQBzAHUAbAB0ACAAPQAgAEAAKAApADsAIABmAG8AcgBlAGEAYwBoACgAJABkACAAaQBuACAAJABkAGkAcwBrAHMAKQB7ACAAJABwAGMAdAAgAD0AIABbAG0AYQB0AGgAXQA6ADoAUgBvAHUAbgBkACgAKAAkAGQALgBTAGkAegBlACAALQAgACQAZAAuAEYAcgBlAGUAUwBwAGEAYwBlACkAIAAvACAAJABkAC4AUwBpAHoAZQAgACoAIAAxADAAMAAsACAAMAApADsAIAAkAHIAZQBzAHUAbAB0ACAAKwA9ACAAQAB7AEQAZQB2AGkAYwBlAEkARAA9ACQAZAAuAEQAZQB2AGkAYwBlAEkARAA7ACAAUwBpAHoAZQA9AFsAbQBhAHQAaABdADoAOgBSAG8AdQBuAGQAKAAkAGQALgBTAGkAegBlAC8AMQBHAEIALAAxACkAOwAgAFUAcwBlAGQAPQBbAG0AYQB0AGgAXQA6ADoAUgBvAHUAbgBkACgAKAAkAGQALgBTAGkAegBlAC0AJABkAC4ARgByAGUAZQBTAHAAYQBjAGUAKQAvADEARwBCACwAMQApADsAIABGAHIAZQBlAD0AWwBtAGEAdABoAF0AOgA6AFIAbwB1AG4AZAAoACQAZAAuAEYAcgBlAGUAUwBwAGEAYwBlAC8AMQBHAEIALAAxACkAOwAgAFAAZQByAGMAZQBuAHQAPQAkAHAAYwB0AH0AIAB9ADsAIAAkAHIAZQBzAHUAbAB0ACAAfAAgAEMAbwBuAHYAZQByAHQAVABvAC0ASgBzAG8AbgA="
+  register: win_disk_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: Windows - Parse disk
+  set_fact:
+    _win_disks_parsed: "{{ (win_disk_raw.stdout | trim | from_json) if win_disk_raw is succeeded and win_disk_raw.stdout | trim != '' else [] }}"
+
+- name: Windows - Normalize to list
+  set_fact:
+    _win_disks: "{{ [_win_disks_parsed] if _win_disks_parsed is mapping else _win_disks_parsed | default([]) }}"
+
+- name: Windows - Build partitions
+  set_fact:
+    parsed_partitions: "{{ parsed_partitions | default([]) + [{'mount': item.DeviceID, 'size': (item.Size | string) + 'G', 'used': (item.Used | string) + 'G', 'free': (item.Free | string) + 'G', 'percent': item.Percent | int, 'status': 'error' if (item.Percent | int) >= (disk_crit | int) else 'warn' if (item.Percent | int) >= (disk_warn | int) else 'ok'}] }}"
+  loop: "{{ _win_disks | default([]) }}"
+  loop_control:
+    label: "{{ item.DeviceID | default('?') }}"
+
+- name: Windows - Set disk result
+  set_fact:
+    disk_result:
+      status: >-
+        {{ 'error' if parsed_partitions | default([]) | selectattr('status', 'eq', 'error') | list | length > 0
+           else 'warn' if parsed_partitions | default([]) | selectattr('status', 'eq', 'warn') | list | length > 0
+           else 'ok' }}
+      warn_threshold: "{{ disk_warn }}"
+      crit_threshold: "{{ disk_crit }}"
+      partitions: "{{ parsed_partitions | default([]) }}"

@@ -1,0 +1,54 @@
+# =========================================================
+# roles/check_disk/tasks/linux.yml
+# Linux df -h
+# v1.3 disk_exclude_prefixes
+# =========================================================
+
+#  1.  df -h
+- name: 
+  command: df -h --output=target,size,used,avail,pcent
+  register: df_output
+  changed_when: false
+
+#  2.  + 
+- name: 
+  set_fact:
+    parsed_partitions: "{{ parsed_partitions | default([]) + [partition_item] }}"
+  vars:
+    partition_item:
+      mount:   "{{ item.split()[0] }}"
+      size:    "{{ item.split()[1] }}"
+      used:    "{{ item.split()[2] }}"
+      free:    "{{ item.split()[3] }}"
+      percent: "{{ item.split()[4] | regex_replace('%', '') | int }}"
+      status: >-
+        {{
+          'error' if (item.split()[4] | regex_replace('%', '') | int) >= (disk_crit | int)
+          else 'warn' if (item.split()[4] | regex_replace('%', '') | int) >= (disk_warn | int)
+          else 'ok'
+        }}
+  loop: "{{ df_output.stdout_lines[1:] }}"
+  when:
+    - item.split() | length >= 5
+    - item.split()[0] not in disk_exclude
+    - >-
+      (disk_exclude_prefixes | default([])) | length == 0 or
+      not (item.split()[0] | regex_search(
+        '^(' ~ (disk_exclude_prefixes | default([]) | map('regex_escape') | join('|')) ~ ')'
+      ))
+  loop_control:
+    label: "{{ item.split()[0] | default('unknown') }}"
+
+#  3. 
+- name: 
+  set_fact:
+    disk_result:
+      status: >-
+        {{
+          'error' if parsed_partitions | default([]) | selectattr('status', 'eq', 'error') | list | length > 0
+          else 'warn' if parsed_partitions | default([]) | selectattr('status', 'eq', 'warn') | list | length > 0
+          else 'ok'
+        }}
+      warn_threshold: "{{ disk_warn }}"
+      crit_threshold: "{{ disk_crit }}"
+      partitions: "{{ parsed_partitions | default([]) }}"

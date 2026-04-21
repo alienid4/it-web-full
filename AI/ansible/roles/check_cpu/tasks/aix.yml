@@ -1,0 +1,37 @@
+---
+- name:  AIX CPU 
+  shell: "vmstat 1 3 | tail -1 | awk '{id=$14; print 100-id}'"
+  register: cpu_raw
+  changed_when: false
+  async: 120
+  poll: 5
+
+- name:  AIX Memory 
+  shell: |
+    svmon -G -O unit=KB 2>/dev/null | awk '/^memory/ {
+      inuse=$3; free=$4; total=inuse+free;
+      if(total>0) printf \"%.0f\", inuse/total*100; else print \"0\"
+    }'
+  register: mem_raw
+  changed_when: false
+
+- name:  CPU/Memory 
+  set_fact:
+    cpu_result:
+      cpu_percent: "{{ cpu_raw.stdout | default('0') | int }}"
+      cpu_status: >-
+        {{ 'error' if (cpu_raw.stdout | default('0') | int) >= (cpu_error_threshold | default(90))
+           else 'warn' if (cpu_raw.stdout | default('0') | int) >= (cpu_warn_threshold | default(80))
+           else 'ok' }}
+      mem_percent: "{{ mem_raw.stdout | default('0') | int }}"
+      mem_status: >-
+        {{ 'error' if (mem_raw.stdout | default('0') | int) >= (mem_error_threshold | default(95))
+           else 'warn' if (mem_raw.stdout | default('0') | int) >= (mem_warn_threshold | default(85))
+           else 'ok' }}
+      status: >-
+        {{ 'error' if (cpu_raw.stdout | default('0') | int) >= (cpu_error_threshold | default(90))
+                   or (mem_raw.stdout | default('0') | int) >= (mem_error_threshold | default(95))
+           else 'warn' if (cpu_raw.stdout | default('0') | int) >= (cpu_warn_threshold | default(80))
+                       or (mem_raw.stdout | default('0') | int) >= (mem_warn_threshold | default(85))
+           else 'ok' }}
+      os: "AIX"

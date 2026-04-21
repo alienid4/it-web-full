@@ -1,0 +1,575 @@
+{% extends "base.html" %}
+{% block title %}{{ hostname }} - 巡檢詳細報告{% endblock %}
+{% block content %}
+<div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+  <a href="/report" style="color:var(--g2);text-decoration:none;font-size:14px;">&larr; 返回今日報告</a>
+  <button id="rescan-host-btn" class="btn" style="background:var(--g2);color:white;font-size:13px;padding:8px 18px;" onclick="rescanThisHost()">🔄 重新掃描此主機</button>
+</div>
+<h2 style="margin-bottom:20px;font-size:20px;" id="detail-title">{{ hostname }} 巡檢詳細報告</h2>
+
+<div id="detail-loading" class="skeleton" style="height:400px;"></div>
+<div id="detail-content" style="display:none;">
+
+  <!-- Header -->
+  <div class="card" id="header-card" style="margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h3 id="d-hostname" style="font-size:18px;margin-bottom:4px;"></h3>
+        <span id="d-meta" style="font-size:13px;color:var(--c3);"></span>
+      </div>
+      <span id="d-badge" class="badge" style="font-size:16px;padding:6px 16px;"></span>
+    </div>
+  </div>
+
+  <!-- UID=0 Alert -->
+  <div id="uid0-detail-alert" style="display:none;margin-bottom:16px;">
+    <div class="uid0-alert">UID=0 異動警示：偵測到高危特權帳號變更！請立即檢查。</div>
+  </div>
+
+  <!-- Row 1: System Info -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px;">
+    <div class="card" style="text-align:center;padding:16px;">
+      <div style="font-size:11px;color:var(--c3);text-transform:uppercase;">開機時間</div>
+      <div id="d-uptime-boot" style="font-family:JetBrains Mono;font-size:13px;margin-top:4px;">-</div>
+      <div id="d-uptime-dur" style="font-size:11px;color:var(--c3);margin-top:2px;">-</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px;">
+      <div style="font-size:11px;color:var(--c3);text-transform:uppercase;">線上用戶</div>
+      <div id="d-users-count" style="font-family:JetBrains Mono;font-size:24px;font-weight:500;margin-top:4px;">-</div>
+      <div id="d-users-list" style="font-size:11px;color:var(--c3);margin-top:2px;">-</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px;">
+      <div style="font-size:11px;color:var(--c3);text-transform:uppercase;">Swap</div>
+      <div id="d-swap-val" style="font-family:JetBrains Mono;font-size:24px;font-weight:500;margin-top:4px;">-</div>
+      <div id="d-swap-detail" style="font-size:11px;color:var(--c3);margin-top:2px;">-</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px;">
+      <div style="font-size:11px;color:var(--c3);text-transform:uppercase;">IO Busy</div>
+      <div id="d-io-val" style="font-family:JetBrains Mono;font-size:24px;font-weight:500;margin-top:4px;">-</div>
+      <div id="d-io-detail" style="font-size:11px;color:var(--c3);margin-top:2px;">-</div>
+    </div>
+  </div>
+
+  <!-- Row 2: CPU/MEM + Load Average -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div class="card">
+      <div class="card-title"><span style="color:var(--g1);vertical-align:middle;margin-right:6px;" id="icon-cpu"></span>CPU / 記憶體</div>
+      <div id="d-cpu"></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="color:var(--orange);vertical-align:middle;margin-right:6px;" id="icon-load"></span>負載平衡 (Load Average)</div>
+      <div id="d-load"></div>
+    </div>
+  </div>
+
+  <!-- Row 3: Disk (collapsible) -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title"><span style="color:var(--g1);vertical-align:middle;margin-right:6px;" id="icon-disk"></span>磁碟使用率</div>
+    <div id="d-disk"></div>
+  </div>
+
+  <!-- Row 4: Services + Account -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div class="card">
+      <div class="card-title"><span style="color:var(--g1);vertical-align:middle;margin-right:6px;" id="icon-svc"></span>服務狀態</div>
+      <div id="d-service"></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span style="color:var(--orange);vertical-align:middle;margin-right:6px;" id="icon-acct"></span>帳號稽核</div>
+      <div id="d-account"></div>
+    </div>
+  </div>
+
+  <!-- Row 5: Error Log -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title"><span style="color:var(--red);vertical-align:middle;margin-right:6px;" id="icon-log"></span>錯誤日誌</div>
+    <div id="d-errorlog"></div>
+  </div>
+
+  <!-- Row 6: Failed Login -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title"><span style="color:var(--red);vertical-align:middle;margin-right:6px;" id="icon-lock"></span>登入失敗監控</div>
+    <div id="d-faillogin"></div>
+  </div>
+
+  <!-- Row 7: Windows Only (hidden for Linux) -->
+  <div id="windows-section" style="display:none;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+      <div class="card">
+        <div class="card-title">Windows Update</div>
+        <div id="d-win-update"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Windows Defender</div>
+        <div id="d-win-defender"></div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div class="card">
+        <div class="card-title">IIS 狀態</div>
+        <div id="d-win-iis"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">防火牆</div>
+        <div id="d-win-firewall"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- No Data -->
+<div id="detail-nodata" style="display:none;">
+  <div class="no-data"><div class="no-data-icon">&#128203;</div>此主機尚無巡檢資料</div>
+</div>
+
+<!-- 服務控制確認 Modal -->
+<div class="modal-overlay" id="svc-modal">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-title">服務操作確認</div>
+    <p id="svc-modal-msg" style="font-size:14px;color:var(--c1);margin-bottom:20px;"></p>
+    <div id="svc-modal-result" style="display:none;margin-bottom:16px;padding:12px;border-radius:8px;font-size:13px;"></div>
+    <div id="svc-modal-btns" style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn" style="background:var(--c4);color:var(--c1);" onclick="closeSvcModal()">取消</button>
+      <button class="btn btn-primary" id="svc-modal-confirm" onclick="execService()">確定執行</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+var hostname = "{{ hostname }}";
+
+function statusColor(s) {
+  s = (s||"ok").trim();
+  return s==="error"?"var(--red)":s==="warn"?"var(--orange)":"var(--g1)";
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  fetch("/api/inspections/" + hostname + "/latest").then(function(r){return r.json();}).then(function(res) {
+    document.getElementById("detail-loading").style.display = "none";
+    if (!res.success || !res.data) {
+      document.getElementById("detail-nodata").style.display = "block";
+      return;
+    }
+    document.getElementById("detail-content").style.display = "block";
+    var h = res.data;
+    var s = (h.overall_status || "ok").trim();
+
+    // Header
+    document.getElementById("d-hostname").textContent = h.hostname;
+    document.getElementById("d-meta").textContent = (h.ip||"") + " | " + (h.os||"") + " | " + (h.run_date||"") + " " + (h.run_time||"");
+    var badge = document.getElementById("d-badge");
+    badge.textContent = s==="ok"?"正常":s==="warn"?"警告":"異常";
+    badge.className = "badge badge-" + s;
+    document.getElementById("header-card").style.borderLeft = "4px solid " + statusColor(s);
+
+    var disk = h.disk || (h.results&&h.results.disk) || {};
+    var cpu = h.cpu || (h.results&&h.results.cpu) || {};
+    var svc = h.service || (h.results&&h.results.service) || {};
+    var acct = h.account || (h.results&&h.results.account) || {};
+    var elog = h.error_log || (h.results&&h.results.error_log) || {};
+    var sys = (h.results&&h.results.system) || h.system || {};
+
+    // === System Info ===
+    var swap = sys.swap || {};
+    var io = sys.io || {};
+    var load = sys.load || {};
+    var uptime = sys.uptime || {};
+    var users = sys.users || {};
+    var faillogin = sys.faillogin || {};
+
+    // Uptime
+    document.getElementById("d-uptime-boot").textContent = uptime.boot_time || "-";
+    document.getElementById("d-uptime-dur").textContent = uptime.duration || "";
+
+    // Users
+    document.getElementById("d-users-count").textContent = users.count || "0";
+    document.getElementById("d-users-list").textContent = (users.users||[]).join(", ") || "-";
+
+    // Swap
+    var swapPct = parseFloat(swap.percent) || 0;
+    var swapEl = document.getElementById("d-swap-val");
+    swapEl.textContent = swapPct + "%";
+    swapEl.style.color = statusColor(swap.status);
+    document.getElementById("d-swap-detail").textContent = (swap.used_mb||"0") + "MB / " + (swap.total_mb||"0") + "MB";
+
+    // IO
+    var ioBusy = parseFloat(io.max_busy) || 0;
+    var ioEl = document.getElementById("d-io-val");
+    ioEl.textContent = ioBusy + "%";
+    ioEl.style.color = statusColor(io.status);
+    var ioDevices = io.devices || [];
+    document.getElementById("d-io-detail").textContent = ioDevices.length ? ioDevices.map(function(d){return d.device+":"+d.busy_percent+"%";}).join(" ") : "N/A";
+
+    // CPU
+    var cpuPct = cpu.cpu_percent || cpu.percent || "N/A";
+    var memPct = cpu.mem_percent || "N/A";
+    var cpuStatus = (cpu.status || cpu.cpu_status || "ok").trim();
+    var memStatus = (cpu.mem_status || "ok").trim();
+    document.getElementById("d-cpu").innerHTML =
+      '<div style="display:flex;gap:24px;align-items:center;"><div style="text-align:center;"><div style="font-family:JetBrains Mono;font-size:28px;font-weight:500;color:' + statusColor(cpuStatus) + '">' + cpuPct + '%</div><div style="font-size:12px;color:var(--c3)">CPU</div></div><div style="text-align:center;"><div style="font-family:JetBrains Mono;font-size:28px;font-weight:500;color:' + statusColor(memStatus) + '">' + memPct + '%</div><div style="font-size:12px;color:var(--c3)">Memory</div></div></div>';
+
+    // Load Average
+    var cpuCount = parseInt(load.cpu_count) || 1;
+    var l1 = parseFloat(load.load_1) || 0;
+    var l5 = parseFloat(load.load_5) || 0;
+    var l15 = parseFloat(load.load_15) || 0;
+    var loadHtml = '<div style="display:flex;gap:16px;align-items:center;margin-bottom:8px;">';
+    [["1min", l1], ["5min", l5], ["15min", l15]].forEach(function(item) {
+      var ratio = item[1] / cpuCount;
+      var lc = ratio >= 4 ? "var(--red)" : ratio >= 2 ? "var(--orange)" : "var(--g1)";
+      loadHtml += '<div style="text-align:center;"><div style="font-family:JetBrains Mono;font-size:20px;font-weight:500;color:' + lc + ';">' + item[1].toFixed(2) + '</div><div style="font-size:11px;color:var(--c3);">' + item[0] + '</div></div>';
+    });
+    loadHtml += '</div>';
+    loadHtml += '<div style="font-size:12px;color:var(--c3);">CPU 核心數: ' + cpuCount + ' | 負載比 (1min): ' + (l1/cpuCount).toFixed(2) + '</div>';
+    document.getElementById("d-load").innerHTML = loadHtml;
+
+    // === Disk (OK just show badge, problem show details) ===
+    var partitions = disk.partitions || [];
+    var diskStatus = (disk.status || "ok").trim();
+    var problemParts = partitions.filter(function(p){ var ps = (p.status||"ok").trim(); return ps !== "ok"; });
+
+    if (diskStatus === "ok" && problemParts.length === 0) {
+      document.getElementById("d-disk").innerHTML = '<div style="display:flex;align-items:center;gap:8px;"><span class="badge badge-ok">OK</span><span style="font-size:13px;color:var(--c3);">' + partitions.length + ' 個分區皆正常</span></div>';
+    } else {
+      var diskHtml = '';
+      if (problemParts.length > 0) {
+        diskHtml += '<div style="margin-bottom:12px;">';
+        problemParts.forEach(function(p) {
+          var pct = parseInt(p.percent)||0;
+          var ds = pct>=95?"error":pct>=85?"warn":"ok";
+          diskHtml += '<div style="margin-bottom:8px;"><div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span><strong>' + p.mount + '</strong> <span class="badge badge-' + ds + '" style="font-size:11px;">' + (ds==="error"?"嚴重":"警告") + '</span></span><span style="font-family:JetBrains Mono">' + p.used + ' / ' + p.size + ' (' + pct + '%)</span></div><div class="progress-bar" style="height:12px;"><div class="progress-fill ' + ds + '" style="width:' + pct + '%;"></div></div></div>';
+        });
+        diskHtml += '</div>';
+      }
+      var okParts = partitions.filter(function(p){ return (p.status||"ok").trim() === "ok"; });
+      if (okParts.length > 0) {
+        diskHtml += '<div style="font-size:12px;color:var(--c3);margin-top:8px;">其餘 ' + okParts.length + ' 個分區正常: ' + okParts.map(function(p){return p.mount + "(" + p.percent + "%)";}).join(", ") + '</div>';
+      }
+      document.getElementById("d-disk").innerHTML = diskHtml;
+    }
+
+    // === Services ===
+    var services = svc.services || [];
+    if (services.length) {
+      document.getElementById("d-service").innerHTML = '<table style="width:100%"><thead><tr><th>服務名稱</th><th>狀態</th><th>存活時間</th><th style="width:180px;text-align:center;">操作</th></tr></thead><tbody>' +
+        services.map(function(sv) {
+          var st = (sv.status || "unknown").trim();
+          var cls = (st==="active"||st==="ok")?"ok":st==="inactive"?"error":"warn";
+          var isActive = (st==="active"||st==="ok");
+          var btns = '';
+          if (!isActive) btns += '<button class="btn btn-sm" style="background:var(--g1);color:white;margin-right:4px;font-size:11px;padding:4px 10px;" onclick="confirmSvc(\'' + sv.name + '\',\'start\')">啟動</button>';
+          btns += '<button class="btn btn-sm" style="background:var(--orange);color:white;margin-right:4px;font-size:11px;padding:4px 10px;" onclick="confirmSvc(\'' + sv.name + '\',\'restart\')">重啟</button>';
+          if (isActive) btns += '<button class="btn btn-sm" style="background:var(--red);color:white;font-size:11px;padding:4px 10px;" onclick="confirmSvc(\'' + sv.name + '\',\'stop\')">停止</button>';
+          return '<tr><td>' + sv.name + '</td><td><span class="badge badge-' + cls + '">' + st + '</span></td><td id="uptime-' + sv.name + '" style="font-size:12px;color:var(--c3);font-family:JetBrains Mono;">查詢中...</td><td style="text-align:center;">' + btns + '</td></tr>';
+        }).join("") + '</tbody></table>';
+      // 即時查詢存活時間
+      var svcNames = services.map(function(sv){ return sv.name; });
+      fetch("/api/admin/hosts/" + hostname + "/service-status", {
+        method: "POST", credentials: "include",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({services: svcNames})
+      }).then(function(r){ return r.json(); }).then(function(res) {
+        if (res.success && res.data) {
+          res.data.forEach(function(s) {
+            var el = document.getElementById("uptime-" + s.name);
+            if (!el) return;
+            if (s.since && s.since !== "" && s.state === "active") {
+              var sinceStr = s.since.replace(" CST", "+08:00").replace(" UTC", "+00:00");
+              var d = new Date(sinceStr);
+              if (!isNaN(d.getTime())) {
+                var diff = Math.floor((Date.now() - d.getTime()) / 1000);
+                if (diff < 0) diff = 0;
+                var days = Math.floor(diff / 86400);
+                var hrs = Math.floor((diff % 86400) / 3600);
+                var mins = Math.floor((diff % 3600) / 60);
+                el.textContent = (days > 0 ? days + "d " : "") + hrs + "h " + mins + "m";
+                el.style.color = "var(--g2)";
+              } else {
+                el.textContent = s.since;
+              }
+            } else if (s.state !== "active") {
+              el.textContent = "未運行";
+              el.style.color = "var(--red)";
+            } else {
+              el.textContent = "-";
+            }
+          });
+        }
+      }).catch(function() {
+        svcNames.forEach(function(n) {
+          var el = document.getElementById("uptime-" + n);
+          if (el) { el.textContent = "-"; }
+        });
+      });
+    } else {
+      document.getElementById("d-service").innerHTML = '<span style="color:var(--c3)">無服務資料</span>';
+    }
+
+    // === Account ===
+    var acctStatus = (acct.status || "ok").trim();
+    var added = acct.accounts_added || [];
+    var removed = acct.accounts_removed || [];
+    var uid0 = acct.uid0_alert || false;
+    var acctHtml = '<div style="margin-bottom:8px;"><span class="badge badge-' + acctStatus + '">' + acctStatus + '</span> <span style="font-size:13px;color:var(--c3);margin-left:8px;">總帳號數: ' + (acct.total_accounts||"-") + '</span></div>';
+    if (added.length) {
+      var names = added.map(function(a){return typeof a==="string"?a:(a.name||String(a));}).join(", ");
+      acctHtml += '<div style="font-size:13px;margin-bottom:4px;"><strong style="color:var(--orange);">新增帳號:</strong> ' + names + '</div>';
+    }
+    if (removed.length) {
+      var rnames = removed.map(function(a){return typeof a==="string"?a:(a.name||String(a));}).join(", ");
+      acctHtml += '<div style="font-size:13px;"><strong style="color:var(--red);">移除帳號:</strong> ' + rnames + '</div>';
+    }
+    if (acct.note) acctHtml += '<div style="font-size:12px;color:var(--c3);margin-top:4px;">備註: ' + acct.note + '</div>';
+    document.getElementById("d-account").innerHTML = acctHtml;
+    if (uid0) document.getElementById("uid0-detail-alert").style.display = "block";
+
+    // === Error Log ===
+    var errCount = parseInt(elog.error_count || elog.count || 0);
+    var warnCount = parseInt(elog.warn_count || 0);
+    var entries = elog.entries || [];
+    var elogHtml = '<div style="margin-bottom:8px;font-size:14px;"><span class="badge badge-' + ((elog.status||"ok").trim()) + '">' + (elog.status||"ok").trim() + '</span> <span style="margin-left:8px;">錯誤: <strong>' + errCount + '</strong></span>';
+    if (warnCount) elogHtml += ' <span style="margin-left:8px;">警告: <strong>' + warnCount + '</strong></span>';
+    if (elog.log_file) elogHtml += ' <span style="margin-left:8px;color:var(--c3);font-size:12px;">(' + elog.log_file + ')</span>';
+    elogHtml += '</div>';
+    if (entries.length) {
+      elogHtml += '<table style="width:100%"><thead><tr><th>時間</th><th>等級</th><th>訊息</th></tr></thead><tbody>';
+      entries.forEach(function(e) {
+        var lvl = (e.level || e.severity || "err").trim();
+        var cls = (lvl==="err"||lvl==="error"||lvl==="crit")?"error":"warn";
+        elogHtml += '<tr><td style="white-space:nowrap;">' + (e.time||"") + '</td><td><span class="badge badge-' + cls + '">' + lvl + '</span></td><td style="font-size:12px;word-break:break-all;">' + (e.message||"") + '</td></tr>';
+      });
+      elogHtml += '</tbody></table>';
+    } else {
+      elogHtml += '<div style="font-size:13px;color:var(--c3);">' + (errCount > 0 ? "日誌詳情請查看 " + (elog.log_file||"/var/log/messages") : "無錯誤日誌") + '</div>';
+    }
+    document.getElementById("d-errorlog").innerHTML = elogHtml;
+
+    // === Failed Login ===
+    var flTotal = parseInt(faillogin.total_failures) || 0;
+    var flTop = faillogin.top_offenders || [];
+    var flRaw = faillogin.raw_entries || [];
+    var flLocked = faillogin.locked_accounts || [];
+    var flStatus = (faillogin.status || "ok").trim();
+    var flHtml = '<div style="margin-bottom:8px;"><span class="badge badge-' + flStatus + '">' + flStatus + '</span> <span style="font-size:13px;margin-left:8px;">總失敗次數: <strong>' + flTotal + '</strong></span></div>';
+
+    // Locked accounts warning + unlock commands
+    var lockedUsers = flLocked.filter(function(l){return l.locked;});
+    if (lockedUsers.length) {
+      flHtml += '<div style="background:#FFEBEE;border-radius:6px;padding:12px;margin-bottom:12px;">';
+      flHtml += '<div style="font-weight:700;color:#E00B00;margin-bottom:6px;">被鎖定帳號</div>';
+      lockedUsers.forEach(function(l) {
+        flHtml += '<div style="margin-bottom:6px;font-size:13px;">';
+        flHtml += '<strong>' + l.user + '</strong> <span class="badge badge-error" style="font-size:11px;">LOCKED</span>';
+        flHtml += '<div style="margin-top:4px;font-size:12px;color:#555;">解鎖指令:</div>';
+        flHtml += '<code style="display:block;background:#F7F7F7;padding:4px 8px;border-radius:3px;font-size:12px;margin-top:2px;">passwd -u ' + l.user + '</code>';
+        flHtml += '<code style="display:block;background:#F7F7F7;padding:4px 8px;border-radius:3px;font-size:12px;margin-top:2px;">pam_tally2 --user=' + l.user + ' --reset</code>';
+        flHtml += '<code style="display:block;background:#F7F7F7;padding:4px 8px;border-radius:3px;font-size:12px;margin-top:2px;">faillock --user ' + l.user + ' --reset</code>';
+        flHtml += '</div>';
+      });
+      flHtml += '</div>';
+    }
+
+    // Top offenders table with lock status
+    if (flTop.length) {
+      flHtml += '<table style="width:100%;margin-bottom:12px;"><thead><tr><th>帳號</th><th>失敗次數</th><th>帳號狀態</th><th style="width:200px;text-align:center;">操作</th></tr></thead><tbody>';
+      flTop.forEach(function(f) {
+        var lockInfo = flLocked.find(function(l){return l.user === f.user;}) || {};
+        var lockBadge = lockInfo.locked ? '<span class="badge badge-error" style="font-size:11px;">LOCKED</span>' : '<span class="badge badge-ok" style="font-size:11px;">' + (lockInfo.status || "OK") + '</span>';
+        var btns = '<button class="btn btn-sm" style="background:var(--g1);color:white;font-size:11px;padding:4px 10px;margin-right:4px;" onclick="faillockAction(\'' + f.user + '\',\'unlock\')">解除鎖定</button>';
+        btns += '<button class="btn btn-sm" style="background:var(--orange);color:white;font-size:11px;padding:4px 10px;" onclick="faillockAction(\'' + f.user + '\',\'reset\')">重設計數</button>';
+        flHtml += '<tr><td><strong style="color:#E00B00;">' + f.user + '</strong></td><td style="font-family:JetBrains Mono;">' + f.count + '</td><td>' + lockBadge + '</td><td style="text-align:center;">' + btns + '</td></tr>';
+      });
+      flHtml += '</tbody></table>';
+    } else {
+      flHtml += '<div style="font-size:13px;color:#888;margin-bottom:12px;">無超過門檻的失敗登入</div>';
+    }
+
+    // Raw data (collapsible)
+    if (flRaw.length) {
+      flHtml += '<details style="margin-top:8px;"><summary style="cursor:pointer;font-size:13px;color:#26A862;font-weight:500;">查看 Raw Data (' + flRaw.length + ' 筆最近記錄)</summary>';
+      flHtml += '<table style="width:100%;margin-top:8px;"><thead><tr><th>帳號</th><th>來源 IP</th><th>時間</th></tr></thead><tbody>';
+      flRaw.forEach(function(r) {
+        flHtml += '<tr><td style="color:#E00B00;">' + (r.user||"") + '</td><td>' + (r.source||"") + '</td><td style="font-family:JetBrains Mono;font-size:12px;">' + (r.time||"") + '</td></tr>';
+      });
+      flHtml += '</tbody></table></details>';
+    }
+
+    document.getElementById("d-faillogin").innerHTML = flHtml;
+
+    // === Windows Section ===
+    var win = (h.results && h.results.windows) || h.windows || {};
+    if (win.updates || win.defender || win.iis || (win.firewall && win.firewall.length)) {
+      document.getElementById("windows-section").style.display = "block";
+
+      // Windows Update
+      var updates = win.updates || {};
+      var updHtml = '<div style="margin-bottom:8px;font-size:14px;">最近 30 天更新: <strong>' + (updates.count||0) + '</strong> 個</div>';
+      var recent = updates.recent || [];
+      if (recent.length) {
+        updHtml += '<table style="width:100%;"><thead><tr><th>KB</th><th>說明</th><th>日期</th></tr></thead><tbody>';
+        recent.forEach(function(u) {
+          updHtml += '<tr><td style="font-family:JetBrains Mono;">' + (u.id||"") + '</td><td style="font-size:12px;">' + (u.desc||"") + '</td><td>' + (u.date||"") + '</td></tr>';
+        });
+        updHtml += '</tbody></table>';
+      }
+      document.getElementById("d-win-update").innerHTML = updHtml;
+
+      // Defender
+      var def = win.defender || {};
+      var defColor = def.enabled ? "var(--g1)" : "var(--red)";
+      var sigAge = parseInt(def.signature_age_days) || 999;
+      var sigColor = sigAge <= 3 ? "var(--g1)" : sigAge <= 7 ? "var(--orange)" : "var(--red)";
+      var defHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">';
+      defHtml += '<div><strong>防護:</strong> <span style="color:' + defColor + ';">' + (def.enabled ? "啟用" : "停用") + '</span></div>';
+      defHtml += '<div><strong>即時保護:</strong> <span style="color:' + (def.realtime ? "var(--g1)" : "var(--red)") + ';">' + (def.realtime ? "啟用" : "停用") + '</span></div>';
+      defHtml += '<div><strong>病毒碼:</strong> <span style="color:' + sigColor + ';">' + (def.signature_date||"N/A") + ' (' + sigAge + '天)</span></div>';
+      defHtml += '<div><strong>最近掃描:</strong> ' + (def.last_scan||"N/A") + '</div>';
+      if (parseInt(def.threats_detected) > 0) {
+        defHtml += '<div style="grid-column:1/-1;color:var(--red);font-weight:700;">偵測到威脅: ' + def.threats_detected + '</div>';
+      }
+      defHtml += '</div>';
+      document.getElementById("d-win-defender").innerHTML = defHtml;
+
+      // IIS
+      var iis = win.iis || {};
+      if (iis.installed) {
+        var iisHtml = '<div style="margin-bottom:8px;"><span class="badge badge-' + (iis.status==="Running"?"ok":"error") + '">' + iis.status + '</span></div>';
+        var sites = iis.sites || [];
+        if (sites.length) {
+          iisHtml += '<table style="width:100%;"><thead><tr><th>站台</th><th>狀態</th><th>Bindings</th></tr></thead><tbody>';
+          sites.forEach(function(s) {
+            iisHtml += '<tr><td>' + s.name + '</td><td><span class="badge badge-' + (s.state==="Started"?"ok":"error") + '">' + s.state + '</span></td><td style="font-size:11px;">' + (s.bindings||"") + '</td></tr>';
+          });
+          iisHtml += '</tbody></table>';
+        }
+        document.getElementById("d-win-iis").innerHTML = iisHtml;
+      } else {
+        document.getElementById("d-win-iis").innerHTML = '<span style="color:var(--c3);">IIS 未安裝</span>';
+      }
+
+      // Firewall
+      var fw = win.firewall || [];
+      if (fw.length) {
+        var fwHtml = '<table style="width:100%;"><thead><tr><th>Profile</th><th>狀態</th></tr></thead><tbody>';
+        fw.forEach(function(f) {
+          fwHtml += '<tr><td>' + f.name + '</td><td><span class="badge badge-' + (f.enabled?"ok":"error") + '">' + (f.enabled?"啟用":"停用") + '</span></td></tr>';
+        });
+        fwHtml += '</tbody></table>';
+        document.getElementById("d-win-firewall").innerHTML = fwHtml;
+      } else {
+        document.getElementById("d-win-firewall").innerHTML = '<span style="color:var(--c3);">無防火牆資訊</span>';
+      }
+    }
+  });
+  // Inject SVG icons
+  if (typeof CTIcon !== "undefined") {
+
+    var iconMap = {"icon-cpu":CTIcon.cpu,"icon-load":CTIcon.activity,"icon-disk":CTIcon.disk,"icon-svc":CTIcon.service,"icon-acct":CTIcon.user,"icon-log":CTIcon.fileText,"icon-lock":CTIcon.lock};
+    for (var id in iconMap) { var el=document.getElementById(id); if(el) el.innerHTML=iconMap[id]; }
+  }
+});
+
+// === 服務控制 ===
+var _svcName = "", _svcAction = "";
+var _actionText = {start:"啟動", stop:"停止", restart:"重啟"};
+var _actionColor = {start:"var(--g1)", stop:"var(--red)", restart:"var(--orange)"};
+
+function confirmSvc(name, action) {
+  if (!requirePermission("admin")) return;
+  _svcName = name;
+  _svcAction = action;
+  document.getElementById("svc-modal-msg").innerHTML =
+    '確定要對 <strong>' + hostname + '</strong> 的 <strong>' + name + '</strong> 服務執行「<span style="color:' + _actionColor[action] + ';font-weight:700;">' + _actionText[action] + '</span>」嗎？';
+  document.getElementById("svc-modal-result").style.display = "none";
+  document.getElementById("svc-modal-btns").style.display = "flex";
+  document.getElementById("svc-modal-confirm").disabled = false;
+  document.getElementById("svc-modal").classList.add("active");
+}
+
+function rescanThisHost() {
+  if (typeof requirePermission === "function" && !requirePermission("admin")) return;
+  var btn = document.getElementById("rescan-host-btn");
+  btn.textContent = "掃描中..."; btn.disabled = true;
+  fetch("/api/admin/system/run-inspection", {
+    method: "POST", credentials: "include",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({hostname: hostname})
+  }).then(function(r){ return r.json(); }).then(function(res) {
+    if (res.success) {
+      btn.textContent = "✓ 已觸發掃描";
+      btn.style.background = "var(--g1)";
+      setTimeout(function(){ location.reload(); }, 8000);
+    } else {
+      btn.textContent = "✗ " + (res.error || "失敗");
+      btn.style.background = "var(--red)";
+      setTimeout(function(){ btn.textContent = "🔄 重新掃描此主機"; btn.style.background = "var(--g2)"; btn.disabled = false; }, 3000);
+    }
+  }).catch(function(e) {
+    btn.textContent = "錯誤"; btn.disabled = false;
+  });
+}
+
+function faillockAction(user, action) {
+  if (typeof requirePermission === "function" && !requirePermission("admin")) return;
+  var actionText = {"unlock":"解除鎖定","reset":"重設計數","lock":"鎖定"}[action];
+  if (!confirm("確定要對 " + hostname + " 的帳號 " + user + " 執行「" + actionText + "」？")) return;
+  fetch("/api/admin/hosts/" + hostname + "/faillock", {
+    method: "POST", credentials: "include",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({user: user, action: action})
+  }).then(function(r){ return r.json(); }).then(function(res) {
+    if (res.success) {
+      alert("✓ " + res.message);
+    } else {
+      alert("✗ " + (res.error || "失敗") + "\n" + (res.output || ""));
+    }
+  }).catch(function(e) { alert("錯誤: " + e.message); });
+}
+
+function closeSvcModal() {
+  document.getElementById("svc-modal").classList.remove("active");
+}
+
+function execService() {
+  var btn = document.getElementById("svc-modal-confirm");
+  btn.disabled = true;
+  btn.textContent = "執行中...";
+  var resultDiv = document.getElementById("svc-modal-result");
+  resultDiv.style.display = "none";
+
+  fetch("/api/admin/hosts/" + hostname + "/service", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    credentials: "include",
+    body: JSON.stringify({service: _svcName, action: _svcAction})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    resultDiv.style.display = "block";
+    if (res.success) {
+      resultDiv.style.background = "#e8f5e9";
+      resultDiv.style.color = "var(--g-text)";
+      resultDiv.innerHTML = '<strong>✓ ' + res.message + '</strong>';
+      // 3 秒後關閉 modal 並重新載入頁面
+      setTimeout(function() { location.reload(); }, 2000);
+    } else {
+      resultDiv.style.background = "#ffeaea";
+      resultDiv.style.color = "var(--red)";
+      resultDiv.innerHTML = '<strong>✗ ' + (res.error||"執行失敗") + '</strong>' +
+        (res.output ? '<pre style="margin-top:8px;font-size:11px;white-space:pre-wrap;max-height:150px;overflow:auto;">' + res.output + '</pre>' : '');
+      btn.textContent = "確定執行";
+      btn.disabled = false;
+    }
+  })
+  .catch(function(e) {
+    resultDiv.style.display = "block";
+    resultDiv.style.background = "#ffeaea";
+    resultDiv.style.color = "var(--red)";
+    resultDiv.innerHTML = '<strong>✗ 網路錯誤：' + e.message + '</strong>';
+    btn.textContent = "確定執行";
+    btn.disabled = false;
+  });
+}
+</script>
+{% endblock %}

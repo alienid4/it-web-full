@@ -1,0 +1,3 @@
+# check_account defaults v1.0
+account_snapshot_dir_default: "{{ inspection_home }}/data/snapshots"
+inspection_home: /opt/inspection

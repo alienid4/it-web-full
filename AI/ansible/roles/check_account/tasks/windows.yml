@@ -1,0 +1,47 @@
+# check_account/tasks/windows.yml - EncodedCommand
+- name: Windows - Get local users
+  raw: "powershell -EncodedCommand RwBlAHQALQBMAG8AYwBhAGwAVQBzAGUAcgAgAHwAIABTAGUAbABlAGMAdAAtAE8AYgBqAGUAYwB0ACAATgBhAG0AZQAsACAARQBuAGEAYgBsAGUAZAAgAHwAIABDAG8AbgB2AGUAcgB0AFQAbwAtAEoAcwBvAG4A"
+  register: win_users_raw
+  changed_when: false
+
+- name: Windows - Get admin members
+  raw: "powershell -EncodedCommand dAByAHkAewBHAGUAdAAtAEwAbwBjAGEAbABHAHIAbwB1AHAATQBlAG0AYgBlAHIAIAAtAEcAcgBvAHUAcAAgACcAQQBkAG0AaQBuAGkAcwB0AHIAYQB0AG8AcgBzACcAIAAtAEUAQQAgAFMAdABvAHAAIAB8ACAAUwBlAGwAZQBjAHQALQBPAGIAagBlAGMAdAAgAE4AYQBtAGUALAAgAE8AYgBqAGUAYwB0AEMAbABhAHMAcwAgAHwAIABDAG8AbgB2AGUAcgB0AFQAbwAtAEoAcwBvAG4AfQBjAGEAdABjAGgAewAnAFsAXQAnAH0A"
+  register: win_admins_raw
+  changed_when: false
+  ignore_errors: yes
+
+- name: Windows - Parse users
+  set_fact:
+    _wu_raw: "{{ win_users_raw.stdout | trim | from_json }}"
+
+- name: Windows - Normalize
+  set_fact:
+    _wu: "{{ [_wu_raw] if _wu_raw is mapping else _wu_raw | default([]) }}"
+
+- name: Windows - Load previous snapshot
+  slurp:
+    src: "{{ account_snapshot_dir }}/{{ inventory_hostname }}_accounts.json"
+  register: prev_snap
+  delegate_to: localhost
+  ignore_errors: yes
+
+- name: Windows - Calc diff
+  set_fact:
+    _cur_names: "{{ _wu | map(attribute='Name') | list }}"
+    _prev_names: "{{ ((prev_snap.content | b64decode | from_json) | map(attribute='Name') | list) if prev_snap is succeeded else [] }}"
+
+- name: Windows - Set account result
+  set_fact:
+    account_result:
+      status: "{{ 'warn' if (_cur_names | difference(_prev_names) | length > 0) or (_prev_names | difference(_cur_names) | length > 0) else 'ok' }}"
+      total_accounts: "{{ _wu | length }}"
+      accounts_added: "{{ _cur_names | difference(_prev_names) }}"
+      accounts_removed: "{{ _prev_names | difference(_cur_names) }}"
+      uid0_alert: false
+      note: ""
+
+- name: Windows - Save snapshot
+  copy:
+    content: "{{ _wu | to_nice_json }}"
+    dest: "{{ account_snapshot_dir }}/{{ inventory_hostname }}_accounts.json"
+  delegate_to: localhost

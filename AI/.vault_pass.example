@@ -1,0 +1,4 @@
+# 將 Ansible Vault 密碼放在這個檔案中（單行）
+# cp .vault_pass.example .vault_pass
+# echo "your_vault_password" > .vault_pass
+# chmod 600 .vault_pass

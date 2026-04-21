@@ -1,0 +1,182 @@
+---
+# TWGCB 合規檢查 - Linux (8 項測試)
+
+# A-01: 禁止 IP 轉發
+- name: "TWGCB-01-008-0108 Check ip_forward"
+  shell: sysctl -n net.ipv4.ip_forward
+  register: check_ip_forward
+  changed_when: false
+  ignore_errors: true
+
+# A-09: /etc/crontab 權限
+- name: "TWGCB-01-008-0194 Check crontab permission"
+  shell: stat -c '%a' /etc/crontab 2>/dev/null || echo 'NOT_FOUND'
+  register: check_crontab_perm
+  changed_when: false
+  ignore_errors: true
+
+# A-15: /etc/cron.allow 存在
+- name: "TWGCB-01-008-0205 Check cron.allow"
+  shell: |
+    if [ -f /etc/cron.allow ]; then
+      content=$(cat /etc/cron.allow | tr '\n' ',')
+      echo "exists|${content}"
+    else
+      echo "missing|"
+    fi
+  register: check_cron_allow
+  changed_when: false
+  ignore_errors: true
+
+# A-18: /etc/issue 登入橫幅
+- name: "TWGCB-01-008-0039 Check login banner"
+  shell: |
+    if [ -f /etc/issue ]; then
+      content=$(cat /etc/issue)
+      if echo "$content" | grep -qiE 'authorized|warning|unauthorized|警告|未經授權'; then
+        echo "configured|${content}"
+      elif echo "$content" | grep -qE '\\\\S|\\\\r|\\\\m|\\\\l'; then
+        echo "os_info_leak|${content}"
+      else
+        echo "no_warning|${content}"
+      fi
+    else
+      echo "missing|"
+    fi
+  register: check_banner
+  changed_when: false
+  ignore_errors: true
+
+# A-21: Core Dump 限制
+- name: "TWGCB-01-008-0042 Check core dump"
+  shell: |
+    result=""
+    # Check limits.conf and limits.d
+    if grep -rq 'hard.*core.*0' /etc/security/limits.conf /etc/security/limits.d/ 2>/dev/null; then
+      result="restricted"
+    else
+      result="unrestricted"
+    fi
+    suid=$(sysctl -n fs.suid_dumpable 2>/dev/null || echo "unknown")
+    echo "${result}|suid_dumpable=${suid}"
+  register: check_core_dump
+  changed_when: false
+  ignore_errors: true
+
+# B-03: SSH MaxAuthTries
+- name: "TWGCB-01-008-0274 Check SSH MaxAuthTries"
+  shell: sshd -T 2>/dev/null | grep -i maxauthtries | awk '{print $2}'
+  register: check_ssh_maxauth
+  changed_when: false
+  ignore_errors: true
+
+# C-01: 密碼最長使用天數
+- name: "TWGCB-01-008-0227 Check PASS_MAX_DAYS"
+  shell: grep '^PASS_MAX_DAYS' /etc/login.defs | awk '{print $2}'
+  register: check_pass_max_days
+  changed_when: false
+  ignore_errors: true
+
+# D-08: Audit 帳號修改規則
+- name: "TWGCB-01-008-0156 Check audit account rules"
+  shell: |
+    rules=$(auditctl -l 2>/dev/null)
+    has_passwd=$(echo "$rules" | grep -c '/etc/passwd' || true)
+    has_shadow=$(echo "$rules" | grep -c '/etc/shadow' || true)
+    if [ "$has_passwd" -gt 0 ] && [ "$has_shadow" -gt 0 ]; then
+      echo "configured|passwd=${has_passwd},shadow=${has_shadow}"
+    elif [ "$has_passwd" -gt 0 ] || [ "$has_shadow" -gt 0 ]; then
+      echo "partial|passwd=${has_passwd},shadow=${has_shadow}"
+    else
+      echo "missing|no_rules"
+    fi
+  register: check_audit_account
+  changed_when: false
+  ignore_errors: true
+
+# 彙整結果
+- name: "Compile TWGCB results"
+  set_fact:
+    twgcb_result:
+      hostname: "{{ inventory_hostname }}"
+      scan_time: "{{ ansible_date_time.iso8601 }}"
+      os: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+      checks:
+        - id: "TWGCB-01-008-0108"
+          category: "網路參數"
+          name: "禁止 IP 轉發"
+          level: "A"
+          expected: "0"
+          actual: "{{ check_ip_forward.stdout | default('unknown') | trim }}"
+          status: "{{ 'PASS' if (check_ip_forward.stdout | default('') | trim) == '0' else 'FAIL' }}"
+          detail: "net.ipv4.ip_forward = {{ check_ip_forward.stdout | default('unknown') | trim }}"
+          remediation: "sysctl -w net.ipv4.ip_forward=0 && echo 'net.ipv4.ip_forward=0' >> /etc/sysctl.d/99-twgcb.conf"
+        - id: "TWGCB-01-008-0194"
+          category: "檔案權限"
+          name: "/etc/crontab 權限"
+          level: "A"
+          expected: "600"
+          actual: "{{ check_crontab_perm.stdout | default('unknown') | trim }}"
+          status: "{{ 'PASS' if (check_crontab_perm.stdout | default('') | trim) == '600' else 'FAIL' }}"
+          detail: "目前權限 {{ check_crontab_perm.stdout | default('unknown') | trim }}"
+          remediation: "chmod 600 /etc/crontab"
+        - id: "TWGCB-01-008-0205"
+          category: "存取控制"
+          name: "/etc/cron.allow 存在"
+          level: "A"
+          expected: "exists"
+          actual: "{{ (check_cron_allow.stdout | default('missing|')).split('|')[0] }}"
+          status: "{{ 'PASS' if (check_cron_allow.stdout | default('missing|')).split('|')[0] == 'exists' else 'FAIL' }}"
+          detail: "{{ check_cron_allow.stdout | default('missing|') }}"
+          remediation: "echo root > /etc/cron.allow && chmod 600 /etc/cron.allow"
+        - id: "TWGCB-01-008-0039"
+          category: "登入橫幅"
+          name: "/etc/issue 警告橫幅"
+          level: "A"
+          expected: "configured"
+          actual: "{{ (check_banner.stdout | default('missing|')).split('|')[0] }}"
+          status: "{{ 'PASS' if (check_banner.stdout | default('missing|')).split('|')[0] == 'configured' else 'FAIL' }}"
+          detail: "{{ (check_banner.stdout | default('missing|')).split('|')[0] }}"
+          remediation: "echo 'Authorized users only. All activity may be monitored.' > /etc/issue"
+        - id: "TWGCB-01-008-0042"
+          category: "日誌與安全"
+          name: "禁止 Core Dump"
+          level: "A"
+          expected: "restricted"
+          actual: "{{ (check_core_dump.stdout | default('unrestricted|')).split('|')[0] }}"
+          status: "{{ 'PASS' if (check_core_dump.stdout | default('unrestricted|')).split('|')[0] == 'restricted' else 'FAIL' }}"
+          detail: "{{ check_core_dump.stdout | default('unknown') }}"
+          remediation: "echo '* hard core 0' > /etc/security/limits.d/99-twgcb.conf && sysctl -w fs.suid_dumpable=0"
+        - id: "TWGCB-01-008-0274"
+          category: "SSH 加固"
+          name: "SSH MaxAuthTries"
+          level: "B"
+          expected: "4"
+          actual: "{{ check_ssh_maxauth.stdout | default('unknown') | trim }}"
+          status: "{{ 'PASS' if (check_ssh_maxauth.stdout | default('99') | trim | int) <= 4 else 'FAIL' }}"
+          detail: "MaxAuthTries = {{ check_ssh_maxauth.stdout | default('unknown') | trim }}"
+          remediation: "sed -i 's/^#*MaxAuthTries.*/MaxAuthTries 4/' /etc/ssh/sshd_config && systemctl restart sshd"
+        - id: "TWGCB-01-008-0227"
+          category: "密碼策略"
+          name: "密碼最長使用天數"
+          level: "C"
+          expected: "90"
+          actual: "{{ check_pass_max_days.stdout | default('unknown') | trim }}"
+          status: "{{ 'PASS' if (check_pass_max_days.stdout | default('99999') | trim | int) <= 90 else 'FAIL' }}"
+          detail: "PASS_MAX_DAYS = {{ check_pass_max_days.stdout | default('unknown') | trim }}"
+          remediation: "sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS 90/' /etc/login.defs"
+        - id: "TWGCB-01-008-0156"
+          category: "Audit 規則"
+          name: "稽核帳號檔案修改"
+          level: "D"
+          expected: "configured"
+          actual: "{{ (check_audit_account.stdout | default('missing|')).split('|')[0] }}"
+          status: "{{ 'PASS' if (check_audit_account.stdout | default('missing|')).split('|')[0] == 'configured' else 'FAIL' }}"
+          detail: "{{ check_audit_account.stdout | default('unknown') }}"
+          remediation: "auditctl -w /etc/passwd -p wa -k account && auditctl -w /etc/shadow -p wa -k account"
+
+- name: "Save TWGCB result to JSON"
+  copy:
+    content: "{{ twgcb_result | to_nice_json }}"
+    dest: "/opt/inspection/data/reports/twgcb_{{ inventory_hostname }}.json"
+  delegate_to: localhost

@@ -1,0 +1,24 @@
+# check_account_audit/tasks/main.yml
+- name: Load settings
+  slurp:
+    src: "{{ inspection_home }}/data/settings.json"
+  register: _audit_settings_raw
+  delegate_to: localhost
+  ignore_errors: yes
+
+- name: Parse settings
+  set_fact:
+    _audit_settings: "{{ (_audit_settings_raw.content | b64decode | from_json) if _audit_settings_raw is succeeded else {} }}"
+
+- name: Set audit thresholds
+  set_fact:
+    audit_password_days: "{{ _audit_settings.audit_password_days | default(audit_password_days) }}"
+    audit_login_days: "{{ _audit_settings.audit_login_days | default(audit_login_days) }}"
+
+- name: Linux account audit
+  include_tasks: linux.yml
+  when: ansible_system is defined and ansible_system == "Linux"
+
+- name: Windows account audit
+  include_tasks: windows.yml
+  when: ansible_os_family is defined and ansible_os_family == "Windows"
