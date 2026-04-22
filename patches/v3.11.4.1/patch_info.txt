@@ -1,0 +1,6 @@
+VERSION=3.11.4.1
+DESC=修 3 個 bug：ansible roles 找不到、date 引號、CIO python 語法
+DATE=2026-04-22
+AUTHOR=alien4job@gmail.com
+FILES=ansible/ansible.cfg, run_inspection.sh
+REQUIRES_RESTART=no

@@ -2,9 +2,15 @@
 
 本檔由 `AI/data/version.json` 轉出。版本由新到舊。
 
-目前版本：**3.11.4.0**
+目前版本：**3.11.4.1**
 
 ---
+
+## v3.11.4.1 — 2026-04-22
+修 `run_inspection.sh` 3 個 bug（使用者實跑發現）
+- (1) 新增 `ansible/ansible.cfg` 設 `roles_path=./roles`（原本缺 cfg 導致 `collect_packages.yml` 找不到 role → playbook 失敗）
+- (2) CIO snapshot 區段 `date +%Y-%m-%d %H:%M:%S` 修引號（原本被當成 2 個 arg，`%H:%M:%S` 變 extra operand）
+- (3) CIO snapshot python heredoc 修字串引號（`sys.path.insert(0, .)` → `(0, '.')`；`print([cio]...)` 整段沒 quotes 導致 SyntaxError line 3）
 
 ## v3.11.4.0 — 2026-04-22
 預設自動加本機當第一台主機 + 修 `hosts_config.json` 沒同步 bug
