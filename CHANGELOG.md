@@ -2,9 +2,15 @@
 
 本檔由 `AI/data/version.json` 轉出。版本由新到舊。
 
-目前版本：**3.11.3.0**
+目前版本：**3.11.4.0**
 
 ---
+
+## v3.11.4.0 — 2026-04-22
+預設自動加本機當第一台主機 + 修 `hosts_config.json` 沒同步 bug
+- (1) `bootstrap.py seed_hosts` 改寫：`socket.gethostname()` + `127.0.0.1` + `ansible_connection=local` + 自動偵測 OS（從 `/etc/os-release` 讀 PRETTY_NAME/ID），刪掉原本 2 個範例（`ansible-host` + `testhost01` placeholder）；新增 `_sync_hosts_config_json()` 和 `_regen_inventory()` helper，seed_hosts 即使 skip 也會強制 sync + regen 解決已裝環境
+- (2) `generate_inventory.py` 支援 host 的 `connection` 欄位 → `ansible_connection=local` var；移除 `SECANSIBLE` 硬編碼 block（含 `<ANSIBLE_HOST>` placeholder leak），改從 `hosts_config.json` 動態產 management 群組
+- (3) `patches/v3.11.4.0/post_install.sh` 自動修復：偵測 hosts 為空 seed self → 強制重建 `hosts_config.json` → `chown data/` 給 sysinfra → 重建 inventory，解決使用者 DB 加主機卻不產 json 的卡點
 
 ## v3.11.3.0 — 2026-04-22
 產品化 patch 流程 v1 + 修 example.css 404

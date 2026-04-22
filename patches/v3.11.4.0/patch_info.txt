@@ -1,0 +1,6 @@
+VERSION=3.11.4.0
+DESC=預設自動加本機當第一台主機 + 修 hosts_config.json 沒同步 bug
+DATE=2026-04-22
+AUTHOR=alien4job@gmail.com
+FILES=scripts/bootstrap.py, scripts/generate_inventory.py
+REQUIRES_RESTART=yes
