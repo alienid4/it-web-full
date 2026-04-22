@@ -2,9 +2,17 @@
 
 本檔由 `AI/data/version.json` 轉出。版本由新到舊。
 
-目前版本：**3.11.4.2**
+目前版本：**3.11.5.0**
 
 ---
+
+## v3.11.5.0 — 2026-04-22
+服務 root → sysinfra 切換（B 路線，C/onboarding 延後）
+- (1) `post_install.sh` **in-place 編輯** `/etc/systemd/system/itagent-web.service` 加 `User=sysinfra` + `Group=itagent`（不覆蓋 ExecStart，尊重實際部署）；備份帶時間戳 `.pre-v3.11.5.0.TIMESTAMP.bak`，`systemd-analyze verify` 失敗自動還原
+- (2) 安裝 `/etc/sudoers.d/sysinfra-inspection`（寬鬆 C 級）— `systemctl restart/start/stop/status` + `run_inspection.sh`；先 `visudo -c` 語法檢查才 `mv`
+- (3) `daemon-reload` + restart + 驗證 `ps -o user=` 確實以 sysinfra 執行，HTTP 200/302 ping 檢查
+- (4) 檢測 root crontab 的 `run_inspection.sh` 若非 `su - sysinfra` 版本，**印出建議指令讓 user 手動改**（不自動改 cron 避免風險）
+- (5) 前置需 `itagent` group 和 `sysinfra` 帳號存在（`setup_permissions.sh` 已鋪）
 
 ## v3.11.4.2 — 2026-04-22
 修 ansible yaml callback 警告

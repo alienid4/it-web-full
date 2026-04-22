@@ -1,6 +1,6 @@
 {
-  "version": "3.11.4.2",
-  "updated_at": "2026-04-22 16:55",
+  "version": "3.11.5.0",
+  "updated_at": "2026-04-22 17:05",
   "changelog": [
     "1.0.0.0 - 2026-04-09: 初版建立 (Phase 1-4 完成)",
     "1.1.0.0 - 2026-04-10: 新增主機詳細報告+全部主機可點擊+圖表縮小",
@@ -139,6 +139,7 @@
     "3.11.3.0 - 2026-04-22: 產品化 patch 流程 v1 + 修 example.css 404 - (1) AI/scripts/patch_apply.sh 大改, 支援 whls/ 離線 pip install (--break-system-packages, 避免 --user 裝到 /root/.local systemd 看不到) + 可選 post_install.sh hook + 環境變數驅動 ITAGENT_HOME/ITAGENT_SERVICE + REQUIRES_RESTART 旗標 + 備份排除 container/logs + HTTP 驗證 (2) 補 webapp/static/css/example.css (從 cathay.css 複製, 修 sanitize 時漏改導致 base/login/reset_password 三個模板 404 撞 MIME check) (3) patches/v3.11.3.0 完整 patch 包 (patch_info.txt + patch_apply.sh + files/) 可 tar czf 後 scp 到目標機命令列套用, Flask 不需活著 (解雞生蛋) (4) 新增 AI/scripts/user_admin.sh (9 選單: 列帳號/詳情/解鎖/改密/新增/改角色/刪/登入紀錄/一鍵診斷登入問題 - 7 層檢查 MongoDB/Flask/port/帳號/欄位/鎖定/API)",
     "3.11.4.0 - 2026-04-22: 預設自動加本機當第一台主機 + 修 hosts_config.json 沒同步 bug - (1) bootstrap.py seed_hosts 改寫: socket.gethostname() + 127.0.0.1 + ansible_connection=local + 自動偵測 OS (從 /etc/os-release 讀 PRETTY_NAME/ID), 刪掉原本 2 個範例 (ansible-host + testhost01 placeholder); 新增 _sync_hosts_config_json() 和 _regen_inventory() helper, seed_hosts 即使 skip 也會強制 sync + regen 解決已裝環境 (2) generate_inventory.py 支援 host 的 connection 欄位 -> ansible_connection=local var; 移除 SECANSIBLE 硬編碼 block 含 <ANSIBLE_HOST> placeholder leak, 改成從 hosts_config.json 動態產 management 群組 (3) patches/v3.11.4.0 patch 包含 post_install.sh 自動修復: 偵測 hosts 為空 seed self + 強制重建 hosts_config.json + chown data/ 給 sysinfra + 重建 inventory, 解決使用者 DB 加主機卻不產 json 的卡點",
     "3.11.4.1 - 2026-04-22: 修 run_inspection.sh 3 bug (1) 新增 ansible/ansible.cfg 設 roles_path=./roles (原本缺 cfg 導致 collect_packages role 在 playbooks/roles 找不到 playbook 失敗) (2) date 語法修引號 (date +%Y-%m-%d %H:%M:%S 變成 2 arg, %H:%M:%S 被當 extra operand) (3) CIO snapshot python heredoc 修字串引號 (sys.path.insert(0, .) -> (0, '.'), print([cio]...) 整段沒 quotes 導致 SyntaxError line 3) - 使用者實跑 run_inspection.sh 發現這 3 個 bug",
-    "3.11.4.2 - 2026-04-22: 修 ansible yaml callback 警告 - stdout_callback=yaml 需要 ansible.posix collection (預設沒裝), 每次跑 ansible-playbook 會印 'Invalid callback for stdout specified: yaml' 警告但不阻塞執行; 註解掉該行, 走 ansible 預設 callback. 另外本次 setup_permissions.sh 已 merge (itagent group + setgid 2770 架構, 未來 v3.11.5.0 服務切 sysinfra 的前置條件)"
+    "3.11.4.2 - 2026-04-22: 修 ansible yaml callback 警告 - stdout_callback=yaml 需要 ansible.posix collection (預設沒裝), 每次跑 ansible-playbook 會印 'Invalid callback for stdout specified: yaml' 警告但不阻塞執行; 註解掉該行, 走 ansible 預設 callback. 另外本次 setup_permissions.sh 已 merge (itagent group + setgid 2770 架構, 未來 v3.11.5.0 服務切 sysinfra 的前置條件)",
+    "3.11.5.0 - 2026-04-22: 服務 root → sysinfra 切換 - (1) post_install.sh in-place 編輯 /etc/systemd/system/itagent-web.service 加 User=sysinfra + Group=itagent 兩行 (不覆蓋 ExecStart, 尊重實際部署), 備份加時間戳 .pre-v3.11.5.0.TIMESTAMP.bak, systemd-analyze verify 失敗自動還原 (2) 安裝 /etc/sudoers.d/sysinfra-inspection 寬鬆 C 級 (systemctl restart/start/stop/status + run_inspection.sh) 先 visudo -c 語法檢查才 mv (3) daemon-reload + restart + 驗證 ps -o user 確實以 sysinfra 執行, HTTP 200/302 ping 檢查 (4) 檢測 root crontab 的 run_inspection.sh 若非 su - sysinfra 版本, 印出建議指令讓 user 手動改 (不自動改 cron 避免風險) (5) 前置需 itagent group 和 sysinfra 帳號存在 (setup_permissions.sh 已備)"
   ]
 }

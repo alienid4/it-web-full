@@ -1,0 +1,6 @@
+VERSION=3.11.5.0
+DESC=服務 root → sysinfra 切換 + sudoers 發佈
+DATE=2026-04-22
+AUTHOR=alien4job@gmail.com
+FILES=(no static files, 全靠 post_install.sh 做 in-place 修改)
+REQUIRES_RESTART=no
