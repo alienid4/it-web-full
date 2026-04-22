@@ -1,0 +1,6 @@
+VERSION=3.11.4.2
+DESC=修 ansible yaml callback 警告（stdout_callback 改預設）
+DATE=2026-04-22
+AUTHOR=alien4job@gmail.com
+FILES=ansible/ansible.cfg
+REQUIRES_RESTART=no

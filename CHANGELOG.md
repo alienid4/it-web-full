@@ -2,9 +2,15 @@
 
 本檔由 `AI/data/version.json` 轉出。版本由新到舊。
 
-目前版本：**3.11.4.1**
+目前版本：**3.11.4.2**
 
 ---
+
+## v3.11.4.2 — 2026-04-22
+修 ansible yaml callback 警告
+- `stdout_callback = yaml` 需要 `ansible.posix` collection（預設沒裝），每次跑 `ansible-playbook` 會印 `Invalid callback for stdout specified: yaml` 警告但不阻塞
+- 註解該行，改走 ansible 預設 callback
+- 另外 `setup_permissions.sh` 已於 commit `8269744` 加入（`itagent` group + setgid 2770 架構，是 v3.11.5.0 服務切 sysinfra 的前置條件）
 
 ## v3.11.4.1 — 2026-04-22
 修 `run_inspection.sh` 3 個 bug（使用者實跑發現）
