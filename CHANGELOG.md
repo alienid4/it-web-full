@@ -2,9 +2,16 @@
 
 本檔由 `AI/data/version.json` 轉出。版本由新到舊。
 
-目前版本：**3.11.2.0**
+目前版本：**3.11.3.0**
 
 ---
+
+## v3.11.3.0 — 2026-04-22
+產品化 patch 流程 v1 + 修 example.css 404
+- (1) `AI/scripts/patch_apply.sh` 大改 — 支援 `whls/` 離線 pip install（`--break-system-packages`，避免 `--user` 裝到 `/root/.local` 讓 systemd 看不到）+ 可選 `post_install.sh` hook + 環境變數驅動 `ITAGENT_HOME`/`ITAGENT_SERVICE` + `REQUIRES_RESTART` 旗標 + 備份排除 `container/` `logs/` + HTTP 驗證
+- (2) 補 `webapp/static/css/example.css`（從 `cathay.css` 複製）— 修 sanitize 時漏改導致 `base.html` / `login.html` / `reset_password.html` 三個模板 404 撞 MIME check
+- (3) `patches/v3.11.3.0/` 完整 patch 包（`patch_info.txt` + `patch_apply.sh` + `files/`）— 可 `tar czf` 後 scp 到目標機命令列套用，**Flask 不需活著（解雞生蛋）**
+- (4) 新增 `AI/scripts/user_admin.sh`（9 選單：列帳號 / 詳情 / 解鎖 / 改密 / 新增 / 改角色 / 刪 / 登入紀錄 / **一鍵診斷登入問題** — 7 層檢查 MongoDB / Flask / port / 帳號 / 欄位 / 鎖定 / API）
 
 ## v3.11.2.0 — 2026-04-20
 離線部署包 (給公司郵件帶) - (1) scripts/bootstrap.py 獨立 DB 初始化 (users 3 角色/feature_flags 6/settings 3/hosts 2 sample/indexes 15+, 用 werkzeug.security 不需 bcrypt) (2) scripts/build_source_bundle.sh 打包 webapp+ansible+scripts+systemd+bootstrap+requirements+4 份 md + 自動產 README_INSTALL.md 10 步安裝指南, 產出 352KB tar.gz 放 data/uploads/ (可從 UI 檔案管理 下載) (3) WHEEL_URLS.md: 27 個 Python 套件的 PyPI files.pythonhosted.org 直連 URL (pypi json api 抓的), 掛 DOCS_MAP 第 14 份 (4) requirements.txt 擴充 6 個核心 (flask/pymongo/gunicorn/matplotlib/reportlab/python-ldap)

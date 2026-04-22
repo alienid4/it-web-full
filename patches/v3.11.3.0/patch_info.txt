@@ -1,0 +1,6 @@
+VERSION=3.11.3.0
+DESC=修 example.css 404 + 增強 patch_apply 支援 whls 離線裝
+DATE=2026-04-22
+AUTHOR=alien4job@gmail.com
+FILES=webapp/static/css/example.css
+REQUIRES_RESTART=yes
