@@ -1,0 +1,6 @@
+VERSION=3.11.6.0
+DESC=修 ansible 預設走 root 問題 - 設 group_vars ansible_user=sysinfra + generate_inventory 讀 ssh_user
+DATE=2026-04-22
+AUTHOR=alien4job@gmail.com
+FILES=ansible/group_vars/all.yml, scripts/generate_inventory.py
+REQUIRES_RESTART=no

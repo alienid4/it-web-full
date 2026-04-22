@@ -1,0 +1,13 @@
+---
+# v3.11.6.0: 所有主機預設 SSH 設定（host 可在 hosts_config.json 用 ssh_user 欄位 override）
+#
+# 目的：修 UI 觸發 TWGCB 掃描時 ansible 連線預設用 root 的問題
+# 實際 SSH 連線身分：本 file > inventory host_vars > 執行者當前 user
+
+ansible_user: sysinfra
+
+# SSH 連線選項
+ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10"
+
+# 預設 Python interpreter（避免 deprecation warning）
+ansible_python_interpreter: /usr/bin/python3

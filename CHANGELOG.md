@@ -2,9 +2,16 @@
 
 本檔由 `AI/data/version.json` 轉出。版本由新到舊。
 
-目前版本：**3.11.5.0**
+目前版本：**3.11.6.0**
 
 ---
+
+## v3.11.6.0 — 2026-04-22
+修 ansible 預設 SSH 走 root 的連線問題
+- (1) 新增 `ansible/group_vars/all.yml` 設 `ansible_user: sysinfra` 預設（host 可 override）；另設 `ansible_ssh_common_args` 放寬 StrictHostKeyChecking、`ansible_python_interpreter`
+- (2) `generate_inventory.py` `build_host_vars()` 新增讀 host 的 `ssh_user` / `ansible_user` / `ssh_port` / `ssh_key` 欄位 → 產出對應 `ansible_user` / `ansible_port` / `ansible_ssh_private_key_file` vars（未設則靠 group_vars 預設）
+- (3) `post_install.sh` 自動以 sysinfra 重建 inventory、印出 `hosts.yml` 前 30 行、跑 `ansible <self> -m ping` 驗證
+- **解決症狀**：UI 觸發 TWGCB 時 Flask（仍跑 root）ansible 預設 `remote_user=root` 連 target `10.92.198.11` 被拒
 
 ## v3.11.5.0 — 2026-04-22
 服務 root → sysinfra 切換（B 路線，C/onboarding 延後）
