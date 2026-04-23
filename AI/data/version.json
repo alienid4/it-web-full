@@ -1,6 +1,6 @@
 {
-  "version": "3.11.14.0",
-  "updated_at": "2026-04-23 14:00",
+  "version": "3.11.15.0",
+  "updated_at": "2026-04-23 14:30",
   "changelog": [
     "1.0.0.0 - 2026-04-09: 初版建立 (Phase 1-4 完成)",
     "1.1.0.0 - 2026-04-10: 新增主機詳細報告+全部主機可點擊+圖表縮小",
@@ -149,6 +149,7 @@
     "3.11.11.0 - 2026-04-23: 修 feature_flags set_flag 對舊 DB missing key 報 'feature X not found' 404 - 原 update_one(upsert=False) 若 DB 沒 summary 這筆 (舊版 DEFAULT_FLAGS 只有 5 個, 後加 summary 沒跑 ensure_defaults), 切換時 matched_count=0 → 404。改為對 DEFAULT_FLAGS 內定義的 key 用 upsert=True + $setOnInsert 填 name/description, 舊 DB 自動補齊。非預設 key 維持原行為防未知 key 亂建",
     "3.11.12.0 - 2026-04-23: 歷史查詢加入 feature flag - (1) feature_flags.py DEFAULT_FLAGS 新增 history key (第 7 個可關模組) (2) app.py _FEATURE_PATH_MAP 加 ('history', ['/history']) 讓 before_request 能攔截 (3) base.html nav 的 歷史查詢 <li> 用 {% if FEATURES.history %} 包起來。關閉後: 導覽列消失 + 直接存取 /history 302 到 /feature-disabled。由 v3.11.11.0 set_flag upsert 邏輯保證舊 DB 也能正常切換",
     "3.11.13.0 - 2026-04-23: 帳號盤點頁加主機搜尋欄位 - audit.html 原只用單選下拉選主機, 新增『主機搜尋』input 放在下拉右側, placeholder '🔍 hostname / IP / OS'。實作: DOMContentLoaded 多 fetch /api/hosts 建 _hostMap[hostname]={ip, os, system_name}, renderAuditTable 加 hostKw filter 對 hostname+ip+os+system_name 連接字串做模糊比對。與現有下拉是 AND 關係 (可同時用)。patches/v3.11.13.0 傳統 tarball 形式發佈",
-    "3.11.14.0 - 2026-04-23: 帳號盤點頁加『/etc/passwd 原文檢視』區塊 - (1) 新 API GET /api/audit/passwd?hostname=X, 走 ansible -m command -a 'cat /etc/passwd' 即時抓目標主機, hostname 白名單 regex 防 shell injection, 30 秒 timeout (2) audit.html 底部加 card 含主機下拉 + 查看按鈕 + dark-mode <pre> 區塊 (3) viewRemotePasswd() JS async/await pattern, 含 loading 狀態/錯誤 stderr 顯示/帳號數統計/讀取時間 (4) DOMContentLoaded populate passwd-host dropdown 從 _hostMap (fallback _auditData.hostname)。patches/v3.11.14.0 tarball 發佈, 單選即時抓設計 (使用者要看單台就切換)"
+    "3.11.14.0 - 2026-04-23: 帳號盤點頁加『/etc/passwd 原文檢視』區塊 - (1) 新 API GET /api/audit/passwd?hostname=X, 走 ansible -m command -a 'cat /etc/passwd' 即時抓目標主機, hostname 白名單 regex 防 shell injection, 30 秒 timeout (2) audit.html 底部加 card 含主機下拉 + 查看按鈕 + dark-mode <pre> 區塊 (3) viewRemotePasswd() JS async/await pattern, 含 loading 狀態/錯誤 stderr 顯示/帳號數統計/讀取時間 (4) DOMContentLoaded populate passwd-host dropdown 從 _hostMap (fallback _auditData.hostname)。patches/v3.11.14.0 tarball 發佈, 單選即時抓設計 (使用者要看單台就切換)",
+    "3.11.15.0 - 2026-04-23: 帳號盤點高權限 Phase 1 - (1) check_account_audit/tasks/linux.yml 新增抓 gid + primary_group (getent group), UID=0 (root) 不再被 audit_min_uid filter 掉 (2) audit.html 表格加『UID/GID』『鎖定』兩欄, UID=0 或 GID=0 自動標紅底 + 🔴高權限 badge, 列總數旁顯示『其中 N 個高權限』(3) filter 列加『只顯示高權限』checkbox toggle, onlyPriv=true 時 filter (a.uid===0||a.gid===0), renderAuditTable 邏輯新增 isPriv 判斷。須重跑 run_inspection.sh 才會看到 root + gid 資料。Phase 2 (v3.11.16.0) 做人工勾選 AP 高權限 + 強制備註, Phase 3 (v3.11.17.0) 做主管簽核報表"
   ]
 }

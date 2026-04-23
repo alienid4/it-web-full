@@ -1,0 +1,6 @@
+VERSION=3.11.15.0
+DESC=帳號盤點高權限 Phase 1 (UID/GID/鎖定欄位+自動高權限標示)
+DATE=2026-04-23
+AUTHOR=alien4job@gmail.com
+FILES=webapp/templates/audit.html, ansible/roles/check_account_audit/tasks/linux.yml
+REQUIRES_RESTART=yes
