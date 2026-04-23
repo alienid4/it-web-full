@@ -1,0 +1,6 @@
+VERSION=3.11.13.0
+DESC=帳號盤點頁加主機搜尋欄位 (hostname/IP/OS 模糊比對)
+DATE=2026-04-23
+AUTHOR=alien4job@gmail.com
+FILES=webapp/templates/audit.html
+REQUIRES_RESTART=yes
