@@ -1,0 +1,6 @@
+VERSION=3.11.17.0
+DESC=修 seed_data.py 漏匯 account_audit collection (帳號盤點頁空白根因)
+DATE=2026-04-23
+AUTHOR=alien4job@gmail.com
+FILES=webapp/seed_data.py
+REQUIRES_RESTART=no
