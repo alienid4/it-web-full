@@ -1,12 +1,22 @@
 ---
-- name:  CPU 
-  shell: "vmstat 1 3 | tail -1 | awk '{print 100 - $15}'"
+# v3.11.10.0: 改用 mpstat 優先 + top fallback, 不再依賴 vmstat $15
+# (vmstat 在某些環境 tail -1 抓到 header 行, $15 變字串 → 使用率固定 100%)
+- name:  CPU 使用率
+  shell: |
+    set -o pipefail
+    if command -v mpstat >/dev/null 2>&1; then
+      # mpstat 最後一欄是 %idle, 減 100 得使用率
+      LANG=C mpstat 1 1 | awk 'END{v=100-$NF; if(v<0)v=0; print int(v+0.5)}'
+    else
+      # top -bn1 fallback: 找 "Cpu(s)" 行, 取 id 前的數字
+      LANG=C top -bn1 | awk -F'[ ,%]+' '/Cpu\(s\)/ {for(i=1;i<=NF;i++) if($i=="id") {v=100-$(i-1); if(v<0)v=0; print int(v+0.5); exit}}'
+    fi
+  args:
+    executable: /bin/bash
   register: cpu_raw
   changed_when: false
-  async: 120
-  poll: 5
 
-- name:  Memory 
+- name:  Memory
   shell: "free -b | awk '/^Mem:/ {printf \"%.0f\", $3/$2*100}'"
   register: mem_raw
   changed_when: false
