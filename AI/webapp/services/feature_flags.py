@@ -52,6 +52,23 @@ def list_flags():
 
 
 def set_flag(key, enabled):
+    """更新 flag 狀態。若 key 在 DEFAULT_FLAGS 裡但 DB 沒該筆 (舊 DB 沒跑 ensure_defaults)，自動 upsert 補齊。"""
     col = get_collection("feature_flags")
+    defaults = next((d for d in DEFAULT_FLAGS if d["key"] == key), None)
+    if defaults:
+        # 預設 key: upsert (若 DB 沒就新建, 填 name/description)
+        col.update_one(
+            {"key": key},
+            {
+                "$set": {"enabled": bool(enabled)},
+                "$setOnInsert": {
+                    "name": defaults["name"],
+                    "description": defaults["description"],
+                },
+            },
+            upsert=True,
+        )
+        return True
+    # 未定義 key: 維持原行為 (不自動建)
     r = col.update_one({"key": key}, {"$set": {"enabled": bool(enabled)}}, upsert=False)
     return r.matched_count > 0
