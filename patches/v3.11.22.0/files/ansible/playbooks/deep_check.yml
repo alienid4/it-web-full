@@ -1,0 +1,85 @@
+---
+# 深度檢查 Playbook (v3.11.22.0)
+# 用 smit_menu 的 mod_troubleshoot.sh -m 對單台 Linux 做 9 面向 + Appendix 深度診斷
+# 產 summary + detail 兩份報告, 零侵入 (copy -> run -> fetch -> cleanup)
+- name: Deep Check (mod_troubleshoot.sh -m)
+  hosts: "{{ target_hosts | default('all') }}"
+  gather_facts: false
+  become: true
+  vars:
+    inspection_home: "{{ inspection_home_override | default('/seclog/AI/inspection') }}"
+    smit_menu_src: "{{ inspection_home }}/scripts/smit_menu"
+    reports_dir: "{{ inspection_home }}/data/deep_check_reports"
+    job_ts: "{{ job_timestamp | default(lookup('pipe', 'date +%Y%m%d_%H%M%S')) }}"
+    remote_work: "/tmp/smit_menu_{{ job_ts }}"
+    output_prefix: "/tmp/ts_{{ inventory_hostname }}_{{ job_ts }}"
+
+  tasks:
+    - name: 建立本機報告目錄
+      file:
+        path: "{{ reports_dir }}"
+        state: directory
+        mode: '0755'
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: 遠端建工作目錄
+      file:
+        path: "{{ remote_work }}"
+        state: directory
+        mode: '0755'
+
+    - name: 複製 smit_menu 整包到遠端
+      copy:
+        src: "{{ smit_menu_src }}/"
+        dest: "{{ remote_work }}/"
+        mode: '0755'
+        directory_mode: '0755'
+
+    - name: 執行 mod_troubleshoot.sh -m (9 面向深度診斷)
+      shell: "cd {{ remote_work }} && bash ./mod_troubleshoot.sh -m"
+      environment:
+        TS_NONINTERACTIVE: "1"
+        TS_OUTPUT_PREFIX: "{{ output_prefix }}"
+        CASLOG_BASE: "{{ remote_work }}/cas"
+      register: ts_result
+      timeout: 180
+      ignore_errors: true
+
+    - name: 確認 summary + detail 檔存在
+      stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ output_prefix }}_summary.txt"
+        - "{{ output_prefix }}_detail.txt"
+      register: output_stat
+
+    - name: 取回 summary 報告
+      fetch:
+        src: "{{ output_prefix }}_summary.txt"
+        dest: "{{ reports_dir }}/"
+        flat: true
+      when: output_stat.results[0].stat.exists | default(false)
+
+    - name: 取回 detail 報告
+      fetch:
+        src: "{{ output_prefix }}_detail.txt"
+        dest: "{{ reports_dir }}/"
+        flat: true
+      when: output_stat.results[1].stat.exists | default(false)
+
+    - name: 解 append-only 屬性 (smit_menu 合規 log 會 chattr +a)
+      shell: "chattr -R -ai {{ remote_work }} 2>/dev/null || true"
+      changed_when: false
+      ignore_errors: true
+
+    - name: 清理遠端暫存 (工作目錄 + 輸出檔)
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ remote_work }}"
+        - "{{ output_prefix }}_summary.txt"
+        - "{{ output_prefix }}_detail.txt"
+      ignore_errors: true

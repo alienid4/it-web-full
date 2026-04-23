@@ -1,0 +1,9 @@
+VERSION=3.11.22.0
+DESC=深度檢查功能 (smit_menu mod_troubleshoot.sh -m 整合 9 面向 + Appendix, 今日報告卡片 🔍 按鈕, summary+detail 雙報告, 零侵入)
+DATE=2026-04-23
+AUTHOR=alien4job@gmail.com
+FILES=webapp/routes/api_deep_check.py, webapp/templates/report.html, ansible/playbooks/deep_check.yml, scripts/smit_menu/ (27 files), data/version.json
+MODIFIES=webapp/app.py (加 blueprint import + register, 2 行)
+REQUIRES_RESTART=yes
+PREREQ=v3.11.21.0 (基於 v3.11.21.0 之上)
+VERIFIED_ON=家裡 221 (sec9c2 因 sudo 設定問題暫不支援, secclient1 端到端跑通 ok=9 failed=0)

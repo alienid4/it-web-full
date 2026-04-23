@@ -1,0 +1,160 @@
+#!/bin/bash
+# =============================================================================
+# install.sh - Installer for Linux SMIT 維運工具 (v1.8)
+#
+# 使用方式：
+#   1. 解壓 tarball 或直接把整個 scripts/ 目錄帶到目標機
+#   2. cd scripts && sudo bash install.sh
+#
+# 會做的事：
+#   - 建立 ${BASE}/{scripts,logs,reports,conf}  (v1.8 預設 BASE=/CASLog/AI/sos，可 env 覆蓋)
+#   - 把本目錄下的 *.sh 複製到 ${BASE}/scripts/
+#   - 將 LinuxMenu.sh 裡面的 SMIT_DEPLOY_TIME 寫成當下時刻 (v1.4 新增)
+#   - 若偵測到舊 /CASLog/AI/scripts/ 部署 (v1.7 以前)，會印提示並停下，
+#     要求 SP 先遷移 (避免誤刪合規資料)
+#   - chmod 750
+#   - 產出 /tmp/LinuxMenu_<timestamp>.tar.gz 方便散佈
+# =============================================================================
+set -e
+DEPLOY_TS="$(date '+%Y-%m-%d %H:%M:%S')"
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE="${BASE:-/CASLog/AI/sos}"
+
+# v1.8: 偵測舊路徑 (< v1.8) 存在時提醒遷移，不自動動手 (避免誤刪合規 HMAC key)
+OLD_BASE="/CASLog/AI"
+if [ "${BASE}" = "/CASLog/AI/sos" ] \
+   && [ -d "${OLD_BASE}/scripts" ] \
+   && [ ! -L "${OLD_BASE}/scripts" ] \
+   && [ "${BASE}" != "${OLD_BASE}" ]; then
+    cat <<OLDWARN
+╔════════════════════════════════════════════════════════════════════╗
+║  v1.8 路徑遷移偵測                                                  ║
+║  偵測到 ${OLD_BASE}/scripts 仍存在 (v1.7 以前的部署)。               ║
+║                                                                    ║
+║  v1.8 預設 BASE=${BASE}                                            ║
+║  若這是首次升級，請先手動遷移以保留合規資料 (HMAC key、audit log):  ║
+║                                                                    ║
+║    # 1. 解除舊 log 的 append-only (如有)                             ║
+║    chattr -ai ${OLD_BASE}/logs/*.log 2>/dev/null                   ║
+║    # 2. 搬移四個子目錄 (保留 HMAC key，合規鏈不斷)                   ║
+║    mkdir -p ${BASE}                                                 ║
+║    mv ${OLD_BASE}/{scripts,logs,reports,conf} ${BASE}/              ║
+║    # 3. 刪舊 cron (install.sh 會在新路徑重建)                        ║
+║    rm -f /etc/cron.d/linuxmenu-audit-seal                          ║
+║    # 4. 再跑 install.sh                                             ║
+║    bash install.sh                                                  ║
+║                                                                    ║
+║  若要強制直接部署 (忽略警告), 設 FORCE=1 bash install.sh            ║
+╚════════════════════════════════════════════════════════════════════╝
+OLDWARN
+    if [ "${FORCE:-0}" != "1" ]; then
+        echo "[install] 已停止。請先完成遷移或設 FORCE=1 跳過。" >&2
+        exit 2
+    fi
+    echo "[install] FORCE=1 設定，跳過遷移警告繼續部署。" >&2
+fi
+SCRIPT_DIR="${BASE}/scripts"
+LOG_DIR="${BASE}/logs"
+REPORT_DIR="${BASE}/reports"
+CONF_DIR="${BASE}/conf"
+
+echo "[install] 來源目錄: ${HERE}"
+echo "[install] 建立目錄結構..."
+mkdir -p "${SCRIPT_DIR}" "${LOG_DIR}" "${REPORT_DIR}" "${CONF_DIR}"
+chmod 700 "${CONF_DIR}"
+
+echo "[install] 複製腳本..."
+EXPECTED=(LinuxMenu.sh mod_system.sh mod_network.sh mod_file.sh mod_process.sh
+          mod_user.sh mod_audit.sh mod_pkg.sh mod_storage.sh mod_java.sh
+          mod_security.sh mod_others.sh mod_troubleshoot.sh mod_daily.sh
+          mod_db.sh mod_tooling.sh mod_triage.sh mod_baseline.sh
+          mod_audit_seal.sh)
+for f in "${EXPECTED[@]}"; do
+    if [ ! -f "${HERE}/${f}" ]; then
+        echo "[install] 警告: 缺少 ${f}"
+        continue
+    fi
+    cp "${HERE}/${f}" "${SCRIPT_DIR}/${f}"
+    chmod 750 "${SCRIPT_DIR}/${f}"
+    echo "  → ${SCRIPT_DIR}/${f}"
+done
+
+# v1.4+: 寫入 DEPLOY_TIME 到 LinuxMenu.sh
+#   1) 修改 export SMIT_DEPLOY_TIME 那行 (runtime banner 用)
+#   2) 修改 # Deploy Time: 那行 comment (head -6 LinuxMenu.sh 直接看得到)
+if [ -f "${SCRIPT_DIR}/LinuxMenu.sh" ]; then
+    sed -i "s|^export SMIT_DEPLOY_TIME=.*# DEPLOY_HOOK_LINE|export SMIT_DEPLOY_TIME=\"${DEPLOY_TS}\"   # DEPLOY_HOOK_LINE|" \
+        "${SCRIPT_DIR}/LinuxMenu.sh"
+    sed -i "s|^# Deploy Time:.*$|# Deploy Time: ${DEPLOY_TS}   (由 install.sh 寫入)|" \
+        "${SCRIPT_DIR}/LinuxMenu.sh"
+    echo "[install] DEPLOY_TIME 已寫入 LinuxMenu.sh (env var + header comment): ${DEPLOY_TS}"
+fi
+
+# 設定檔範本（不覆蓋既有自訂，僅 sample 檔每次更新）
+install_sample() {
+    local sample="$1" target="$2"
+    [ -f "${HERE}/${sample}" ] || return 0
+    cp "${HERE}/${sample}" "${CONF_DIR}/${sample}"
+    chmod 600 "${CONF_DIR}/${sample}"
+    if [ ! -f "${CONF_DIR}/${target}" ]; then
+        cp "${CONF_DIR}/${sample}" "${CONF_DIR}/${target}"
+        chmod 600 "${CONF_DIR}/${target}"
+        echo "[install] 已建立 ${CONF_DIR}/${target} (從 sample 複製)"
+    else
+        echo "[install] ${CONF_DIR}/${target} 已存在，保留自訂 (sample 已更新)"
+    fi
+}
+install_sample "db.conf.sample"       "db.conf"
+install_sample "app.conf.sample"      "app.conf"
+install_sample "baseline.conf.sample" "baseline.conf"
+
+# ============================================================================
+# T0 合規設定 — HMAC key + 每日封存 cron + append-only
+# ============================================================================
+echo "[install] T0 合規：初始化 HMAC key + cron..."
+bash "${SCRIPT_DIR}/mod_audit_seal.sh" --ensure-key || \
+    echo "[install] 警告: HMAC key 初始化失敗 (audit seal 仍可手動啟用)"
+
+# cron 設定 (若不存在才寫，避免覆蓋管理員客製)
+CRON_FILE="/etc/cron.d/linuxmenu-audit-seal"
+if [ ! -f "${CRON_FILE}" ]; then
+    cat > "${CRON_FILE}" <<EOF_CRON
+# 每日 23:59 封存今日 audit log (T0 合規)
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+59 23 * * * root  bash ${SCRIPT_DIR}/mod_audit_seal.sh --daily >> ${LOG_DIR}/audit_seal.log 2>&1
+EOF_CRON
+    chmod 644 "${CRON_FILE}"
+    echo "[install] 已建立 ${CRON_FILE}"
+else
+    echo "[install] ${CRON_FILE} 已存在，保留 (可手動檢視)"
+fi
+
+# 保護既有 audit log 為 append-only
+bash "${SCRIPT_DIR}/mod_audit_seal.sh" --protect 2>/dev/null | sed 's/^/[install] /'
+
+echo "[install] 產生 tarball ..."
+TAR="/tmp/LinuxMenu_$(date +%Y%m%d_%H%M%S).tar.gz"
+tar -czf "${TAR}" -C "$(dirname "${BASE}")" "$(basename "${BASE}")/scripts"
+echo "[install] 封裝完成: ${TAR}"
+
+cat <<EOF
+
+╔══════════════════════════════════════════════════════════════╗
+║  金融業 Linux 維運工具  v1.8  已安裝完成   (Deploy: ${DEPLOY_TS})
+║
+║  啟動方式:
+║      bash ${SCRIPT_DIR}/LinuxMenu.sh
+║
+║  審計日誌: ${LOG_DIR}
+║  巡檢報表: ${REPORT_DIR}
+║  設定檔  : ${CONF_DIR}
+║
+║  合規 (T0):
+║    HMAC key  : ${CONF_DIR}/hmac.key  (請備份到離線安全保管!)
+║    每日封存  : /etc/cron.d/linuxmenu-audit-seal (23:59 自動)
+║    驗證指令  : bash ${SCRIPT_DIR}/mod_audit_seal.sh --verify-all
+╚══════════════════════════════════════════════════════════════╝
+EOF

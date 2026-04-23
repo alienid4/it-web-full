@@ -84,6 +84,7 @@ from routes.api_linux_init import bp as linux_init_bp
 from routes.api_packages import bp as packages_bp
 from routes.api_nmon import bp as nmon_bp
 from routes.api_cio import bp as cio_bp
+from routes.api_deep_check import bp as deep_check_bp
 
 app.register_blueprint(hosts_bp)
 app.register_blueprint(inspections_bp)
@@ -100,6 +101,7 @@ app.register_blueprint(linux_init_bp)
 app.register_blueprint(packages_bp)
 app.register_blueprint(nmon_bp)
 app.register_blueprint(cio_bp)
+app.register_blueprint(deep_check_bp)
 
 # 確保預設 admin 帳號存在
 # v3.9.3.0: static asset cache busting (自動帶 ?v=版本)
