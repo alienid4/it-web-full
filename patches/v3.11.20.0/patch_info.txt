@@ -1,0 +1,6 @@
+VERSION=3.11.20.0
+DESC=onboard_new_host.sh 方案 X 自動 insert DB (一條指令加主機+全掃)
+DATE=2026-04-23
+AUTHOR=alien4job@gmail.com
+FILES=scripts/onboard_new_host.sh
+REQUIRES_RESTART=no
