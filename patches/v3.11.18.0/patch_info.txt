@@ -1,0 +1,6 @@
+VERSION=3.11.18.0
+DESC=新主機一鍵 Onboarding 腳本 (onboard_new_host.sh)
+DATE=2026-04-23
+AUTHOR=alien4job@gmail.com
+FILES=scripts/onboard_new_host.sh
+REQUIRES_RESTART=no
