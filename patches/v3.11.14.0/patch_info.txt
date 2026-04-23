@@ -1,0 +1,6 @@
+VERSION=3.11.14.0
+DESC=帳號盤點頁新增 /etc/passwd 原文檢視 (即時 ansible 抓)
+DATE=2026-04-23
+AUTHOR=alien4job@gmail.com
+FILES=webapp/templates/audit.html, webapp/routes/api_audit.py
+REQUIRES_RESTART=yes
