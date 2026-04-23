@@ -30,12 +30,14 @@ def import_hosts():
 def import_inspections():
     """從 data/reports/*.json 匯入巡檢結果
 
-    只讀 YYYYMMDD_HHMMSS_hostname.json 格式（site.yml 產出），
-    避免誤吃 twgcb_*.json / packages_*.json / nmon_*.json / security_audit_*.json
+    接受兩種檔名格式:
+      (1) inspection_YYYYMMDD_HHMMSS_hostname.json   # v3.11.9.0+ 新格式
+      (2) YYYYMMDD_HHMMSS_hostname.json              # 舊格式, 向後相容
+    避免誤吃 twgcb_*.json / packages_*.json / nmon_*.json / security_audit_*.json / network_*.json
     """
     import re
-    TS_RE = re.compile(r"^\d{8}_\d{6}_")
-    pattern = os.path.join(INSPECTION_HOME, "data/reports/*_*.json")
+    TS_RE = re.compile(r"^(?:inspection_)?\d{8}_\d{6}_")
+    pattern = os.path.join(INSPECTION_HOME, "data/reports/*.json")
     files = sorted(fp for fp in glob.glob(pattern)
                    if TS_RE.match(os.path.basename(fp)))
     count = 0
@@ -49,7 +51,11 @@ def import_inspections():
             print(f"SKIP: {fp}: {e}")
             continue
         # 轉換現有格式到 MongoDB schema
-        ts = os.path.basename(fp).split("_")[0] + "_" + os.path.basename(fp).split("_")[1]
+        # 從檔名抓 timestamp: 去掉 inspection_ 前綴(若有), 取前 2 段 (YYYYMMDD_HHMMSS)
+        fname = os.path.basename(fp)
+        if fname.startswith("inspection_"):
+            fname = fname[len("inspection_"):]
+        ts = fname.split("_")[0] + "_" + fname.split("_")[1]
         hostname = doc.get("hostname", os.path.basename(fp).rsplit("_", 1)[-1].replace(".json", ""))
         run_date = ts[:4] + "-" + ts[4:6] + "-" + ts[6:8] if len(ts) >= 8 else datetime.now().strftime("%Y-%m-%d")
         run_time = ts[9:11] + ":" + ts[11:13] + ":" + ts[13:15] if len(ts) >= 15 else "00:00:00"

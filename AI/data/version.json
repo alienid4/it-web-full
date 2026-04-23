@@ -1,6 +1,6 @@
 {
-  "version": "3.11.8.0",
-  "updated_at": "2026-04-23 08:55",
+  "version": "3.11.9.0",
+  "updated_at": "2026-04-23 09:10",
   "changelog": [
     "1.0.0.0 - 2026-04-09: 初版建立 (Phase 1-4 完成)",
     "1.1.0.0 - 2026-04-10: 新增主機詳細報告+全部主機可點擊+圖表縮小",
@@ -143,6 +143,7 @@
     "3.11.5.0 - 2026-04-22: 服務 root → sysinfra 切換 - (1) post_install.sh in-place 編輯 /etc/systemd/system/itagent-web.service 加 User=sysinfra + Group=itagent 兩行 (不覆蓋 ExecStart, 尊重實際部署), 備份加時間戳 .pre-v3.11.5.0.TIMESTAMP.bak, systemd-analyze verify 失敗自動還原 (2) 安裝 /etc/sudoers.d/sysinfra-inspection 寬鬆 C 級 (systemctl restart/start/stop/status + run_inspection.sh) 先 visudo -c 語法檢查才 mv (3) daemon-reload + restart + 驗證 ps -o user 確實以 sysinfra 執行, HTTP 200/302 ping 檢查 (4) 檢測 root crontab 的 run_inspection.sh 若非 su - sysinfra 版本, 印出建議指令讓 user 手動改 (不自動改 cron 避免風險) (5) 前置需 itagent group 和 sysinfra 帳號存在 (setup_permissions.sh 已備)",
     "3.11.6.0 - 2026-04-22: 修 ansible 預設 SSH 走 root 問題 - (1) 新增 ansible/group_vars/all.yml 設 ansible_user=sysinfra 預設 (host 可 override), 另設 ansible_ssh_common_args=StrictHostKeyChecking=no + UserKnownHostsFile=/dev/null + ConnectTimeout=10, ansible_python_interpreter=/usr/bin/python3 (2) generate_inventory.py build_host_vars 新增讀 ssh_user/ansible_user/ssh_port/ssh_key 欄位, 產出 ansible_user/ansible_port/ansible_ssh_private_key_file vars (未設就靠 group_vars 預設) (3) post_install.sh 自動以 sysinfra 重建 inventory, 印出 hosts.yml 前 30 行, 跑 ansible self ping 驗證 - 解決使用者 UI 觸發 TWGCB 時 Flask (仍跑 root) ansible 預設 remote_user=root 連 target 10.92.198.11 被拒的問題",
     "3.11.7.0 - 2026-04-23: 修 TWGCB 矩陣 Linux tab 空白 - api_twgcb.py 的 /results 與 /export 兩處 OS regex 加 redhat (無空格) 字面。公司 playbook 實際寫入 twgcb_results.os 欄位為 RedHat 9.6 / RedHat 9.4 格式, 原 regex (rocky|rhel|red hat|...) 不 match RedHat (RH 之間無空格也非 rhel), 導致 Linux tab 發 os_type=linux 時 filter 把兩台全部過濾掉, results 回 count=0 → 矩陣空白。fix 只動兩行, 改完 systemctl restart itagent-web 立即生效",
-    "3.11.8.0 - 2026-04-23: 修 seed_data.py glob 太寬吃到 twgcb JSON - 原 pattern 'data/reports/*_*.json' 含 _ 的全吃, 導致 twgcb_SECSVR198-013T.json 被當 inspection 匯入, 檔名拆解產出 run_date='twgc-b_-SE' run_time='SV:R1:98' results={} 的垃圾文件, Dashboard 讀取時 CPU/MEM 都拿不到資料顯示 -%。改為用 regex TS_RE=r'^\\d{8}_\\d{6}_' 過濾, 只讀 YYYYMMDD_HHMMSS_hostname.json 格式 (site.yml 產出)。套用後需先 db.inspections.deleteMany({run_id:/^twgcb_/}) 清掉舊垃圾資料"
+    "3.11.8.0 - 2026-04-23: 修 seed_data.py glob 太寬吃到 twgcb JSON - 原 pattern 'data/reports/*_*.json' 含 _ 的全吃, 導致 twgcb_SECSVR198-013T.json 被當 inspection 匯入, 檔名拆解產出 run_date='twgc-b_-SE' run_time='SV:R1:98' results={} 的垃圾文件, Dashboard 讀取時 CPU/MEM 都拿不到資料顯示 -%。改為用 regex TS_RE=r'^\\d{8}_\\d{6}_' 過濾, 只讀 YYYYMMDD_HHMMSS_hostname.json 格式 (site.yml 產出)。套用後需先 db.inspections.deleteMany({run_id:/^twgcb_/}) 清掉舊垃圾資料",
+    "3.11.9.0 - 2026-04-23: inspection JSON 加 inspection_ 前綴 (治本) - (1) site.yml 儲存主機巡檢 JSON 的 dest 從 {timestamp}_{hostname}.json 改為 inspection_{timestamp}_{hostname}.json, generate_report.py 傳入的 prefix 同步加 inspection_ (2) seed_data.py regex 同時接受 inspection_ 前綴與無前綴舊格式 (re.compile(r'^(?:inspection_)?\\d{8}_\\d{6}_')), ts 解析先去掉 inspection_ 前綴後再 split 抓 YYYYMMDD_HHMMSS。治本目的: 與其他 reports/ 檔案 (twgcb_/packages_/network_/nmon_) 命名一致, 未來任何新 role 產檔不會再誤撞 inspection glob"
   ]
 }
