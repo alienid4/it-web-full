@@ -102,7 +102,8 @@ def get_results():
     query = {}
     if os_type == "linux":
         # 變更 #46: 補 "linux" 字面 match，避免 ansible_distribution fallback 成 "Linux" 時主機被漏掉
-        query["os"] = {"$regex": "(?i)(rocky|rhel|red hat|centos|debian|ubuntu|suse|oracle linux|linux)"}
+        # v3.11.7.0: 補 "redhat"(無空格)，playbook 實際寫出的 os 欄位為 "RedHat 9.6" 格式
+        query["os"] = {"$regex": "(?i)(rocky|rhel|redhat|red hat|centos|debian|ubuntu|suse|oracle linux|linux)"}
     elif os_type == "windows":
         query["os"] = {"$regex": "(?i)windows"}
     elif os_type == "aix":
@@ -628,8 +629,8 @@ def export_excel():
     os_type = request.args.get("os_type", "")
     query = {}
     if os_type == "linux":
-        # 變更 #46: 補 "linux" 字面 match，避免 ansible_distribution fallback 成 "Linux" 時主機被漏掉
-        query["os"] = {"$regex": "(?i)(rocky|rhel|red hat|centos|debian|ubuntu|suse|oracle linux|linux)"}
+        # v3.11.7.0: 補 "redhat"(無空格) 同 /api/twgcb/results
+        query["os"] = {"$regex": "(?i)(rocky|rhel|redhat|red hat|centos|debian|ubuntu|suse|oracle linux|linux)"}
     elif os_type == "windows":
         query["os"] = {"$regex": "(?i)windows"}
     elif os_type == "aix":
