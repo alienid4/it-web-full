@@ -1,0 +1,6 @@
+VERSION=3.11.19.0
+DESC=修 patch_apply.sh 備份失敗老問題 (tar 寬容+不吞 stderr+印錯誤原因)
+DATE=2026-04-23
+AUTHOR=alien4job@gmail.com
+FILES=scripts/patch_apply.sh
+REQUIRES_RESTART=no
