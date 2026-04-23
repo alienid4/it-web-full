@@ -1,0 +1,6 @@
+VERSION=3.11.21.0
+DESC=combo pack 一鍵裝 onboard 方案 X + version.json (內建 install.sh)
+DATE=2026-04-23
+AUTHOR=alien4job@gmail.com
+FILES=scripts/onboard_new_host.sh, data/version.json
+REQUIRES_RESTART=yes
