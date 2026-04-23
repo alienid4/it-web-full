@@ -1,6 +1,6 @@
 {
-  "version": "3.11.11.0",
-  "updated_at": "2026-04-23 10:05",
+  "version": "3.11.12.0",
+  "updated_at": "2026-04-23 10:45",
   "changelog": [
     "1.0.0.0 - 2026-04-09: 初版建立 (Phase 1-4 完成)",
     "1.1.0.0 - 2026-04-10: 新增主機詳細報告+全部主機可點擊+圖表縮小",
@@ -146,6 +146,7 @@
     "3.11.8.0 - 2026-04-23: 修 seed_data.py glob 太寬吃到 twgcb JSON - 原 pattern 'data/reports/*_*.json' 含 _ 的全吃, 導致 twgcb_SECSVR198-013T.json 被當 inspection 匯入, 檔名拆解產出 run_date='twgc-b_-SE' run_time='SV:R1:98' results={} 的垃圾文件, Dashboard 讀取時 CPU/MEM 都拿不到資料顯示 -%。改為用 regex TS_RE=r'^\\d{8}_\\d{6}_' 過濾, 只讀 YYYYMMDD_HHMMSS_hostname.json 格式 (site.yml 產出)。套用後需先 db.inspections.deleteMany({run_id:/^twgcb_/}) 清掉舊垃圾資料",
     "3.11.9.0 - 2026-04-23: inspection JSON 加 inspection_ 前綴 (治本) - (1) site.yml 儲存主機巡檢 JSON 的 dest 從 {timestamp}_{hostname}.json 改為 inspection_{timestamp}_{hostname}.json, generate_report.py 傳入的 prefix 同步加 inspection_ (2) seed_data.py regex 同時接受 inspection_ 前綴與無前綴舊格式 (re.compile(r'^(?:inspection_)?\\d{8}_\\d{6}_')), ts 解析先去掉 inspection_ 前綴後再 split 抓 YYYYMMDD_HHMMSS。治本目的: 與其他 reports/ 檔案 (twgcb_/packages_/network_/nmon_) 命名一致, 未來任何新 role 產檔不會再誤撞 inspection glob",
     "3.11.10.0 - 2026-04-23: 修 CPU 使用率固定顯示 100% bug - check_cpu/tasks/linux.yml 原用 vmstat 1 3 | tail -1 | awk '{print 100 - $15}' 在某些環境 (RHEL 9 含特定套件組合) tail -1 抓到 header 行, awk $15 變字串 id 或 st → 數值運算當 0 → 100 - 0 = 100。改用 mpstat 優先 (sysstat 套件, $NF = %idle) + top -bn1 fallback (LANG=C 強制英文 locale, 找 Cpu(s) 行的 id 欄), 兩者都有就用 mpstat。實測 RHEL 9.4/9.6 使用率從錯誤 100% 變正確 0~2%",
-    "3.11.11.0 - 2026-04-23: 修 feature_flags set_flag 對舊 DB missing key 報 'feature X not found' 404 - 原 update_one(upsert=False) 若 DB 沒 summary 這筆 (舊版 DEFAULT_FLAGS 只有 5 個, 後加 summary 沒跑 ensure_defaults), 切換時 matched_count=0 → 404。改為對 DEFAULT_FLAGS 內定義的 key 用 upsert=True + $setOnInsert 填 name/description, 舊 DB 自動補齊。非預設 key 維持原行為防未知 key 亂建"
+    "3.11.11.0 - 2026-04-23: 修 feature_flags set_flag 對舊 DB missing key 報 'feature X not found' 404 - 原 update_one(upsert=False) 若 DB 沒 summary 這筆 (舊版 DEFAULT_FLAGS 只有 5 個, 後加 summary 沒跑 ensure_defaults), 切換時 matched_count=0 → 404。改為對 DEFAULT_FLAGS 內定義的 key 用 upsert=True + $setOnInsert 填 name/description, 舊 DB 自動補齊。非預設 key 維持原行為防未知 key 亂建",
+    "3.11.12.0 - 2026-04-23: 歷史查詢加入 feature flag - (1) feature_flags.py DEFAULT_FLAGS 新增 history key (第 7 個可關模組) (2) app.py _FEATURE_PATH_MAP 加 ('history', ['/history']) 讓 before_request 能攔截 (3) base.html nav 的 歷史查詢 <li> 用 {% if FEATURES.history %} 包起來。關閉後: 導覽列消失 + 直接存取 /history 302 到 /feature-disabled。由 v3.11.11.0 set_flag upsert 邏輯保證舊 DB 也能正常切換"
   ]
 }

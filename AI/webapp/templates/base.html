@@ -44,7 +44,7 @@
         <li><a href="/" id="nav-dashboard">Dashboard</a></li>
         {% if session.get("role") in ["admin", "superadmin"] %}<li><a href="/executive" id="nav-executive" style="color:var(--g2);font-weight:600;">👔 主管儀表板</a></li>{% endif %}
         <li><a href="/report" id="nav-report">今日報告</a></li>
-        <li><a href="/history" id="nav-history">歷史查詢</a></li>
+        {% if FEATURES.history %}<li><a href="/history" id="nav-history">歷史查詢</a></li>{% endif %}
         {% if FEATURES.summary %}<li><a href="/summary" id="nav-summary">異常總結</a></li>{% endif %}
         {% if FEATURES.audit %}<li><a href="/audit" id="nav-audit">帳號盤點</a></li>{% endif %}
         {% if FEATURES.packages %}<li><a href="/packages" id="nav-packages">軟體盤點</a></li>{% endif %}

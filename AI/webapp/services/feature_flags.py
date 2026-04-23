@@ -13,6 +13,7 @@ DEFAULT_FLAGS = [
     {"key": "twgcb",          "name": "TWGCB 合規",   "description": "/twgcb 系列頁 + admin TWGCB 設定 + 合規報告"},
     {"key": "summary",        "name": "異常總結",     "description": "/summary 頁"},
     {"key": "security_audit", "name": "系統安全稽核", "description": "admin 稽核專區 + Ansible 審計"},
+    {"key": "history",        "name": "歷史查詢",     "description": "/history 頁 (巡檢歷史趨勢查詢)"},
 ]
 
 

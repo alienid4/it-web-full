@@ -126,6 +126,7 @@ _FEATURE_PATH_MAP = [
     ("twgcb",          ["/twgcb", "/api/twgcb", "/api/harden"]),
     ("summary",        ["/summary"]),
     ("security_audit", ["/api/security-audit", "/api/security_audit"]),
+    ("history",        ["/history"]),
 ]
 
 
