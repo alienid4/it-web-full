@@ -1,0 +1,6 @@
+VERSION=3.11.16.0
+DESC=帳號盤點高權限 Phase 2 (人工標記 + 強制備註)
+DATE=2026-04-23
+AUTHOR=alien4job@gmail.com
+FILES=webapp/templates/audit.html, webapp/routes/api_audit.py
+REQUIRES_RESTART=yes
