@@ -28,9 +28,16 @@ def import_hosts():
     return count
 
 def import_inspections():
-    """從 data/reports/*.json 匯入巡檢結果"""
+    """從 data/reports/*.json 匯入巡檢結果
+
+    只讀 YYYYMMDD_HHMMSS_hostname.json 格式（site.yml 產出），
+    避免誤吃 twgcb_*.json / packages_*.json / nmon_*.json / security_audit_*.json
+    """
+    import re
+    TS_RE = re.compile(r"^\d{8}_\d{6}_")
     pattern = os.path.join(INSPECTION_HOME, "data/reports/*_*.json")
-    files = sorted(glob.glob(pattern))
+    files = sorted(fp for fp in glob.glob(pattern)
+                   if TS_RE.match(os.path.basename(fp)))
     count = 0
     for fp in files:
         if fp.endswith("_report.json"):
