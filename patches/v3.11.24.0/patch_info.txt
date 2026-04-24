@@ -1,0 +1,7 @@
+VERSION=3.11.24.0
+DESC=深度檢查建議動作知識庫 (10 條初始 remedy, 提供具體指令/風險/驗證)
+DATE=2026-04-24
+AUTHOR=alien4job@gmail.com
+FILES=webapp/routes/api_deep_check.py, webapp/routes/remedy_kb.py, webapp/templates/report.html, data/version.json
+REQUIRES_RESTART=yes
+PREREQ=v3.11.23.1
