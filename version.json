@@ -4,5 +4,19 @@
   "released_at": "2026-04-21",
   "description": "IT Inspection System 完整程式碼 (從 secansible v3.11.2.0 2026-04-20 取，sanitize 後)",
   "deploy_mode": "dual_track",
-  "deps_package": "inspection_deps_v3.5.0.0-testenv.tar.gz"
+  "deps_package": "inspection_deps_v3.5.0.0-testenv.tar.gz",
+  "supplementary_packages": [
+    {
+      "name": "vmware_ldap_offline_v3.12.0.0.tar.gz",
+      "size": "~2.0 MB",
+      "for_feature": "VMware 管理 tab (v3.12.0.0 規劃中) + LDAP/AD 查詢",
+      "contents": [
+        "pyvmomi 9.0.0.0 (Python wheel, universal)",
+        "python3-ldap 3.4.3 (Rocky 9 RPM)",
+        "python3-pyasn1 / pyasn1-modules 0.4.8 (Rocky 9 RPM, python-ldap 依賴)"
+      ],
+      "install": "tar xzf → ./install.sh (需 sudo localinstall RPM + pip --user wheel)",
+      "added": "2026-04-24"
+    }
+  ]
 }
