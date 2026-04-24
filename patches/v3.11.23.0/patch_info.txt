@@ -1,0 +1,13 @@
+VERSION=3.11.23.0
+DESC=深度檢查 5 秒視覺化判讀 + 180 天報告保留 cron
+DATE=2026-04-24
+AUTHOR=alien4job@gmail.com
+FILES=webapp/routes/api_deep_check.py, webapp/templates/report.html, data/version.json
+REQUIRES_RESTART=yes
+PREREQ=v3.11.22.2
+FEATURES=
+ - 新增 /api/deep-check/reports/<filename>/parsed endpoint
+ - summary.txt parser: ANSI strip + 頂層 meta + 9 面向 + 7 小段
+ - 前端 modal 改 hero 大燈 + 4 KPI + 9 矩陣 (可展開) + 客訴提示
+ - 保留 raw summary/detail 下載
+ - install.sh 自動裝 cron (180 天清舊報告)
