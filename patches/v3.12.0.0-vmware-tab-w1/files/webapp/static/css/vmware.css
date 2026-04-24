@@ -1,0 +1,87 @@
+/* ============================================
+   VMware 管理 tab 專屬樣式 (v3.12.0.0)
+   放全域 /static/css/vmware.css，不在 template 內寫 <style>
+   ============================================ */
+
+/* ===== Today Status strip (主管開門檢查) ===== */
+.vm-today{background:var(--white);border-radius:var(--radius);padding:22px 28px;box-shadow:var(--shadow-sm);border:1px solid rgba(0,0,0,.04);display:flex;align-items:center;gap:28px;margin-bottom:24px;flex-wrap:wrap}
+.vm-today .st-ring{width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0}
+.vm-today .st-ring.ok{background:var(--g-light);color:var(--g-text);box-shadow:0 0 0 4px rgba(38,168,137,.1)}
+.vm-today .st-ring.warn{background:#FEF4E0;color:var(--orange);box-shadow:0 0 0 4px rgba(232,124,7,.1)}
+.vm-today .st-ring.danger{background:#FEECEB;color:var(--red);box-shadow:0 0 0 4px rgba(224,11,0,.1)}
+.vm-today .st-big{display:flex;align-items:center;gap:14px}
+.vm-today .st-txt .t1{font-size:20px;font-weight:700;color:var(--c1);letter-spacing:-.5px}
+.vm-today .st-txt .t2{font-size:12px;color:var(--c3)}
+.vm-today .vm-divider{width:1px;height:40px;background:rgba(0,0,0,.08)}
+.vm-today .vm-stat{display:flex;flex-direction:column}
+.vm-today .vm-stat .num{font-size:22px;font-weight:700;letter-spacing:-.5px;font-family:"JetBrains Mono",monospace}
+.vm-today .vm-stat .num.warn{color:var(--orange)}
+.vm-today .vm-stat .num.danger{color:var(--red)}
+.vm-today .vm-stat .lbl{font-size:11px;color:var(--c3);text-transform:uppercase;letter-spacing:.3px}
+
+/* ===== Report CTA (月報入口漸層大卡) ===== */
+.vm-cta{background:linear-gradient(135deg,#0D5C47 0%,#1E8A6F 55%,#26A889 100%);color:#fff;border-radius:var(--radius);padding:32px 40px;box-shadow:var(--shadow-lg);margin-bottom:28px;position:relative;overflow:hidden}
+.vm-cta::after{content:"";position:absolute;right:-60px;bottom:-60px;width:240px;height:240px;background:rgba(255,255,255,.06);border-radius:50%;pointer-events:none}
+.vm-cta::before{content:"";position:absolute;right:60px;top:-80px;width:180px;height:180px;background:rgba(255,255,255,.05);border-radius:50%;pointer-events:none}
+.vm-cta .eyebrow{font-size:11px;letter-spacing:3px;opacity:.75;text-transform:uppercase;margin-bottom:8px}
+.vm-cta .headline{font-size:32px;font-weight:700;letter-spacing:-.5px;margin-bottom:6px}
+.vm-cta .cta-meta{font-size:13px;opacity:.85;margin-bottom:24px}
+.vm-cta .cta-meta .sep{margin:0 8px;opacity:.5}
+.vm-cta .cta-actions{display:flex;gap:10px;flex-wrap:wrap;position:relative;z-index:2}
+.vm-cta .btn-cta{background:#fff;color:var(--g-text);border:0;border-radius:10px;padding:12px 20px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:8px;transition:.2s;letter-spacing:.3px}
+.vm-cta .btn-cta:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,0,0,.15)}
+.vm-cta .btn-cta.ghost{background:rgba(255,255,255,.12);color:#fff;backdrop-filter:blur(8px)}
+.vm-cta .btn-cta.ghost:hover{background:rgba(255,255,255,.2)}
+.vm-cta .cta-next{margin-top:20px;font-size:12px;opacity:.6;letter-spacing:.3px;position:relative;z-index:2}
+
+/* ===== Main grid: clusters + risks ===== */
+.vm-grid{display:grid;grid-template-columns:1fr 360px;gap:22px}
+@media (max-width:1100px){.vm-grid{grid-template-columns:1fr}}
+.vm-panel{background:var(--white);border:1px solid rgba(0,0,0,.04);border-radius:var(--radius);box-shadow:var(--shadow-sm)}
+.vm-phdr{padding:18px 22px 12px;display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid rgba(0,0,0,.05)}
+.vm-phdr h2{font-size:14px;font-weight:600;color:var(--c2);letter-spacing:.4px;text-transform:uppercase}
+.vm-phdr .hint{font-size:11px;color:var(--c3)}
+
+/* Cluster location rows */
+.vm-loc-row{padding:14px 22px;border-bottom:1px solid rgba(0,0,0,.04);display:grid;grid-template-columns:90px 1fr auto;gap:18px;align-items:center}
+.vm-loc-row:last-child{border-bottom:0}
+.vm-loc-row .loc-name{font-size:14px;font-weight:600;color:var(--c1)}
+.vm-loc-row .loc-sub{font-size:11px;color:var(--c3);font-family:"JetBrains Mono",monospace}
+.vm-loc-row .clusters{display:flex;flex-wrap:wrap;gap:6px}
+.vm-chip{font-size:11px;padding:5px 10px;border-radius:6px;background:var(--bg2);color:var(--c2);white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-weight:500;border:1px solid transparent}
+.vm-chip .d{width:7px;height:7px;border-radius:50%;display:inline-block}
+.vm-chip .d.ok{background:var(--g1)}
+.vm-chip .d.warn{background:var(--orange)}
+.vm-chip .d.danger{background:var(--red)}
+.vm-chip.warn{background:#FEF4E0;color:#8A4B00;border-color:rgba(232,124,7,.2)}
+.vm-chip.danger{background:#FEECEB;color:var(--red);border-color:rgba(224,11,0,.2)}
+.vm-loc-row .summary{font-size:12px;color:var(--c3);white-space:nowrap;font-family:"JetBrains Mono",monospace}
+
+/* Risk sidebar */
+.vm-risk-item{padding:14px 22px;border-bottom:1px solid rgba(0,0,0,.04)}
+.vm-risk-item:last-child{border-bottom:0}
+.vm-risk-item .r-top{display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:3px}
+.vm-risk-item .r-title{font-size:14px;font-weight:600;color:var(--c1);line-height:1.4}
+.vm-risk-item .r-desc{font-size:12px;color:var(--c3);line-height:1.5}
+.vm-risk-item .r-badge{font-size:10px;padding:2px 7px;border-radius:10px;font-weight:500;white-space:nowrap}
+.vm-risk-item .r-badge.danger{background:#FEECEB;color:var(--red)}
+.vm-risk-item .r-badge.warn{background:#FEF4E0;color:var(--orange)}
+.vm-risk-item .r-badge.info{background:var(--bg2);color:var(--c3)}
+.vm-risk-item.info{background:var(--bg2)}
+.vm-risk-item.info .r-title{color:var(--c3)}
+
+/* ===== VC sources strip ===== */
+.vm-sources{margin-top:24px;padding:16px 22px;background:var(--white);border-radius:var(--radius);border:1px solid rgba(0,0,0,.04);box-shadow:var(--shadow-sm);display:flex;align-items:center;gap:14px;font-size:12px;flex-wrap:wrap}
+.vm-sources .sl{color:var(--c3);letter-spacing:.5px;text-transform:uppercase;font-size:11px;font-weight:500;margin-right:8px}
+.vc-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:6px;background:var(--bg2);color:var(--c2);font-size:12px}
+.vc-chip .d{width:6px;height:6px;border-radius:50%}
+.vc-chip.live .d{background:var(--g1);box-shadow:0 0 0 2px rgba(38,168,137,.2)}
+.vc-chip.pending .d{background:var(--c4)}
+.vc-chip.pending{color:var(--c3)}
+
+/* ===== Fresh pulse dot ===== */
+.vm-fresh-dot{width:6px;height:6px;border-radius:50%;background:var(--g1);display:inline-block;animation:vmpulse 2s infinite;margin-right:6px}
+@keyframes vmpulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ===== Mock mode banner ===== */
+.vm-mock-banner{margin-bottom:18px;padding:10px 16px;background:#FFF7E0;border:1px dashed var(--orange);border-radius:var(--radius-sm);font-size:12px;color:#8A4B00}

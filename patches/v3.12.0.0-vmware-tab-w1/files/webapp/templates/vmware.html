@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}VMware 管理 | 國泰證券監控系統{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="/static/css/vmware.css">
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1 style="font-size:26px;font-weight:700;letter-spacing:-.5px">VMware 管理</h1>
+    <div style="color:var(--c3);font-size:12px;margin-top:4px">
+      <span class="vm-fresh-dot"></span>
+      <span class="mono">最後抓取 {{ vm.last_fetch }} · 下次 {{ vm.next_fetch }} · 每 8H 採樣</span>
+    </div>
+  </div>
+</div>
+
+{% if vm.mock_mode %}
+<div class="vm-mock-banner">
+  🔧 <b>Mock 模式</b>：目前顯示的是假資料（家裡 221 開發用）。W1 後續接真 vCenter snapshot。
+</div>
+{% endif %}
+
+<!-- ===== 今日開門檢查 ===== -->
+<div class="vm-today">
+  <div class="st-big">
+    <div class="st-ring {{ vm.status_overall }}">
+      {% if vm.status_overall == 'ok' %}✓{% elif vm.status_overall == 'warn' %}⚠{% else %}✕{% endif %}
+    </div>
+    <div class="st-txt">
+      <div class="t1">
+        {% if vm.status_overall == 'ok' %}整體狀態正常
+        {% elif vm.status_overall == 'warn' %}有關注項目
+        {% else %}需要處理{% endif %}
+      </div>
+      <div class="t2">硬體事件 {{ vm.hw_events }} · 非計劃停機 0</div>
+    </div>
+  </div>
+  <div class="vm-divider"></div>
+  <div class="vm-stat"><div class="num mono">{{ vm.total_hosts }}</div><div class="lbl">ESXi 主機</div></div>
+  <div class="vm-stat"><div class="num mono">{{ vm.total_clusters }}</div><div class="lbl">Cluster</div></div>
+  <div class="vm-stat"><div class="num {% if vm.warn_clusters %}warn{% endif %} mono">{{ vm.warn_clusters }}</div><div class="lbl">效能關注</div></div>
+  <div class="vm-stat"><div class="num {% if vm.eos_hosts %}danger{% endif %} mono">{{ vm.eos_hosts }}</div><div class="lbl">EOS 合規</div></div>
+</div>
+
+<!-- ===== 月報 CTA ===== -->
+<div class="vm-cta">
+  <div class="eyebrow">MONTHLY REPORT</div>
+  <div class="headline">{{ vm.report_available.month }} 月報已產生</div>
+  <div class="cta-meta">
+    <span>{{ vm.report_available.generated }} 自動產製</span>
+    <span class="sep">·</span>
+    <span>{{ vm.report_available.pages }} 頁</span>
+    <span class="sep">·</span>
+    <span>{{ vm.report_available.size }}</span>
+    <span class="sep">·</span>
+    <span>PPTX{% if vm.report_available.has_pdf %} + PDF{% endif %}</span>
+  </div>
+  <div class="cta-actions">
+    <button class="btn-cta" onclick="alert('W2 實作：下載 PPT')">⬇ 下載 PPT</button>
+    <button class="btn-cta ghost" onclick="alert('W2 實作：線上預覽')">👁 線上預覽</button>
+    <button class="btn-cta ghost" onclick="alert('W2 實作：Email')">📧 Email 寄給我</button>
+    <button class="btn-cta ghost" onclick="alert('W2 實作：切換月份')">🗓️ 切換月份</button>
+  </div>
+  <div class="cta-next">下期月報：{{ vm.next_report_date }} 03:00 自動產生</div>
+</div>
+
+<!-- ===== Clusters + Risks ===== -->
+<div class="vm-grid">
+
+  <div class="vm-panel">
+    <div class="vm-phdr">
+      <h2>Cluster 狀態</h2>
+      <span class="hint">點 chip 進入 SP 技術員視角（W1+ 後續）</span>
+    </div>
+
+    {% for loc in vm.locations %}
+    <div class="vm-loc-row">
+      <div>
+        <div class="loc-name">📍 {{ loc.name }}</div>
+        <div class="loc-sub">{{ loc.esxi_count }} ESXi</div>
+      </div>
+      <div class="clusters">
+        {% for c in loc.clusters %}
+          <span class="vm-chip{% if c.status != 'ok' %} {{ c.status }}{% endif %}">
+            <span class="d {{ c.status }}"></span>{{ c.name }}{% if c.tag %} · {{ c.tag }}{% endif %}
+          </span>
+        {% endfor %}
+      </div>
+      <div class="summary">{{ loc.ok_count }} / {{ loc.total_count }} OK</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="vm-panel">
+    <div class="vm-phdr">
+      <h2>本月風險 ({{ vm.risks | selectattr('level','ne','info') | list | length }})</h2>
+      <span class="hint">月報第 3 頁完整清單</span>
+    </div>
+    {% for r in vm.risks %}
+    <div class="vm-risk-item{% if r.level == 'info' %} info{% endif %}">
+      <div class="r-top">
+        <div class="r-title">{{ r.title }}</div>
+        <span class="r-badge {{ r.level }}">
+          {% if r.level == 'danger' %}HIGH{% elif r.level == 'warn' %}WARN{% else %}FYI{% endif %}
+        </span>
+      </div>
+      <div class="r-desc">{{ r.desc }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+</div>
+
+<!-- ===== VC 資料來源 ===== -->
+<div class="vm-sources">
+  <span class="sl">vCenter 資料源</span>
+  {% for vc in vm.vcenters %}
+    <span class="vc-chip {{ vc.status }}">
+      <span class="d"></span>{{ vc.name }}
+      {% if vc.version %} · {{ vc.version }}{% else %} · 待接入{% endif %}
+    </span>
+  {% endfor %}
+</div>
+
+<script>
+  // Nav 高亮
+  document.addEventListener("DOMContentLoaded", function() {
+    const nav = document.getElementById("nav-vmware");
+    if (nav) nav.style.color = "var(--g1)";
+  });
+</script>
+
+{% endblock %}

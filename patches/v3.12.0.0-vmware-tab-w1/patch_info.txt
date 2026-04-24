@@ -1,0 +1,8 @@
+VERSION=3.12.0.0-vmware-tab-w1
+DESC=VMware 管理 tab W1 MVP (主管開門版 + 月報入口 + Cluster chip + 本月風險; 目前走 mock data)
+DATE=2026-04-24
+AUTHOR=alien4job@gmail.com
+FILES=webapp/routes/api_vmware.py (新), webapp/templates/vmware.html (新), webapp/services/vmware_mock.py (新), webapp/static/css/vmware.css (新), data/version.json (prepend changelog), webapp/templates/base.html (插 nav), webapp/app.py (註冊 blueprint)
+REQUIRES_RESTART=yes
+PREREQ=v3.12.0.0-vmware-prereq (pyvmomi + python-ldap) 先套
+NEXT=W1 增量: vcenter_collector.py 接真 VC; W2: 月報 PPT 生成器
