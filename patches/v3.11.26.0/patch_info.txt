@@ -1,0 +1,7 @@
+VERSION=3.11.26.0
+DESC=深度檢查版本對照 - 選兩個報告並列顯示 9 面向變化
+DATE=2026-04-24
+AUTHOR=alien4job@gmail.com
+FILES=webapp/templates/report.html, data/version.json
+REQUIRES_RESTART=yes
+PREREQ=v3.11.25.0
