@@ -1,0 +1,9 @@
+VERSION=3.12.0.0-vmware-prereq
+DESC=VMware tab 前置套件 (pyvmomi 9.0 wheel + python3-ldap 3.4.3 RPM + pyasn1 deps)
+DATE=2026-04-24
+AUTHOR=alien4job@gmail.com
+FILES=files/vmware_ldap_offline_v3.12.0.0.tar.gz (2.0 MB, 內含 1 wheel + 3 RPM)
+REQUIRES_RESTART=no
+PREREQ=RHEL 9 / Rocky 9, Python 3.9, sudo
+INSTALLS=pyvmomi→~/.local (使用者 home), python3-ldap→系統 (需 sudo)
+NOTE=不動巡檢系統程式碼，只裝套件；為後續 v3.12.0.0 VMware 管理 tab 做準備

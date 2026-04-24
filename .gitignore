@@ -29,6 +29,9 @@ logs
 *.tar.gz.doc
 inspection_deploy_v*/
 
+# Whitelist: 小型 prereq bundle 隨 patch 一起走 git (< 5MB 單檔)
+!patches/*/files/*.tar.gz
+
 # Generated / temp outputs
 b64_output*.txt
 tmp/
