@@ -1,0 +1,8 @@
+VERSION=3.11.26.0-combo
+DESC=Combo pack: 22.2 一次升級到 26.0 (視覺化 + 彩色 badge + 知識庫 + 歷史 + 對照 + 180 天保留 cron)
+DATE=2026-04-24
+AUTHOR=alien4job@gmail.com
+FILES=webapp/routes/api_deep_check.py, webapp/routes/remedy_kb.py (新檔), webapp/templates/report.html, data/version.json, /etc/cron.d/inspection-deep-check-cleanup (新)
+REQUIRES_RESTART=yes
+PREREQ=v3.11.22.x (建議 22.2)
+INCLUDES=v3.11.23.0 視覺化 + v3.11.23.1 badge + v3.11.24.0 知識庫 + v3.11.25.0 歷史 + v3.11.26.0 對照

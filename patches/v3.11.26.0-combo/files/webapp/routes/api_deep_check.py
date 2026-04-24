@@ -1,0 +1,511 @@
+"""深度檢查 API (v3.11.22.0) — 單機 Linux 9 面向深度診斷 (smit_menu mod_troubleshoot.sh -m)"""
+from flask import Blueprint, jsonify, request, send_file
+import subprocess
+import threading
+import os
+import re
+import json
+import socket
+from datetime import datetime
+from services.mongo_service import get_db
+from decorators import login_required, admin_required
+from routes.remedy_kb import match_remedies  # v3.11.24.0 建議動作知識庫
+
+bp = Blueprint("api_deep_check", __name__)
+
+
+def _detect_inspection_home():
+    """偵測 inspection 家目錄。優先 env var (INSPECTION_HOME / ITAGENT_HOME)，
+    再試常見路徑 /opt/inspection (公司 13+) 和 /seclog/AI/inspection (家裡 221)。
+
+    v3.11.25.0 修正: 用 data/version.json 檔案存在判斷, 不是目錄 (221 有空殼 /opt/inspection
+    只含空的 data/logs 子目錄但無 version.json, 會誤選中)"""
+    def _ok(p):
+        return p and os.path.isfile(os.path.join(p, "data", "version.json"))
+    for var in ("INSPECTION_HOME", "ITAGENT_HOME"):
+        val = os.environ.get(var)
+        if _ok(val):
+            return val
+    for candidate in ("/opt/inspection", "/seclog/AI/inspection"):
+        if _ok(candidate):
+            return candidate
+    # 最後 fallback: 若 /opt/inspection 目錄存在就用它 (新裝可能還沒有 version.json)
+    if os.path.isdir("/opt/inspection"):
+        return "/opt/inspection"
+    return "/seclog/AI/inspection"
+
+
+INSPECTION_HOME = _detect_inspection_home()
+ANSIBLE_DIR = os.path.join(INSPECTION_HOME, "ansible")
+VAULT_PASS = os.path.join(INSPECTION_HOME, ".vault_pass")
+REPORTS_DIR = os.path.join(INSPECTION_HOME, "data", "deep_check_reports")
+PROGRESS_DIR = os.path.join(INSPECTION_HOME, "data", "deep_check_progress")
+
+# 報告檔名 pattern: ts_<hostname>_<YYYYMMDD_HHMMSS>_{summary,detail}.txt
+_SAFE_FILENAME = re.compile(r'^ts_[\w\-\.]+_\d{8}_\d{6}_(summary|detail)\.txt$')
+_SAFE_HOSTNAME = re.compile(r'^[\w\.\-]+$')
+_jobs = {}
+
+# controller 自己不能做深度檢查 (ansible become:true 需 sudo 密碼)
+_CONTROLLER_HOSTNAME = os.environ.get("INSPECTION_CONTROLLER_HOSTNAME", socket.gethostname())
+
+
+def _parse_progress(log_path, target_hosts):
+    if not os.path.isfile(log_path):
+        return {"hosts": {h: "waiting" for h in target_hosts}, "phase": "啟動中"}
+    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+        output = f.read()
+    hosts_status = {h: "waiting" for h in target_hosts}
+    current_task = ""
+    for line in output.split("\n"):
+        if line.startswith("TASK ["):
+            current_task = line.split("[")[1].split("]")[0] if "[" in line else ""
+        for sw in ["ok", "changed", "fatal", "FAILED", "unreachable"]:
+            if line.strip().startswith(f"{sw}: ["):
+                m = re.search(r'\[([^\]]+)\]', line)
+                if m and m.group(1) in hosts_status:
+                    hosts_status[m.group(1)] = "failed" if sw in ("fatal", "FAILED", "unreachable") else "running"
+        if "PLAY RECAP" in line:
+            for h in target_hosts:
+                recap = re.search(rf'{re.escape(h)}\s+:\s+ok=(\d+).*?failed=(\d+)', output[output.index("PLAY RECAP"):])
+                if recap:
+                    hosts_status[h] = "failed" if int(recap.group(2)) > 0 else "done"
+    phase = "完成" if "PLAY RECAP" in output else (current_task or "連線中")
+    return {"hosts": hosts_status, "phase": phase}
+
+
+def _run_async(job_id, cmd, target_hosts, log_path):
+    _jobs[job_id]["status"] = "running"
+    try:
+        with open(log_path, "w") as log_f:
+            proc = subprocess.Popen(cmd, shell=True, stdout=log_f, stderr=subprocess.STDOUT, cwd=ANSIBLE_DIR)
+            _jobs[job_id]["pid"] = proc.pid
+            proc.wait(timeout=300)
+        _jobs[job_id]["status"] = "done" if proc.returncode == 0 else "error"
+        _jobs[job_id]["returncode"] = proc.returncode
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        _jobs[job_id]["status"] = "timeout"
+    except Exception as e:
+        _jobs[job_id]["status"] = "error"
+        _jobs[job_id]["error"] = str(e)
+    finally:
+        _jobs[job_id]["finished_at"] = datetime.now().strftime("%H:%M:%S")
+
+
+@bp.route("/api/deep-check/meta", methods=["GET"])
+@login_required
+def get_meta():
+    """回傳深度檢查相關的 meta info (前端渲染用)"""
+    return jsonify({
+        "success": True,
+        "controller_hostname": _CONTROLLER_HOSTNAME,
+    })
+
+
+@bp.route("/api/deep-check/run", methods=["POST"])
+@login_required
+def run_deep_check():
+    """觸發單台主機的深度檢查 (非同步)"""
+    # 防重複執行
+    for jid, j in _jobs.items():
+        if j["status"] == "running":
+            return jsonify({"success": False, "error": "已有深度檢查任務進行中", "job_id": jid}), 409
+
+    data = request.get_json(force=True) if request.is_json else {}
+    hostname = (data.get("hostname") or "").strip()
+
+    if not hostname:
+        return jsonify({"success": False, "error": "需要 hostname"}), 400
+    if not _SAFE_HOSTNAME.match(hostname):
+        return jsonify({"success": False, "error": f"無效主機名: {hostname}"}), 400
+
+    # 驗證 hostname 存在且為 Linux 類
+    db = get_db()
+    host_doc = db.hosts.find_one(
+        {"hostname": hostname, "os_group": {"$in": ["rocky", "rhel", "debian", "centos", "ubuntu"]}},
+        {"hostname": 1, "ip": 1, "os": 1, "status": 1}
+    )
+    if not host_doc:
+        return jsonify({"success": False, "error": f"找不到 Linux 主機: {hostname}"}), 404
+    if host_doc.get("status") == "disabled":
+        return jsonify({"success": False, "error": f"主機已停用: {hostname}"}), 400
+
+    job_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    job_id = f"dc_{job_ts}"
+    os.makedirs(PROGRESS_DIR, exist_ok=True)
+    log_path = os.path.join(PROGRESS_DIR, f"{job_id}.log")
+
+    vault_arg = f"--vault-password-file {VAULT_PASS}" if os.path.exists(VAULT_PASS) else ""
+    # v3.11.22.2: 把 INSPECTION_HOME 傳給 playbook (否則 playbook 會 fallback 成 hardcode 路徑)
+    extra_vars = {
+        "job_timestamp": job_ts,
+        "inspection_home_override": INSPECTION_HOME,
+    }
+    ev_file = os.path.join(PROGRESS_DIR, f"{job_id}_vars.json")
+    with open(ev_file, "w") as f:
+        json.dump(extra_vars, f)
+
+    cmd = (
+        f"ansible-playbook playbooks/deep_check.yml "
+        f"-i inventory/hosts.yml --limit {hostname} {vault_arg} "
+        f"-e @{ev_file}"
+    )
+
+    _jobs[job_id] = {
+        "status": "starting",
+        "target_hosts": [hostname],
+        "host_ip_map": {hostname: host_doc.get("ip", "")},
+        "log_path": log_path,
+        "job_ts": job_ts,
+        "started_at": datetime.now().strftime("%H:%M:%S"),
+        "finished_at": None,
+        "pid": None,
+    }
+
+    t = threading.Thread(target=_run_async, args=(job_id, cmd, [hostname], log_path))
+    t.daemon = True
+    t.start()
+
+    return jsonify({
+        "success": True,
+        "job_id": job_id,
+        "message": f"深度檢查已啟動: {hostname}",
+        "hostname": hostname,
+    })
+
+
+@bp.route("/api/deep-check/progress/<job_id>", methods=["GET"])
+@login_required
+def get_progress(job_id):
+    if job_id not in _jobs:
+        return jsonify({"success": False, "error": "找不到此 job"}), 404
+    job = _jobs[job_id]
+    progress = _parse_progress(job["log_path"], job["target_hosts"])
+    host_ip_map = job.get("host_ip_map", {})
+    hosts_detail = []
+    done_count = 0
+    for h in job["target_hosts"]:
+        s = progress["hosts"].get(h, "waiting")
+        if s == "done":
+            done_count += 1
+        hosts_detail.append({"hostname": h, "ip": host_ip_map.get(h, ""), "status": s})
+    is_finished = job["status"] in ("done", "error", "timeout")
+
+    # 完成時嘗試找對應報告檔名
+    report_files = {}
+    if is_finished and job["status"] == "done":
+        hostname = job["target_hosts"][0]
+        job_ts = job.get("job_ts", "")
+        for kind in ("summary", "detail"):
+            fname = f"ts_{hostname}_{job_ts}_{kind}.txt"
+            if os.path.isfile(os.path.join(REPORTS_DIR, fname)):
+                report_files[kind] = fname
+
+    log_content = None
+    if is_finished and os.path.isfile(job["log_path"]):
+        try:
+            with open(job["log_path"], "r", encoding="utf-8", errors="replace") as f:
+                log_content = f.read()[-5000:]
+        except Exception:
+            pass
+
+    return jsonify({
+        "success": True,
+        "job_id": job_id,
+        "job_status": job["status"],
+        "phase": progress["phase"],
+        "total": len(job["target_hosts"]),
+        "completed": done_count,
+        "hosts": hosts_detail,
+        "started_at": job["started_at"],
+        "finished_at": job.get("finished_at"),
+        "is_finished": is_finished,
+        "log": log_content,
+        "report_files": report_files,
+    })
+
+
+@bp.route("/api/deep-check/reports", methods=["GET"])
+@login_required
+def list_reports():
+    """列出所有深度檢查報告, 可用 ?hostname= 過濾"""
+    hostname_filter = (request.args.get("hostname") or "").strip()
+    return jsonify({"success": True, "data": _list_reports(hostname_filter)})
+
+
+@bp.route("/api/deep-check/history", methods=["GET"])
+@login_required
+def list_history():
+    """v3.11.25.0: 歷史報告 (按 run 分組, 含 parsed meta, 時間倒序)"""
+    hostname_filter = (request.args.get("hostname") or "").strip()
+    try:
+        limit = int(request.args.get("limit") or 20)
+    except ValueError:
+        limit = 20
+    return jsonify({"success": True, "data": _list_history(hostname_filter, limit)})
+
+
+def _list_history(hostname_filter="", limit=20):
+    """回傳 runs (summary+detail 配對, 含 status/stats), 時間倒序"""
+    if not os.path.isdir(REPORTS_DIR):
+        return []
+    files_by_run = {}  # (hostname, job_ts) -> {"summary": fn, "detail": fn}
+    for fname in os.listdir(REPORTS_DIR):
+        m = re.match(r'^ts_(.+)_(\d{8})_(\d{6})_(summary|detail)\.txt$', fname)
+        if not m:
+            continue
+        hostname, ymd, hms, kind = m.groups()
+        if hostname_filter and hostname != hostname_filter:
+            continue
+        key = (hostname, f"{ymd}_{hms}")
+        files_by_run.setdefault(key, {})[kind] = fname
+
+    runs = []
+    for (hostname, job_ts), pair in files_by_run.items():
+        if "summary" not in pair:
+            continue  # 無 summary 的 run 不列
+        ymd = job_ts[:8]; hms = job_ts[9:]
+        date_f = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:8]} {hms[:2]}:{hms[2:4]}:{hms[4:6]}"
+        entry = {
+            "hostname": hostname,
+            "job_ts": job_ts,
+            "date": date_f,
+            "summary_filename": pair["summary"],
+            "detail_filename": pair.get("detail"),
+            "status": "?",
+            "status_level": "unknown",
+            "stats": {"pass": 0, "warn": 0, "fail": 0, "na": 0},
+        }
+        try:
+            fp = os.path.join(REPORTS_DIR, pair["summary"])
+            with open(fp, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            parsed = _parse_summary(content)
+            if parsed.get("status"):
+                entry["status"] = parsed["status"]
+            entry["status_level"] = parsed.get("status_level") or "unknown"
+            if parsed.get("stats"):
+                entry["stats"] = parsed["stats"]
+        except Exception:
+            pass
+        runs.append(entry)
+
+    runs.sort(key=lambda r: r["job_ts"], reverse=True)
+    return runs[:limit]
+
+
+@bp.route("/api/deep-check/reports/<filename>/preview", methods=["GET"])
+@login_required
+def preview_report(filename):
+    if not _SAFE_FILENAME.match(filename):
+        return jsonify({"success": False, "error": "無效檔名"}), 400
+    fp = os.path.join(REPORTS_DIR, filename)
+    if not os.path.isfile(fp):
+        return jsonify({"success": False, "error": "不存在"}), 404
+    with open(fp, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+    return jsonify({"success": True, "filename": filename, "content": content})
+
+
+@bp.route("/api/deep-check/reports/<filename>/parsed", methods=["GET"])
+@login_required
+def parsed_report(filename):
+    """v3.11.23.0: 解析 summary.txt 為結構化 JSON (給 UI 5 秒視覺化)"""
+    if not _SAFE_FILENAME.match(filename) or "_summary.txt" not in filename:
+        return jsonify({"success": False, "error": "僅支援 summary.txt 解析"}), 400
+    fp = os.path.join(REPORTS_DIR, filename)
+    if not os.path.isfile(fp):
+        return jsonify({"success": False, "error": "不存在"}), 404
+    with open(fp, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+    return jsonify({"success": True, "filename": filename, "data": _parse_summary(content)})
+
+
+# ANSI 色碼 (\x1b[...m 或 [...m, smit_menu 有時候寫成不含 ESC 的純文字)
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m|\[\d+;?\d*m|\[0m')
+
+
+def _strip_ansi(s: str) -> str:
+    return _ANSI_RE.sub("", s)
+
+
+def _parse_summary(content: str) -> dict:
+    """解析 mod_troubleshoot.sh -m 產生的 summary.txt 為 JSON
+
+    輸出結構:
+    {
+      hostname, timestamp, os, uptime, ap_port, ping_target,
+      status: "正常"|"警告"|"異常", status_level: "ok"|"warn"|"error",
+      stats: {pass, warn, fail, na},
+      customer_impact: "...",
+      items: [
+        {idx, name, level: "pass"|"warn"|"fail"|"na",
+         range, cmd, baseline, actual, verdict, impact, action}
+      ]
+    }
+    """
+    text = _strip_ansi(content)
+    lines = text.split("\n")
+
+    result = {
+        "hostname": "", "timestamp": "", "os": "", "uptime": "",
+        "ap_port": "", "ping_target": "",
+        "status": "", "status_level": "unknown",
+        "stats": {"pass": 0, "warn": 0, "fail": 0, "na": 0},
+        "customer_impact": "",
+        "items": [],
+    }
+
+    # 找「以下為完整細項」分隔點, 頂層 meta 只用分隔點前的行
+    sep_idx = len(lines)
+    for i, l in enumerate(lines):
+        if "以下為完整細項" in l:
+            sep_idx = i
+            break
+    top_lines = lines[:sep_idx]
+
+    # [1] 頂層 meta
+    for line in top_lines:
+        m = re.search(r'主機狀態:\s*(\S+)', line)
+        if m:
+            s = m.group(1)
+            result["status"] = s
+            result["status_level"] = {"正常": "ok", "警告": "warn", "異常": "error"}.get(s, "unknown")
+        m = re.search(r'PASS=(\d+)\s+WARN=(\d+)\s+FAIL=(\d+)\s+N/A=(\d+)', line)
+        if m:
+            result["stats"] = {
+                "pass": int(m.group(1)), "warn": int(m.group(2)),
+                "fail": int(m.group(3)), "na": int(m.group(4)),
+            }
+        m = re.search(r'主機:\s*(\S+)\s+時間:\s*(\S+\s+\S+)', line)
+        if m:
+            result["hostname"] = m.group(1)
+            result["timestamp"] = m.group(2)
+        if "客訴" in line and ":" in line:
+            parts = line.split(":", 1)
+            if len(parts) == 2:
+                result["customer_impact"] = parts[1].strip()
+        m = re.search(r'^\s*主機\s*:\s*(\S+)', line)
+        if m and not result["hostname"]:
+            result["hostname"] = m.group(1)
+        m = re.search(r'OS\s*:\s*(\S+)\s+Uptime:\s*(.+)$', line)
+        if m:
+            result["os"] = m.group(1)
+            result["uptime"] = m.group(2).strip()
+        m = re.search(r'AP port\s*:\s*(.+?)\s+Ping 目標:\s*(.+)$', line)
+        if m:
+            result["ap_port"] = m.group(1).strip()
+            result["ping_target"] = m.group(2).strip()
+
+    # [2] 細項區塊 - 分隔點之後的 9 面向
+    if sep_idx < len(lines):
+        detail_lines = lines[sep_idx:]
+        # 逐區塊切 [N/9] 開頭的 section
+        current = None
+        current_field = None
+        for line in detail_lines:
+            header = re.match(r'^\[(\d+)/9\]\s+(.+?)\s+(PASS|WARN|FAIL|N/A)\s*$', line)
+            if header:
+                if current:
+                    result["items"].append(current)
+                idx = int(header.group(1))
+                name = header.group(2).strip()
+                verdict = header.group(3)
+                level = {"PASS": "pass", "WARN": "warn", "FAIL": "fail", "N/A": "na"}[verdict]
+                current = {
+                    "idx": idx, "name": name, "level": level, "verdict": verdict,
+                    "range": "", "cmd": "", "baseline": "",
+                    "actual": "", "impact": "", "action": "",
+                }
+                current_field = None
+                continue
+            if not current:
+                continue
+            # 7 小段: 檢查範圍 / 檢查指令 / 正常基準 / 實測數值 / 判定依據 / 對客訴影響 / 建議動作
+            m = re.match(r'^\s*(檢查範圍|檢查指令|正常基準|實測數值|判定依據|對客訴影響|建議動作|明細|白名單|偵測結果)\s*:\s*(.*)$', line)
+            if m:
+                label = m.group(1)
+                val = m.group(2)
+                field_map = {
+                    "檢查範圍": "range", "檢查指令": "cmd", "正常基準": "baseline",
+                    "實測數值": "actual", "對客訴影響": "impact", "建議動作": "action",
+                }
+                current_field = field_map.get(label)
+                if current_field:
+                    current[current_field] = val.strip()
+                else:
+                    current_field = None
+                continue
+            # 延續上一個欄位的續行 (縮排開頭)
+            if current_field and line.strip() and (line.startswith("  ") or line.startswith("\t")):
+                current[current_field] += "\n" + line.strip()
+                continue
+            # 空行或下一個 [N/9] 之前的其他行, 結束當前欄位
+            if not line.strip():
+                current_field = None
+
+        if current:
+            result["items"].append(current)
+
+    # 補齊到 9 項 (若 detail 不完整)
+    seen_idx = {it["idx"] for it in result["items"]}
+    default_names = ["效能", "頻寬", "AP", "Session", "Storage", "時間/憑證", "DB", "Infra", "運維軌跡"]
+    for i in range(1, 10):
+        if i not in seen_idx:
+            result["items"].append({
+                "idx": i, "name": default_names[i - 1], "level": "unknown",
+                "verdict": "?", "range": "", "cmd": "", "baseline": "",
+                "actual": "", "impact": "", "action": "",
+            })
+    result["items"].sort(key=lambda x: x["idx"])
+
+    # v3.11.24.0 套用知識庫: 為 WARN/FAIL 項目加上 remedies (指令 / 風險 / 驗證)
+    for it in result["items"]:
+        if it.get("level") in ("warn", "fail"):
+            it["remedies"] = match_remedies(it)
+        else:
+            it["remedies"] = []
+
+    return result
+
+
+@bp.route("/api/deep-check/reports/<filename>/download", methods=["GET"])
+@login_required
+def download_report(filename):
+    if not _SAFE_FILENAME.match(filename):
+        return jsonify({"success": False, "error": "無效檔名"}), 400
+    fp = os.path.join(REPORTS_DIR, filename)
+    if not os.path.isfile(fp):
+        return jsonify({"success": False, "error": "不存在"}), 404
+    return send_file(fp, as_attachment=True, download_name=filename)
+
+
+def _list_reports(hostname_filter=""):
+    if not os.path.isdir(REPORTS_DIR):
+        return []
+    reports = []
+    for fname in os.listdir(REPORTS_DIR):
+        if not _SAFE_FILENAME.match(fname):
+            continue
+        # ts_<hostname>_<YYYYMMDD_HHMMSS>_<kind>.txt
+        m = re.match(r'^ts_(.+)_(\d{8})_(\d{6})_(summary|detail)\.txt$', fname)
+        if not m:
+            continue
+        hostname, ymd, hms, kind = m.groups()
+        if hostname_filter and hostname != hostname_filter:
+            continue
+        fp = os.path.join(REPORTS_DIR, fname)
+        stat = os.stat(fp)
+        date_f = f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:8]} {hms[:2]}:{hms[2:4]}:{hms[4:6]}"
+        reports.append({
+            "filename": fname,
+            "hostname": hostname,
+            "kind": kind,
+            "date": date_f,
+            "size_kb": round(stat.st_size / 1024, 1),
+            "mtime": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+            "job_ts": f"{ymd}_{hms}",
+        })
+    reports.sort(key=lambda x: x["mtime"], reverse=True)
+    return reports

@@ -1,0 +1,930 @@
+{% extends "base.html" %}
+{% block title %}今日巡檢報告 - IT 每日巡檢系統{% endblock %}
+{% block content %}
+<h2 style="margin-bottom:20px;font-size:20px;">今日巡檢報告</h2>
+
+<!-- OS 分類 Tab -->
+<div class="os-tabs" style="margin-bottom:0;">
+  <button class="os-tab active" onclick="switchOS('linux')">Linux <span class="os-tab-count" id="countLinux">0</span></button>
+  <button class="os-tab" onclick="switchOS('windows')">Windows <span class="os-tab-count" id="countWindows">0</span></button>
+  <button class="os-tab" onclick="switchOS('aix')">AIX <span class="os-tab-count" id="countAix">0</span></button>
+  <button class="os-tab" onclick="switchOS('as400')">AS/400 <span class="os-tab-count" id="countAs400">0</span></button>
+</div>
+
+<!-- 篩選列 -->
+<div class="filter-bar" style="margin-bottom:16px;">
+  <input type="text" id="filterSearch" class="input-field" placeholder="搜尋主機、IP、保管者..." oninput="applyFilter()" style="flex:1;min-width:200px;">
+  <span class="ct-tip" data-tip="重新檢查所有主機的連線狀態 (ping)。離線主機會標示紅色遮罩，此操作不會重新執行巡檢。"><button id="report-rescan-btn" class="btn btn-sm" style="background:var(--g2);color:white;font-size:12px;padding:6px 14px;white-space:nowrap;" onclick="rescanAll()">🔄 重新掃描</button></span>
+  <label class="toggle-label">只顯示異常
+    <input type="checkbox" id="toggleAbnormal" onchange="applyFilter()">
+    <span class="toggle-slider"></span>
+  </label>
+</div>
+
+<div class="host-grid" id="report-grid">
+  <div class="skeleton" style="height:200px;"></div>
+  <div class="skeleton" style="height:200px;"></div>
+  <div class="skeleton" style="height:200px;"></div>
+</div>
+
+<!-- v3.11.22.0 深度檢查 Modal -->
+<div class="modal-overlay" id="deep-check-modal" style="display:none;">
+  <div class="modal" style="max-width:720px;max-height:85vh;display:flex;flex-direction:column;">
+    <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #e0e0e0;">
+      <div>
+        <div style="font-size:16px;font-weight:600;color:var(--c1);">🔍 深度檢查</div>
+        <div id="dc-subtitle" style="font-size:12px;color:var(--c3);margin-top:2px;">選擇主機後執行 9 面向深度診斷</div>
+      </div>
+      <button onclick="closeDeepCheckModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--c3);padding:0 8px;">&times;</button>
+    </div>
+    <div class="modal-body" style="padding:20px;overflow-y:auto;flex:1;">
+
+      <!-- [A] 確認階段 -->
+      <div id="dc-phase-confirm">
+        <div style="padding:14px;background:#f5f5f5;border-radius:8px;margin-bottom:16px;">
+          <div style="font-size:13px;color:var(--c3);margin-bottom:4px;">目標主機</div>
+          <div style="font-size:15px;font-weight:600;color:var(--c1);"><span id="dc-hostname">-</span> <span id="dc-ip" style="font-size:12px;color:var(--c3);font-weight:normal;">-</span></div>
+        </div>
+        <!-- v3.11.25.0 歷史紀錄區 -->
+        <div id="dc-history-section" style="display:none;margin-bottom:16px;">
+          <div style="font-size:13px;font-weight:700;color:var(--c1);margin-bottom:8px;">📋 最近跑過 — 點查看不用重跑</div>
+          <div id="dc-history-list"></div>
+          <div style="text-align:center;color:var(--c3);font-size:11px;margin:10px 0 4px;">— 或執行新檢查 —</div>
+        </div>
+        <div style="font-size:13px;line-height:1.7;color:var(--c2);">
+          <p style="margin:0 0 8px 0;">將執行 <strong>mod_troubleshoot.sh -m</strong>，9 面向 + Appendix 深度診斷：</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:12px;padding:10px 14px;background:#fafafa;border-radius:6px;margin-bottom:12px;">
+            <div>1. 效能 (CPU / Load)</div>
+            <div>2. 頻寬 (TW / SYN drop)</div>
+            <div>3. AP Port</div>
+            <div>4. Session</div>
+            <div>5. Storage</div>
+            <div>6. 時間 / 憑證</div>
+            <div>7. DB (auto detect)</div>
+            <div>8. Infra (OOM / MCE)</div>
+            <div style="grid-column:1/-1;">9. 運維軌跡 (近 1h) + Appendix A 應用層</div>
+          </div>
+          <p style="margin:0;color:var(--c3);font-size:12px;">預估耗時：30–60 秒。零侵入（不會在受監控主機留下任何檔案）。</p>
+        </div>
+      </div>
+
+      <!-- [B] 執行中階段 -->
+      <div id="dc-phase-running" style="display:none;">
+        <div style="text-align:center;padding:20px 0;">
+          <div class="spinner-sm" style="width:36px;height:36px;border-width:4px;margin:0 auto 16px;"></div>
+          <div style="font-size:14px;font-weight:600;color:var(--c1);margin-bottom:6px;">深度檢查執行中…</div>
+          <div id="dc-elapsed" style="font-size:13px;color:var(--c3);font-family:monospace;">00:00</div>
+        </div>
+        <div style="height:8px;background:#eee;border-radius:4px;overflow:hidden;margin-bottom:12px;">
+          <div id="dc-progress-bar" style="height:100%;background:var(--g1);width:0%;transition:width 0.5s;"></div>
+        </div>
+        <div style="font-size:12px;color:var(--c3);text-align:center;">
+          <span>階段：</span><span id="dc-phase-text" style="color:var(--c2);font-weight:600;">連線中</span>
+        </div>
+      </div>
+
+      <!-- [C] 完成階段 (v3.11.23.0: 5 秒視覺化判讀) -->
+      <div id="dc-phase-done" style="display:none;">
+        <!-- Hero 狀態卡 -->
+        <div id="dc-hero" style="display:flex;align-items:center;gap:14px;padding:16px;border-radius:10px;margin-bottom:12px;"></div>
+        <!-- 4 KPI -->
+        <div id="dc-stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px;"></div>
+        <!-- 9 面向矩陣 -->
+        <div id="dc-matrix" style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;"></div>
+        <!-- 客訴影響提示 -->
+        <div id="dc-impact" style="display:none;padding:10px 14px;background:#fff8e1;border-left:4px solid var(--orange);border-radius:6px;font-size:12px;margin-bottom:14px;color:var(--c2);"></div>
+        <!-- 下載按鈕 + v3.11.26.0 對照入口 -->
+        <div id="dc-reports-list" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+        <!-- 對照其他版本 (picker) -->
+        <div id="dc-compare-picker" style="display:none;margin-top:10px;padding:10px;border:1px dashed #90caf9;border-radius:6px;background:#f5fbff;">
+          <div style="font-size:12px;color:#0277bd;margin-bottom:6px;font-weight:600;">📊 選一個版本對照</div>
+          <div id="dc-compare-picker-list" style="display:flex;flex-direction:column;gap:4px;"></div>
+          <button onclick="_dcTogglePicker(false)" style="margin-top:8px;font-size:11px;padding:3px 10px;background:#eceff1;border:1px solid #b0bec5;border-radius:3px;cursor:pointer;color:#37474f;">取消</button>
+        </div>
+        <!-- 對照結果視圖 -->
+        <div id="dc-compare-view" style="display:none;"></div>
+        <!-- Raw detail 展開區 (點下載旁的「查看 raw」時顯示) -->
+        <div id="dc-raw-area" style="display:none;margin-top:12px;">
+          <div style="font-size:12px;color:var(--c3);margin-bottom:4px;">Raw: <span id="dc-raw-filename"></span></div>
+          <pre id="dc-raw-content" style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:6px;max-height:320px;overflow:auto;font-size:11px;line-height:1.5;margin:0;white-space:pre-wrap;"></pre>
+        </div>
+        <!-- 失敗時 Ansible LOG -->
+        <div id="dc-log-area" style="display:none;margin-top:12px;">
+          <div style="font-size:12px;color:var(--red);margin-bottom:4px;font-weight:600;">Ansible LOG（末 5000 字元）</div>
+          <pre id="dc-log-content" style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:6px;max-height:280px;overflow:auto;font-size:11px;line-height:1.4;margin:0;"></pre>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer" style="padding:12px 20px;border-top:1px solid #e0e0e0;display:flex;justify-content:flex-end;gap:8px;">
+      <button id="dc-btn-cancel" class="btn btn-sm" onclick="closeDeepCheckModal()" style="background:#e0e0e0;color:var(--c2);">取消</button>
+      <button id="dc-btn-run" class="btn btn-sm btn-primary" onclick="confirmDeepCheck()">▶ 開始執行</button>
+      <button id="dc-btn-close" class="btn btn-sm btn-primary" onclick="closeDeepCheckModal()" style="display:none;">關閉</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+var allData = [];
+var currentOS = "linux";
+var _dcControllerHostname = null;  // v3.11.22.0: controller 自己不能做深度檢查
+
+function sc(s){s=(s||"ok").trim();return s==="error"?"var(--red)":s==="warn"?"var(--orange)":"var(--g1)";}
+
+function getOSType(os) {
+  os = (os || "").toLowerCase();
+  if (os.indexOf("windows") >= 0) return "windows";
+  if (os.indexOf("aix") >= 0) return "aix";
+  if (os.indexOf("as400") >= 0 || os.indexOf("ibm i") >= 0) return "as400";
+  return "linux";
+}
+
+function switchOS(os) {
+  currentOS = os;
+  document.querySelectorAll(".os-tab").forEach(function(t, i) {
+    t.classList.toggle("active", ["linux","windows","aix","as400"][i] === os);
+  });
+  applyFilter();
+}
+
+function updateCounts() {
+  var counts = {linux:0, windows:0, aix:0, as400:0};
+  allData.forEach(function(h) { counts[getOSType(h.os)]++; });
+  document.getElementById("countLinux").textContent = counts.linux;
+  document.getElementById("countWindows").textContent = counts.windows;
+  document.getElementById("countAix").textContent = counts.aix;
+  document.getElementById("countAs400").textContent = counts.as400;
+}
+
+function applyFilter() {
+  var keyword = (document.getElementById("filterSearch").value || "").trim().toLowerCase();
+  var abnormalOnly = document.getElementById("toggleAbnormal").checked;
+
+  var filtered = allData.filter(function(h) {
+    if (getOSType(h.os) !== currentOS) return false;
+    if (keyword) {
+      var searchText = [h.hostname, h.ip, h.custodian||"", h.os||""].join(" ").toLowerCase();
+      if (searchText.indexOf(keyword) === -1) return false;
+    }
+    if (abnormalOnly) {
+      var s = (h.overall_status || "ok").trim();
+      if (s === "ok") return false;
+    }
+    return true;
+  });
+
+  renderCards(filtered);
+  applyPingOverlay();
+}
+
+function renderCards(data) {
+  var grid = document.getElementById("report-grid");
+  if (!data.length) {
+    grid.innerHTML = '<div class="no-data" style="grid-column:1/-1;"><div class="no-data-icon">&#128203;</div>無符合條件的主機</div>';
+    return;
+  }
+  grid.innerHTML = data.map(function(h) {
+    var s = (h.overall_status||"ok").trim();
+    var disk = h.disk || (h.results&&h.results.disk) || {};
+    var cpu = h.cpu || (h.results&&h.results.cpu) || {};
+    var svc = h.service || (h.results&&h.results.service) || {};
+    var acct = h.account || (h.results&&h.results.account) || {};
+    var elog = h.error_log || (h.results&&h.results.error_log) || {};
+    var sys = (h.results&&h.results.system) || h.system || {};
+    var swap = sys.swap || {};
+    var io = sys.io || {};
+    var load = sys.load || {};
+    var uptime = sys.uptime || {};
+    var users = sys.users || {};
+    var fl = sys.faillogin || {};
+
+    var statusColor = s==="error"?"red":s==="warn"?"orange":"g1";
+    var statusText = s==="ok"?"正常":s==="warn"?"警告":"異常";
+
+    var partitions = disk.partitions || [];
+    var diskStatus = (disk.status||"ok").trim();
+    var problemParts = partitions.filter(function(p){return (p.status||"ok").trim()!=="ok";});
+    var diskHtml = "";
+    if (diskStatus === "ok" && problemParts.length === 0) {
+      diskHtml = '<span class="badge badge-ok">OK</span> <span style="font-size:11px;color:var(--c3);">' + partitions.length + ' 分區正常</span>';
+    } else {
+      diskHtml = problemParts.map(function(p){
+        var pct=parseInt(p.percent)||0;
+        return '<span class="badge badge-'+((p.status||"warn").trim())+'" style="font-size:11px;">'+p.mount+' '+pct+'%</span> ';
+      }).join("");
+    }
+
+    var uid0 = acct.uid0_alert || (acct.accounts_added||[]).some(function(a){return (a.uid||"")==="0";});
+    var cpuCount = parseInt(load.cpu_count)||1;
+    var l1 = parseFloat(load.load_1)||0;
+    var flTop = fl.top_offenders || [];
+    var flTotal = parseInt(fl.total_failures)||0;
+
+    var html = '<a href="/report/' + h.hostname + '" style="text-decoration:none;color:inherit;display:block;">';
+    html += '<div class="card" id="host-card-' + h.hostname + '" style="border-left:4px solid var(--'+statusColor+');position:relative;">';
+
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+    var osIcon = (typeof CTIcon!=="undefined") ? ((h.os||"").indexOf("Windows")>=0?CTIcon.windows : (h.os||"").indexOf("Cisco")>=0||(h.os||"").indexOf("SNMP")>=0?CTIcon.network : CTIcon.linux) : "";
+    html += '<span style="display:flex;align-items:center;gap:6px;color:var(--c3);">'+osIcon+'<strong style="color:var(--c1);">'+h.hostname+'</strong></span> <span class="badge badge-'+s+'">'+statusText+'</span></div>';
+    html += '<div style="font-size:11px;color:var(--c3);margin-bottom:10px">'+(h.ip||"")+' | '+(h.os||"")+' | '+(h.run_date||"")+'</div>';
+
+    if(uid0) html += '<div class="uid0-alert" style="font-size:12px;margin-bottom:8px;padding:6px;">UID=0 警示</div>';
+
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:12px;">';
+    html += '<div><strong>CPU:</strong> <span style="color:'+sc(cpu.cpu_status||cpu.status)+'">'+(cpu.cpu_percent||cpu.percent||"-")+'%</span></div>';
+    html += '<div><strong>MEM:</strong> <span style="color:'+sc(cpu.mem_status)+'">'+(cpu.mem_percent||"-")+'%</span></div>';
+    html += '<div><strong>Swap:</strong> <span style="color:'+sc(swap.status)+'">'+(parseFloat(swap.percent)||0)+'%</span></div>';
+    html += '<div><strong>IO:</strong> <span style="color:'+sc(io.status)+'">'+(parseFloat(io.max_busy)||0)+'%</span></div>';
+    html += '<div><strong>Load:</strong> <span style="color:'+sc(load.status)+'">'+l1.toFixed(2)+'</span> <span style="font-size:10px;color:var(--c3);">/'+cpuCount+'cpu</span></div>';
+    html += '<div><strong>Users:</strong> '+(users.count||0)+'</div>';
+    html += '<div style="grid-column:1/-1;"><strong>Disk:</strong> '+diskHtml+'</div>';
+    html += '<div><strong>服務:</strong> <span class="badge badge-'+((svc.status||"ok").trim())+'" style="font-size:11px;">'+((svc.status||"ok").trim())+'</span></div>';
+    html += '<div><strong>帳號:</strong> <span class="badge badge-'+((acct.status||"ok").trim())+'" style="font-size:11px;">'+((acct.status||"ok").trim())+'</span></div>';
+    html += '<div><strong>錯誤:</strong> '+(elog.error_count||elog.count||0)+' 筆</div>';
+    if (flTop.length > 0) {
+      html += '<div><strong style="color:var(--red);">FailLogin:</strong> '+flTop.map(function(f){return f.user+"("+f.count+")";}).join(",")+' </div>';
+    } else {
+      html += '<div><strong>FailLogin:</strong> <span style="color:var(--c3);">'+flTotal+'</span></div>';
+    }
+    html += '<div style="grid-column:1/-1;font-size:11px;color:var(--c3);margin-top:2px;"><strong>Uptime:</strong> '+(uptime.duration||uptime.boot_time||"-")+'</div>';
+
+    html += '</div>';
+    // v3.11.22.0 深度檢查按鈕 (所有 Linux 主機)
+    if (getOSType(h.os) === "linux") {
+      html += '<button class="deep-check-btn" data-hostname="'+h.hostname+'" data-ip="'+(h.ip||"")+'" '
+            + 'onclick="event.preventDefault();event.stopPropagation();openDeepCheck(this.dataset.hostname,this.dataset.ip);" '
+            + 'style="position:absolute;bottom:10px;right:10px;font-size:11px;padding:4px 10px;background:var(--g2);color:white;border:none;border-radius:4px;cursor:pointer;z-index:6;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,0.15);">'
+            + '🔍 深度檢查</button>';
+    }
+    html += '</div></a>';
+    return html;
+  }).join("");
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  // v3.11.22.0 先抓 controller hostname (自己不能做深度檢查)
+  fetch("/api/deep-check/meta").then(function(r){return r.json();}).then(function(res) {
+    if (res && res.success) _dcControllerHostname = res.controller_hostname;
+  }).catch(function(){}).finally(function() {
+    fetch("/api/inspections/latest").then(function(r){return r.json();}).then(function(res) {
+      if(!res.success || !res.data.length) {
+        document.getElementById("report-grid").innerHTML = '<div class="no-data"><div class="no-data-icon">&#128203;</div>等待排程採集資料中</div>';
+        return;
+      }
+      allData = res.data;
+      updateCounts();
+      applyFilter();
+      // 自動檢查主機連線狀態（快取結果）
+      fetch("/api/admin/hosts/ping-all").then(function(r){return r.json();}).then(function(res) {
+        if (res.success) { window._pingData = res.data; applyPingOverlay(); }
+      }).catch(function(){});
+    });
+  });
+});
+
+// Phase 2 #7A: async-feedback 標準化
+async function rescanAll() {
+  var btn = document.getElementById("report-rescan-btn");
+  var _origHTML = null;
+  if (btn) {
+    _origHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.style.opacity = "0.7";
+    btn.innerHTML = '<span class="spinner-sm" style="width:10px;height:10px;border-width:2px;vertical-align:middle;"></span> 掃描中';
+  }
+  var controller = new AbortController();
+  var timeoutId = setTimeout(function(){ controller.abort(); }, 30000);
+  try {
+    var r = await fetch("/api/admin/hosts/ping-all", { signal: controller.signal });
+    var res = await r.json();
+    if (res.success) {
+      window._pingData = res.data;
+      applyPingOverlay();
+      var cacheHint = res.cached ? "（快取 " + (res.age_sec || 0) + "s）" : "";
+      if (typeof _dashToast === "function") _dashToast("連線檢查完成" + cacheHint, "success");
+    } else {
+      if (typeof _dashToast === "function") _dashToast("連線檢查失敗：" + (res.error || "未知錯誤"), "error");
+    }
+  } catch(e) {
+    var emsg = (e.name === "AbortError") ? "連線檢查逾時（超過 30 秒）" : (e.message || "未知錯誤");
+    if (typeof _dashToast === "function") _dashToast("連線檢查失敗：" + emsg, "error");
+  } finally {
+    clearTimeout(timeoutId);
+    if (btn) { btn.disabled = false; btn.style.opacity = ""; btn.innerHTML = _origHTML; }
+  }
+}
+
+// ─── v3.11.22.0 深度檢查 ───
+var _dcState = { jobId:null, hostname:null, startTs:null, timerId:null, pollId:null };
+
+function openDeepCheck(hostname, ip) {
+  _dcState = { jobId:null, hostname:hostname, ip:ip, startTs:null, timerId:null, pollId:null };
+  document.getElementById("dc-hostname").textContent = hostname;
+  document.getElementById("dc-ip").textContent = ip ? "(" + ip + ")" : "";
+  document.getElementById("dc-subtitle").textContent = "9 面向 + Appendix 深度診斷";
+  _dcShowPhase("confirm");
+  document.getElementById("deep-check-modal").style.display = "flex";
+  _dcLoadHistory(hostname);  // v3.11.25.0: 載入歷史紀錄
+}
+
+// v3.11.25.0 歷史紀錄: 列出過往跑過的報告讓使用者點擊查看 (不用重跑)
+async function _dcLoadHistory(hostname) {
+  var sec = document.getElementById("dc-history-section");
+  var list = document.getElementById("dc-history-list");
+  sec.style.display = "none";
+  list.innerHTML = "";
+  try {
+    var r = await fetch("/api/deep-check/history?hostname=" + encodeURIComponent(hostname) + "&limit=10");
+    var res = await r.json();
+    if (!res.success || !res.data || !res.data.length) return;
+    var cfg = {
+      ok:      { icon: "✅", color: "#2e7d32", label: "正常" },
+      warn:    { icon: "🟡", color: "#e65100", label: "警告" },
+      error:   { icon: "🔴", color: "#c62828", label: "異常" },
+      unknown: { icon: "❔", color: "#757575", label: "?"    }
+    };
+    list.innerHTML = res.data.map(function(run) {
+      var c = cfg[run.status_level] || cfg.unknown;
+      var s = run.stats || {pass:0,warn:0,fail:0,na:0};
+      var parts = [];
+      if (s.pass) parts.push("P=" + s.pass);
+      if (s.warn) parts.push("W=" + s.warn);
+      if (s.fail) parts.push("F=" + s.fail);
+      if (s.na)   parts.push("N/A=" + s.na);
+      var fname = _dcEscapeHtml(run.summary_filename);
+      return '<div onclick="_dcShowHistory(\'' + fname + '\')" '
+        + 'style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid #e0e0e0;border-radius:6px;margin-bottom:4px;cursor:pointer;background:white;transition:background 0.15s;" '
+        + 'onmouseover="this.style.background=\'#f0f7fa\';" onmouseout="this.style.background=\'white\';">'
+        +   '<div style="font-size:18px;">' + c.icon + '</div>'
+        +   '<div style="flex:1;min-width:0;">'
+        +     '<div style="font-size:13px;font-weight:600;color:var(--c1);">' + _dcEscapeHtml(run.date) + '</div>'
+        +     '<div style="font-size:11px;color:var(--c3);">'
+        +       '<span style="color:' + c.color + ';font-weight:600;">' + c.label + '</span>'
+        +       (parts.length ? ' · ' + parts.join(" / ") : "")
+        +     '</div>'
+        +   '</div>'
+        +   '<div style="color:' + c.color + ';font-size:12px;font-weight:600;white-space:nowrap;">▶ 查看</div>'
+        + '</div>';
+    }).join("");
+    sec.style.display = "block";
+  } catch(e) { /* 歷史載入失敗不影響主功能 */ }
+}
+
+// v3.11.25.0: 從歷史列表點選 → 直接跳到 done phase (不重跑)
+function _dcShowHistory(summaryFilename) {
+  var detailFn = summaryFilename.replace("_summary.txt", "_detail.txt");
+  _dcShowPhase("done");
+  // 清 log 區避免舊失敗訊息殘留
+  document.getElementById("dc-log-area").style.display = "none";
+  _dcRenderParsed({ summary: summaryFilename, detail: detailFn });
+}
+
+function closeDeepCheckModal() {
+  if (_dcState.timerId) clearInterval(_dcState.timerId);
+  if (_dcState.pollId) clearInterval(_dcState.pollId);
+  _dcState = { jobId:null, hostname:null, startTs:null, timerId:null, pollId:null };
+  document.getElementById("deep-check-modal").style.display = "none";
+  // 重置所有區塊 (v3.11.23.0 / 25.0 / 26.0)
+  ["dc-raw-area", "dc-log-area", "dc-impact", "dc-history-section", "dc-compare-picker", "dc-compare-view"].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.style.display = "none";
+  });
+  ["dc-reports-list", "dc-hero", "dc-stats", "dc-matrix", "dc-impact", "dc-history-list", "dc-compare-picker-list", "dc-compare-view"].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.innerHTML = "";
+  });
+  document.getElementById("dc-progress-bar").style.width = "0%";
+  document.getElementById("dc-elapsed").textContent = "00:00";
+  document.getElementById("dc-phase-text").textContent = "連線中";
+}
+
+function _dcShowPhase(phase) {
+  ["confirm","running","done"].forEach(function(p){
+    document.getElementById("dc-phase-"+p).style.display = (p===phase?"block":"none");
+  });
+  document.getElementById("dc-btn-cancel").style.display = (phase==="confirm"?"inline-block":"none");
+  document.getElementById("dc-btn-run").style.display = (phase==="confirm"?"inline-block":"none");
+  document.getElementById("dc-btn-close").style.display = (phase==="done"?"inline-block":"none");
+}
+
+async function confirmDeepCheck() {
+  var hostname = _dcState.hostname;
+  if (!hostname) return;
+  _dcShowPhase("running");
+  _dcState.startTs = Date.now();
+  _dcState.timerId = setInterval(_dcUpdateElapsed, 1000);
+  try {
+    var r = await fetch("/api/deep-check/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hostname: hostname })
+    });
+    var res = await r.json();
+    if (!res.success) {
+      _dcFinish(false, res.error || "啟動失敗", null);
+      return;
+    }
+    _dcState.jobId = res.job_id;
+    _dcState.pollId = setInterval(_dcPollProgress, 3000);
+    _dcPollProgress();  // 立刻查一次
+  } catch(e) {
+    _dcFinish(false, "網路錯誤：" + (e.message || e), null);
+  }
+}
+
+function _dcUpdateElapsed() {
+  if (!_dcState.startTs) return;
+  var sec = Math.floor((Date.now() - _dcState.startTs) / 1000);
+  var mm = String(Math.floor(sec / 60)).padStart(2, "0");
+  var ss = String(sec % 60).padStart(2, "0");
+  document.getElementById("dc-elapsed").textContent = mm + ":" + ss;
+  // 進度條依時間推估 (假設目標 60s)
+  var pct = Math.min(95, Math.floor(sec / 60 * 100));
+  document.getElementById("dc-progress-bar").style.width = pct + "%";
+}
+
+async function _dcPollProgress() {
+  if (!_dcState.jobId) return;
+  try {
+    var r = await fetch("/api/deep-check/progress/" + _dcState.jobId);
+    var res = await r.json();
+    if (!res.success) return;
+    document.getElementById("dc-phase-text").textContent = res.phase || "執行中";
+    if (res.is_finished) {
+      clearInterval(_dcState.pollId);
+      clearInterval(_dcState.timerId);
+      document.getElementById("dc-progress-bar").style.width = "100%";
+      if (res.job_status === "done") {
+        _dcFinish(true, null, res);
+      } else {
+        _dcFinish(false, "執行失敗 (" + res.job_status + ")", res);
+      }
+    }
+  } catch(e) { /* 忽略 */ }
+}
+
+function _dcFinish(success, errorMsg, res) {
+  _dcShowPhase("done");
+  if (success) {
+    // v3.11.23.0: 先嘗試解析 summary 渲染 9 矩陣；若失敗退回簡版
+    var files = (res && res.report_files) || {};
+    if (files.summary) {
+      _dcRenderParsed(files);
+    } else {
+      _dcRenderSimple(true, null);
+      _dcRenderDownloads(files);
+    }
+  } else {
+    _dcRenderSimple(false, errorMsg);
+    if (res && res.log) {
+      document.getElementById("dc-log-area").style.display = "block";
+      document.getElementById("dc-log-content").textContent = res.log;
+    }
+  }
+}
+
+// 失敗 / 無 summary 時的 hero 顯示
+function _dcRenderSimple(success, errorMsg) {
+  var hero = document.getElementById("dc-hero");
+  if (success) {
+    hero.style.background = "#e8f5e9";
+    hero.style.borderLeft = "4px solid var(--g1)";
+    hero.innerHTML = '<div style="font-size:28px;">✅</div>'
+      + '<div><div style="font-size:16px;font-weight:700;color:#1b5e20;">執行完成</div>'
+      + '<div style="font-size:12px;color:var(--c3);margin-top:2px;">主機：' + _dcState.hostname + '</div></div>';
+  } else {
+    hero.style.background = "#ffebee";
+    hero.style.borderLeft = "4px solid var(--red)";
+    hero.innerHTML = '<div style="font-size:28px;">❌</div>'
+      + '<div><div style="font-size:16px;font-weight:700;color:#b71c1c;">執行失敗</div>'
+      + '<div style="font-size:12px;color:var(--c3);margin-top:2px;">' + (errorMsg || "未知錯誤") + '</div></div>';
+  }
+}
+
+// v3.11.23.0 核心: 解析 summary → 9 矩陣渲染
+async function _dcRenderParsed(files) {
+  try {
+    var r = await fetch("/api/deep-check/reports/" + encodeURIComponent(files.summary) + "/parsed");
+    var res = await r.json();
+    if (!res.success || !res.data) {
+      _dcRenderSimple(true, null);
+      _dcRenderDownloads(files);
+      return;
+    }
+    var d = res.data;
+    _dcRenderHero(d);
+    _dcRenderStats(d.stats);
+    _dcRenderMatrix(d.items);
+    if (d.customer_impact) {
+      var imp = document.getElementById("dc-impact");
+      imp.style.display = "block";
+      imp.innerHTML = '<strong>💬 客訴「慢 / 連不進去」:</strong> ' + _dcEscapeHtml(d.customer_impact);
+    }
+    _dcRenderDownloads(files);
+  } catch(e) {
+    _dcRenderSimple(true, null);
+    _dcRenderDownloads(files);
+  }
+}
+
+function _dcRenderHero(d) {
+  var hero = document.getElementById("dc-hero");
+  var lv = d.status_level || "unknown";
+  var cfg = {
+    ok:    { bg:"#e8f5e9", bd:"var(--g1)",   color:"#1b5e20", icon:"✅", label:"正常" },
+    warn:  { bg:"#fff8e1", bd:"var(--orange)",color:"#e65100", icon:"🟡", label:"警告" },
+    error: { bg:"#ffebee", bd:"var(--red)",  color:"#b71c1c", icon:"🔴", label:"異常" },
+    unknown:{bg:"#f5f5f5", bd:"#bdbdbd",     color:"#424242", icon:"❔", label:"未知" }
+  }[lv] || {bg:"#f5f5f5",bd:"#bdbdbd",color:"#424242",icon:"❔",label:"未知"};
+  hero.style.background = cfg.bg;
+  hero.style.borderLeft = "4px solid " + cfg.bd;
+  hero.innerHTML =
+    '<div style="font-size:36px;">' + cfg.icon + '</div>'
+    + '<div style="flex:1;">'
+    +   '<div style="font-size:18px;font-weight:700;color:' + cfg.color + ';">' + cfg.label
+    +     (d.status ? ' <span style="font-weight:400;font-size:13px;color:var(--c2);">— ' + _dcEscapeHtml(d.status) + '</span>' : '')
+    +   '</div>'
+    +   '<div style="font-size:12px;color:var(--c3);margin-top:3px;">'
+    +     '<strong>' + _dcEscapeHtml(d.hostname || _dcState.hostname) + '</strong>'
+    +     (d.os ? ' · ' + _dcEscapeHtml(d.os) : '')
+    +     (d.uptime ? ' · ' + _dcEscapeHtml(d.uptime) : '')
+    +     (d.timestamp ? ' · ' + _dcEscapeHtml(d.timestamp) : '')
+    +   '</div>'
+    + '</div>';
+}
+
+function _dcRenderStats(s) {
+  var el = document.getElementById("dc-stats");
+  if (!s) { el.innerHTML = ""; return; }
+  var tiles = [
+    { n: s.pass, label:"正常", bg:"#e8f5e9", color:"#1b5e20", icon:"✅" },
+    { n: s.warn, label:"警告", bg:"#fff8e1", color:"#e65100", icon:"🟡" },
+    { n: s.fail, label:"異常", bg:"#ffebee", color:"#b71c1c", icon:"🔴" },
+    { n: s.na,   label:"略",  bg:"#f5f5f5", color:"#616161", icon:"⚪" }
+  ];
+  el.innerHTML = tiles.map(function(t){
+    return '<div style="padding:10px;background:' + t.bg + ';border-radius:8px;text-align:center;">'
+      + '<div style="font-size:12px;color:var(--c3);">' + t.icon + ' ' + t.label + '</div>'
+      + '<div style="font-size:22px;font-weight:700;color:' + t.color + ';margin-top:2px;">' + t.n + '</div>'
+      + '</div>';
+  }).join("");
+}
+
+function _dcRenderMatrix(items) {
+  var el = document.getElementById("dc-matrix");
+  if (!items || !items.length) { el.innerHTML = ""; return; }
+  // 問題項 (warn/fail) 排前, 然後其他
+  var ordered = items.slice().sort(function(a,b){
+    var rank = {fail:0, warn:1, unknown:2, pass:3, na:4};
+    var ra = rank[a.level] !== undefined ? rank[a.level] : 5;
+    var rb = rank[b.level] !== undefined ? rank[b.level] : 5;
+    if (ra !== rb) return ra - rb;
+    return a.idx - b.idx;
+  });
+  var cfg = {
+    pass:    { icon:"✅", bg:"#f1f8f2", bd:"#c8e6c9", color:"#1b5e20", label:"PASS" },
+    warn:    { icon:"🟡", bg:"#fff8e1", bd:"#ffe082", color:"#e65100", label:"WARN" },
+    fail:    { icon:"🔴", bg:"#ffebee", bd:"#ffcdd2", color:"#b71c1c", label:"FAIL" },
+    na:      { icon:"⚪", bg:"#fafafa", bd:"#e0e0e0", color:"#616161", label:"N/A" },
+    unknown: { icon:"❔", bg:"#fafafa", bd:"#e0e0e0", color:"#616161", label:"?" }
+  };
+  el.innerHTML = ordered.map(function(it, i) {
+    var c = cfg[it.level] || cfg.unknown;
+    var hasDetail = !!(it.actual || it.impact || it.action || it.baseline);
+    var rowId = "dc-item-" + it.idx;
+    var isProblem = (it.level === "warn" || it.level === "fail");
+    // 摘要: 問題項顯示 impact, 其他顯示 name 即可
+    var summary = isProblem && it.impact ? it.impact : (it.range || "");
+    return '<div style="border:1px solid ' + c.bd + ';border-radius:6px;overflow:hidden;background:' + c.bg + ';">'
+      + '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;cursor:' + (hasDetail?"pointer":"default") + ';" '
+      +     (hasDetail ? 'onclick="_dcToggleItem(\'' + rowId + '\')"' : '') + '>'
+      +   '<div style="font-size:16px;min-width:20px;">' + c.icon + '</div>'
+      +   '<div style="min-width:80px;font-weight:700;color:var(--c1);font-size:13px;">[' + it.idx + '/9] ' + _dcEscapeHtml(it.name || "") + '</div>'
+      +   '<div style="flex:1;font-size:12px;color:var(--c2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + _dcEscapeHtml(summary) + '">' + _dcEscapeHtml(summary || '—') + '</div>'
+      +   '<div style="padding:2px 8px;border-radius:4px;background:' + c.color + ';color:white;font-size:10px;font-weight:600;">' + c.label + '</div>'
+      +   (hasDetail ? '<div style="font-size:11px;color:var(--c3);" id="' + rowId + '-arrow">▼</div>' : '')
+      + '</div>'
+      + (hasDetail
+        ? ('<div id="' + rowId + '" style="display:none;padding:10px 14px;background:white;border-top:1px dashed ' + c.bd + ';font-size:12px;line-height:1.6;">'
+          + (it.range    ? '<div><strong>檢查範圍:</strong> ' + _dcColorizeLabels(_dcEscapeHtml(it.range)) + '</div>'     : "")
+          + (it.baseline ? '<div><strong>正常基準:</strong> <pre style="margin:2px 0;white-space:pre-wrap;font-family:inherit;">' + _dcColorizeLabels(_dcEscapeHtml(it.baseline)) + '</pre></div>' : "")
+          + (it.actual   ? '<div><strong>實測數值:</strong> <pre style="margin:2px 0;white-space:pre-wrap;font-family:inherit;">' + _dcColorizeLabels(_dcEscapeHtml(it.actual)) + '</pre></div>'     : "")
+          + (it.impact   ? '<div><strong>對客訴影響:</strong> ' + _dcColorizeLabels(_dcEscapeHtml(it.impact)) + '</div>'   : "")
+          + (it.action   ? '<div style="background:#fff3e0;padding:8px;border-radius:4px;margin-top:6px;"><strong>🔧 建議動作:</strong> ' + _dcColorizeLabels(_dcEscapeHtml(it.action)) + '</div>' : "")
+          + _dcRenderRemedies(it.remedies)
+          + '</div>')
+        : "")
+      + '</div>';
+  }).join("");
+  // 自動展開第一個 warn/fail 項
+  var first = ordered.find(function(x){ return x.level==="warn" || x.level==="fail"; });
+  if (first) _dcToggleItem("dc-item-" + first.idx, true);
+}
+
+function _dcToggleItem(id, forceOpen) {
+  var el = document.getElementById(id);
+  var arrow = document.getElementById(id + "-arrow");
+  if (!el) return;
+  var shouldOpen = forceOpen || el.style.display === "none";
+  el.style.display = shouldOpen ? "block" : "none";
+  if (arrow) arrow.textContent = shouldOpen ? "▲" : "▼";
+}
+
+function _dcRenderDownloads(files) {
+  var list = document.getElementById("dc-reports-list");
+  list.innerHTML = "";
+  var btns = [];
+  if (files.summary) {
+    btns.push('<button class="btn btn-sm" style="font-size:12px;padding:6px 12px;" onclick="_dcDownload(\'' + files.summary + '\')">⬇ Summary</button>');
+    btns.push('<button class="btn btn-sm" style="font-size:12px;padding:6px 12px;background:transparent;border:1px solid #bdbdbd;color:var(--c2);" onclick="_dcShowRaw(\'' + files.summary + '\')">📄 查看 raw summary</button>');
+  }
+  if (files.detail) {
+    btns.push('<button class="btn btn-sm" style="font-size:12px;padding:6px 12px;" onclick="_dcDownload(\'' + files.detail + '\')">⬇ Detail (raw)</button>');
+  }
+  // v3.11.26.0 對照其他版本
+  if (files.summary) {
+    btns.push('<button class="btn btn-sm" style="font-size:12px;padding:6px 12px;background:#e3f2fd;border:1px solid #90caf9;color:#0277bd;" onclick="_dcTogglePicker(true, \'' + files.summary + '\')">📊 對照其他</button>');
+  }
+  list.innerHTML = btns.join("");
+  // 存當前檔名給對照用
+  _dcState.currentSummary = files.summary;
+  _dcState.currentDetail = files.detail;
+}
+
+// v3.11.26.0 開/關對照選擇器
+async function _dcTogglePicker(show, currentSummary) {
+  var picker = document.getElementById("dc-compare-picker");
+  var view = document.getElementById("dc-compare-view");
+  if (!show) {
+    picker.style.display = "none";
+    view.style.display = "none";
+    return;
+  }
+  view.style.display = "none";
+  picker.style.display = "block";
+  var listEl = document.getElementById("dc-compare-picker-list");
+  listEl.innerHTML = '<div style="font-size:11px;color:var(--c3);padding:4px;">載入中…</div>';
+  try {
+    var r = await fetch("/api/deep-check/history?hostname=" + encodeURIComponent(_dcState.hostname) + "&limit=10");
+    var res = await r.json();
+    if (!res.success || !res.data || !res.data.length) {
+      listEl.innerHTML = '<div style="font-size:12px;color:var(--c3);padding:4px;">沒有可對照的歷史版本</div>';
+      return;
+    }
+    var others = res.data.filter(function(x){ return x.summary_filename !== currentSummary; });
+    if (!others.length) {
+      listEl.innerHTML = '<div style="font-size:12px;color:var(--c3);padding:4px;">只有這一份報告, 沒其他版本可對照</div>';
+      return;
+    }
+    var cfg = {
+      ok:      { icon: "✅", color: "#2e7d32" },
+      warn:    { icon: "🟡", color: "#e65100" },
+      error:   { icon: "🔴", color: "#c62828" },
+      unknown: { icon: "❔", color: "#757575" }
+    };
+    listEl.innerHTML = others.map(function(run) {
+      var c = cfg[run.status_level] || cfg.unknown;
+      var s = run.stats || {pass:0,warn:0,fail:0,na:0};
+      var fn = _dcEscapeHtml(run.summary_filename);
+      return '<div onclick="_dcDoCompare(\'' + fn + '\')" '
+        + 'style="display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #e0e0e0;border-radius:4px;cursor:pointer;background:white;" '
+        + 'onmouseover="this.style.background=\'#e3f2fd\';" onmouseout="this.style.background=\'white\';">'
+        +   '<div>' + c.icon + '</div>'
+        +   '<div style="flex:1;font-size:12px;color:var(--c1);">' + _dcEscapeHtml(run.date) + '</div>'
+        +   '<div style="font-size:11px;color:var(--c3);">P=' + s.pass + ' W=' + s.warn + ' F=' + s.fail + ' N=' + s.na + '</div>'
+        +   '<div style="color:' + c.color + ';font-size:11px;font-weight:600;">對照 →</div>'
+        + '</div>';
+    }).join("");
+  } catch(e) {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--red);padding:4px;">載入失敗</div>';
+  }
+}
+
+// v3.11.26.0 執行對照: 抓兩份 parsed 後並列顯示
+async function _dcDoCompare(otherSummary) {
+  var view = document.getElementById("dc-compare-view");
+  var picker = document.getElementById("dc-compare-picker");
+  picker.style.display = "none";
+  view.style.display = "block";
+  view.innerHTML = '<div style="padding:20px;text-align:center;color:var(--c3);">載入兩份報告中…</div>';
+  try {
+    var [cur, other] = await Promise.all([
+      fetch("/api/deep-check/reports/" + encodeURIComponent(_dcState.currentSummary) + "/parsed").then(function(r){return r.json();}),
+      fetch("/api/deep-check/reports/" + encodeURIComponent(otherSummary) + "/parsed").then(function(r){return r.json();})
+    ]);
+    if (!cur.success || !other.success) throw new Error("載入失敗");
+    _dcRenderDiff(other.data, cur.data);  // 左=舊 (other), 右=新 (current)
+  } catch(e) {
+    view.innerHTML = '<div style="padding:20px;color:var(--red);">對照載入失敗: ' + _dcEscapeHtml(e.message || e) + '</div>';
+  }
+}
+
+// v3.11.26.0 並列渲染 9 面向對照
+function _dcRenderDiff(left, right) {
+  var view = document.getElementById("dc-compare-view");
+  var levelCfg = {
+    pass:    { icon: "✅", color: "#2e7d32", label: "PASS" },
+    warn:    { icon: "🟡", color: "#e65100", label: "WARN" },
+    fail:    { icon: "🔴", color: "#c62828", label: "FAIL" },
+    na:      { icon: "⚪", color: "#757575", label: "N/A" },
+    unknown: { icon: "❔", color: "#757575", label: "?"   }
+  };
+  var levelRank = {pass:0, na:1, unknown:2, warn:3, fail:4};
+  function diffIcon(a, b) {
+    if (a === b) return '<span style="color:#9e9e9e;">—</span>';
+    var ra = levelRank[a] || 0;
+    var rb = levelRank[b] || 0;
+    if (rb > ra) return '<span style="color:#c62828;font-weight:700;">▲ 惡化</span>';
+    if (rb < ra) return '<span style="color:#2e7d32;font-weight:700;">▼ 改善</span>';
+    return '<span style="color:#9e9e9e;">—</span>';
+  }
+  // 狀態比較
+  var overall = "";
+  var lS = levelRank[left.status_level] || 0;
+  var rS = levelRank[right.status_level] || 0;
+  if (rS > lS) overall = '<span style="color:#c62828;font-weight:700;">▲ 整體惡化</span>';
+  else if (rS < lS) overall = '<span style="color:#2e7d32;font-weight:700;">▼ 整體改善</span>';
+  else overall = '<span style="color:#9e9e9e;">— 狀態相同</span>';
+
+  // 逐 item 對照 (以 idx 為 key)
+  var rightByIdx = {};
+  (right.items || []).forEach(function(it){ rightByIdx[it.idx] = it; });
+  var rows = (left.items || []).map(function(l) {
+    var r = rightByIdx[l.idx] || { level: "unknown", verdict: "?", actual: "" };
+    var lc = levelCfg[l.level] || levelCfg.unknown;
+    var rc = levelCfg[r.level] || levelCfg.unknown;
+    var changed = l.level !== r.level;
+    var rowBg = changed ? "#fff8e1" : "white";
+    return '<tr style="background:' + rowBg + ';">'
+      + '<td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;">[' + l.idx + '/9] ' + _dcEscapeHtml(l.name || "") + '</td>'
+      + '<td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;">'
+      +   lc.icon + ' <span style="padding:1px 6px;border-radius:3px;background:' + lc.color + ';color:white;font-size:10px;font-weight:700;">' + lc.label + '</span>'
+      + '</td>'
+      + '<td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap;">'
+      +   rc.icon + ' <span style="padding:1px 6px;border-radius:3px;background:' + rc.color + ';color:white;font-size:10px;font-weight:700;">' + rc.label + '</span>'
+      + '</td>'
+      + '<td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;white-space:nowrap;">' + diffIcon(l.level, r.level) + '</td>'
+      + '</tr>';
+  }).join("");
+
+  view.innerHTML =
+      '<div style="margin-top:14px;padding:12px;border:2px solid #0277bd;border-radius:8px;background:white;">'
+    +   '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+    +     '<div style="font-size:14px;font-weight:700;color:#0277bd;">📊 版本對照</div>'
+    +     '<div>' + overall + '</div>'
+    +   '</div>'
+    +   '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-size:12px;">'
+    +     '<div style="padding:8px;background:#fafafa;border-radius:4px;">'
+    +       '<div style="font-size:11px;color:var(--c3);margin-bottom:3px;">左 (舊)</div>'
+    +       '<div style="font-weight:600;">' + _dcEscapeHtml(left.timestamp || "-") + '</div>'
+    +       '<div style="font-size:11px;color:var(--c2);margin-top:2px;">' + _dcEscapeHtml(left.status || "") + ' · P=' + (left.stats.pass||0) + ' W=' + (left.stats.warn||0) + ' F=' + (left.stats.fail||0) + ' N=' + (left.stats.na||0) + '</div>'
+    +     '</div>'
+    +     '<div style="padding:8px;background:#e3f2fd;border-radius:4px;">'
+    +       '<div style="font-size:11px;color:var(--c3);margin-bottom:3px;">右 (新 / 當前)</div>'
+    +       '<div style="font-weight:600;">' + _dcEscapeHtml(right.timestamp || "-") + '</div>'
+    +       '<div style="font-size:11px;color:var(--c2);margin-top:2px;">' + _dcEscapeHtml(right.status || "") + ' · P=' + (right.stats.pass||0) + ' W=' + (right.stats.warn||0) + ' F=' + (right.stats.fail||0) + ' N=' + (right.stats.na||0) + '</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<table style="width:100%;border-collapse:collapse;">'
+    +     '<thead><tr style="background:#eceff1;font-size:11px;">'
+    +       '<th style="padding:6px 8px;text-align:left;">面向</th>'
+    +       '<th style="padding:6px 8px;text-align:left;">舊</th>'
+    +       '<th style="padding:6px 8px;text-align:left;">新</th>'
+    +       '<th style="padding:6px 8px;text-align:center;">變化</th>'
+    +     '</tr></thead>'
+    +     '<tbody>' + rows + '</tbody>'
+    +   '</table>'
+    +   '<button onclick="_dcTogglePicker(false)" style="margin-top:10px;font-size:11px;padding:4px 12px;background:#eceff1;border:1px solid #b0bec5;border-radius:3px;cursor:pointer;">✕ 關閉對照</button>'
+    + '</div>';
+}
+
+async function _dcShowRaw(filename) {
+  try {
+    var r = await fetch("/api/deep-check/reports/" + encodeURIComponent(filename) + "/preview");
+    var res = await r.json();
+    if (!res.success) return;
+    document.getElementById("dc-raw-area").style.display = "block";
+    document.getElementById("dc-raw-filename").textContent = filename;
+    document.getElementById("dc-raw-content").textContent = res.content || "(空)";
+  } catch(e) { /* 忽略 */ }
+}
+
+function _dcDownload(filename) {
+  window.open("/api/deep-check/reports/" + encodeURIComponent(filename) + "/download", "_blank");
+}
+
+function _dcEscapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// v3.11.24.0: 渲染知識庫 remedies (指令 / 風險 / 驗證 3 區塊)
+function _dcRenderRemedies(remedies) {
+  if (!remedies || !remedies.length) return "";
+  return remedies.map(function(r) {
+    return '<div style="margin-top:10px;padding:10px;border:1px solid #cfd8dc;border-radius:6px;background:#f5f9fb;">'
+      + '<div style="font-size:12px;font-weight:700;color:#01579b;margin-bottom:8px;">📖 ' + _dcEscapeHtml(r.title) + '</div>'
+      + _dcRenderRemedyBlock("📋 指令 (可複製)", r.commands, true, "#263238", "#eceff1")
+      + _dcRenderRemedyBlock("⚠️ 風險", r.risks, false, "#bf360c", "#fff3e0")
+      + _dcRenderRemedyBlock("✅ 驗證", r.verify, true, "#1b5e20", "#e8f5e9")
+      + '</div>';
+  }).join("");
+}
+
+function _dcRenderRemedyBlock(label, lines, isCode, labelColor, bg) {
+  if (!lines || !lines.length) return "";
+  var body;
+  if (isCode) {
+    // 指令區: 每行 <pre> + 複製按鈕; '#' 開頭當註解 (無複製鈕)
+    body = lines.map(function(line) {
+      var trimmed = line.trim();
+      var isComment = trimmed.startsWith("#") || trimmed === "";
+      if (isComment) {
+        return '<div style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9e9e9e;padding:2px 8px;">'
+          + _dcEscapeHtml(line) + '</div>';
+      }
+      var escaped = _dcEscapeHtml(line);
+      var rawForCopy = line.replace(/"/g, '&quot;').replace(/'/g, "&#39;");
+      return '<div style="display:flex;gap:6px;align-items:flex-start;background:white;border-radius:3px;padding:3px 6px;margin-bottom:2px;">'
+        + '<pre style="margin:0;flex:1;font-family:ui-monospace,Menlo,monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;color:#263238;">' + escaped + '</pre>'
+        + '<button onclick="_dcCopyCmd(this, \'' + rawForCopy + '\')" style="font-size:10px;padding:2px 8px;background:#eceff1;border:1px solid #b0bec5;border-radius:3px;cursor:pointer;color:#37474f;white-space:nowrap;flex-shrink:0;">📋</button>'
+        + '</div>';
+    }).join("");
+  } else {
+    // 風險區: bullet list
+    body = '<ul style="margin:0;padding-left:20px;font-size:12px;line-height:1.6;color:#424242;">'
+      + lines.map(function(l){ return '<li>' + _dcColorizeLabels(_dcEscapeHtml(l)) + '</li>'; }).join("")
+      + '</ul>';
+  }
+  return '<div style="margin-top:8px;">'
+    + '<div style="font-size:11px;font-weight:700;color:' + labelColor + ';margin-bottom:4px;">' + label + '</div>'
+    + '<div style="padding:6px 8px;border-radius:4px;background:' + bg + ';">' + body + '</div>'
+    + '</div>';
+}
+
+function _dcCopyCmd(btn, text) {
+  // text 已經做過 HTML 跳脫 (&quot; 等), 解回來才是原指令
+  var raw = String(text)
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  var done = function(ok) {
+    var origBg = btn.style.background;
+    btn.textContent = ok ? "✓" : "✗";
+    btn.style.background = ok ? "#c8e6c9" : "#ffcdd2";
+    setTimeout(function(){ btn.textContent = "📋"; btn.style.background = origBg; }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(raw).then(function(){ done(true); }, function(){ done(false); });
+  } else {
+    // fallback: textarea + execCommand
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = raw; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      var ok = document.execCommand("copy");
+      document.body.removeChild(ta); done(ok);
+    } catch(e) { done(false); }
+  }
+}
+
+// v3.11.23.1: 把 [PASS] / [WARN] / [FAIL] / [SKIP] / [N/A] 渲染成彩色 badge (先 escape 再染)
+function _dcColorizeLabels(escapedText) {
+  var colors = {
+    "PASS": "#2e7d32", "WARN": "#ef6c00", "FAIL": "#c62828",
+    "SKIP": "#757575", "N/A": "#757575"
+  };
+  return String(escapedText == null ? "" : escapedText).replace(/\[(PASS|WARN|FAIL|SKIP|N\/A)\]/g, function(m, label) {
+    var color = colors[label] || "#757575";
+    return '<span style="display:inline-block;padding:1px 7px;border-radius:4px;background:' + color
+      + ';color:white;font-size:10px;font-weight:700;letter-spacing:0.5px;margin:0 2px;">' + label + '</span>';
+  });
+}
+
+function applyPingOverlay() {
+  if (!window._pingData) return;
+  var data = window._pingData;
+  for (var hostname in data) {
+    var card = document.getElementById("host-card-" + hostname);
+    if (!card) continue;
+    // 移除舊的 overlay/dot
+    var old = card.querySelector(".ping-overlay,.ping-dot");
+    if (old) old.remove();
+    if (!data[hostname].reachable) {
+      var overlay = document.createElement("div");
+      overlay.className = "ping-overlay";
+      overlay.style.cssText = "position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.65);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;pointer-events:none;";
+      overlay.innerHTML = '<div style="background:var(--red);color:white;padding:10px 24px;border-radius:8px;font-size:18px;font-weight:700;margin-bottom:6px;animation:uid0-flash 1.5s infinite;">⛔ 離線</div>'
+        + '<div style="color:white;font-size:13px;">' + hostname + ' (' + data[hostname].ip + ')</div>'
+        + '<div style="color:rgba(255,255,255,0.7);font-size:11px;margin-top:4px;">主機無回應 — 請確認網路或開機狀態</div>';
+      card.appendChild(overlay);
+    } else {
+      var dot = document.createElement("div");
+      dot.className = "ping-dot";
+      dot.style.cssText = "position:absolute;top:10px;right:10px;width:10px;height:10px;background:var(--g1);border-radius:50%;box-shadow:0 0 6px var(--g1);";
+      dot.title = "主機在線";
+      card.appendChild(dot);
+    }
+  }
+}
+</script>
+{% endblock %}
