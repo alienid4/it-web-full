@@ -5,25 +5,69 @@
 **帳號**：VC read-only 帳號；本檔**不寫密碼**。
 
 > **資安備註**：本檔**不寫入任何實際 IP / FQDN / 帳號 / 密碼**。
-> 實際位址由執行者從內部資料自行填入，建議寫到 `~/.vc_ips.local`（已加入 `.gitignore`，不 commit）。
+> 以下所有 IP / 帳號 / 密碼皆為**範例**，執行者自行改成實際值；建議實際 IP 另寫到 `~/.vc_ips.local`（不 commit）。
+
+---
+
+## Stage 0 — 快速單 VC 測試 (最短路徑)
+
+只想先驗證 1 個 VC 能不能登入，直接跑。**IP / 帳號 / 密碼都是範例，自己改：**
+
+```bash
+python3 <<'EOF'
+import ssl
+from pyVim.connect import SmartConnect, Disconnect
+
+# === 以下都是範例，自己改 ===
+VC   = '192.168.1.221'                    # ← 改成要測的 VC IP
+USER = 'administrator@vsphere.local'      # ← 改成你的帳號
+PWD  = 'YourPasswordHere'                 # ← 改成你的密碼
+# =======================
+
+ctx = ssl._create_unverified_context()
+try:
+    try:
+        si = SmartConnect(host=VC, user=USER, pwd=PWD, sslContext=ctx, disableSslCertValidation=True)
+    except TypeError:
+        si = SmartConnect(host=VC, user=USER, pwd=PWD, sslContext=ctx)
+    about = si.content.about
+    print(f'\n✅ 登入成功')
+    print(f'   vCenter : {about.fullName}')
+    print(f'   版本    : {about.version} build {about.build}')
+    Disconnect(si)
+    print(f'   Session : 已登出\n')
+except Exception as e:
+    print(f'\n❌ 登入失敗: {type(e).__name__}: {e}\n')
+EOF
+```
+
+**跑完立刻清 history (因為密碼有寫在 heredoc 裡)**：
+
+```bash
+history -c && history -w
+grep -rn 'YourPasswordHere' ~ 2>/dev/null   # 如果改成真密碼，這裡也要改
+```
+
+**Stage 0 通過 → 再跑下面 Stage 1~3 對 5 個 VC 批量測試。**
 
 ---
 
 ## 前置：建立本地 IP 清單 (不落地到 repo)
 
 ```bash
-# 在執行機上建立本地清單檔，格式：每行一個「IP<TAB>位置標籤」
+# 在執行機上建立本地清單檔，格式：每行一個「IP<空白>位置標籤」
 # 檔案放使用者 home，不會被 commit
+# 以下為【範例】— 請自行改成實際 IP
 cat > ~/.vc_ips.local <<'EOF'
-# 填入實際 IP，格式：IP<space>位置
-VC_IP_1 板橋
-VC_IP_2 內湖-1
-VC_IP_3 內湖-2
-VC_IP_4 VCF
-VC_IP_5 敦南
+# 範例，自己改：每行 IP<空白>位置
+192.168.1.221 範例-VC-1
+192.168.1.221 範例-VC-2
+192.168.1.221 範例-VC-3
+192.168.1.221 範例-VC-4
+192.168.1.221 範例-VC-5
 EOF
 chmod 600 ~/.vc_ips.local
-# 編輯實際 IP：vi ~/.vc_ips.local
+vi ~/.vc_ips.local   # 改成真正的 5 個 VC IP
 ```
 
 ---
