@@ -1,0 +1,7 @@
+VERSION=3.11.22.1
+DESC=hot-fix v3.11.22.0 深度檢查 PermissionError '/seclog/AI' (api_deep_check.py hardcode INSPECTION_HOME 改 auto-detect)
+DATE=2026-04-24
+AUTHOR=alien4job@gmail.com
+FILES=webapp/routes/api_deep_check.py, data/version.json
+REQUIRES_RESTART=yes
+PREREQ=v3.11.22.0
