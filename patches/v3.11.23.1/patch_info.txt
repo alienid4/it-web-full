@@ -1,0 +1,7 @@
+VERSION=3.11.23.1
+DESC=深度檢查子項 [PASS]/[WARN]/[FAIL]/[SKIP] 標籤彩色 badge
+DATE=2026-04-24
+AUTHOR=alien4job@gmail.com
+FILES=webapp/templates/report.html, data/version.json
+REQUIRES_RESTART=yes
+PREREQ=v3.11.23.0
