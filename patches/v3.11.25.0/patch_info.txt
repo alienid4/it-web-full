@@ -1,0 +1,7 @@
+VERSION=3.11.25.0
+DESC=深度檢查歷史瀏覽 (最近 10 筆點查看不重跑) + 修 _detect_inspection_home 用 version.json 判斷 (221 空殼誤選 bug)
+DATE=2026-04-24
+AUTHOR=alien4job@gmail.com
+FILES=webapp/routes/api_deep_check.py, webapp/templates/report.html, data/version.json
+REQUIRES_RESTART=yes
+PREREQ=v3.11.24.0
