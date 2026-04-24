@@ -111,24 +111,31 @@ s = open(p).read()
 if 'id="nav-vmware"' in s:
     print("  already has vmware nav, skip")
 else:
-    # 找 TWGCB 那行, 在後面插入 VMware
     marker = '<li><a href="/twgcb" id="nav-twgcb">'
     if marker not in s:
         # fallback: 找 admin nav 前面
         marker_alt = '<li><a href="/admin"'
         if marker_alt not in s:
             raise SystemExit("找不到 nav 錨點 (TWGCB 或 admin)")
-        # 在 admin 前插
-        new_li = '<li><a href="/vmware" id="nav-vmware">🖥️ VMware 管理</a></li>\n      '
+        new_li = '<li><a href="/vmware" id="nav-vmware">🖥️ VMware 管理</a></li>\n        '
         s = s.replace(marker_alt, new_li + marker_alt, 1)
     else:
-        # 在 TWGCB 那整行 li 結束後插
+        # 找 twgcb <li> 結束, 再看後面是不是 {% endif %} (表示 twgcb 被包在 feature flag if 區塊裡)
+        # 若是 → 要插在 {% endif %} 之後 (VMware 獨立於 twgcb flag); 否則插在 </li> 後
         idx = s.index(marker)
         li_end = s.index('</li>', idx) + len('</li>')
-        insert = '\n      <li><a href="/vmware" id="nav-vmware">🖥️ VMware 管理</a></li>'
-        s = s[:li_end] + insert + s[li_end:]
+        tail = s[li_end:li_end+30]
+        if tail.lstrip().startswith('{% endif %}'):
+            # 找 {% endif %} 結束位置
+            endif_pos = s.index('{% endif %}', li_end) + len('{% endif %}')
+            insert = '\n        <li><a href="/vmware" id="nav-vmware">🖥️ VMware 管理</a></li>'
+            s = s[:endif_pos] + insert + s[endif_pos:]
+            print("  nav 插入完成 (twgcb 包在 FEATURES flag, 插到 {% endif %} 之後)")
+        else:
+            insert = '\n      <li><a href="/vmware" id="nav-vmware">🖥️ VMware 管理</a></li>'
+            s = s[:li_end] + insert + s[li_end:]
+            print("  nav 插入完成")
     open(p, 'w').write(s)
-    print("  nav 插入完成")
 PYEOF
 ok "base.html nav OK"
 
