@@ -1,0 +1,10 @@
+VERSION=3.13.0.0-db-dump
+DESC=補實「資料備份 (MongoDB)」匯出 / 列表 / 下載 / 刪除 (Phase 2-A: 只匯出, 不寫回)
+DATE=2026-04-27
+AUTHOR=alien4job@gmail.com
+FILES=webapp/routes/api_admin.py (+4 routes + send_file import), webapp/templates/admin.html (re-enable createDbDump + dbbackup-list), webapp/static/js/admin.js (+3 函式 + loadBackupsTab 注入), data/version.json
+REQUIRES_RESTART=yes
+PREREQ=podman 容器 mongodb 在跑; v3.12.4.0 不必但建議
+SAFE_TO_RERUN=yes (偵測 def list_db_backups + function loadDbBackups)
+STORAGE=/var/backups/inspection/db/mongo_<TS>.archive.gz (sysinfra:itagent 750)
+NEXT=v3.13.1.0 DB Restore (上傳 + mongorestore --drop); v3.13.2.0 Patch list+preview; v3.13.3.0 Patch apply/rollback
