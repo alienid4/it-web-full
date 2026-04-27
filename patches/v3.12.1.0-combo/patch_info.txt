@@ -1,0 +1,9 @@
+VERSION=3.12.1.0-combo
+DESC=VMware tab 全套 combo (prereq + w1 + collector 一次裝完, 含子 install.sh 串接 + 失敗 stop + log 留存)
+DATE=2026-04-27
+AUTHOR=alien4job@gmail.com
+INCLUDES=01_prereq (v3.12.0.0-vmware-prereq, pyvmomi+python-ldap), 02_w1 (v3.12.0.0-vmware-tab-w1, UI tab+mock), 03_collector (v3.12.1.0-vmware-collector, 接真 VC+8H cron)
+REQUIRES_RESTART=yes (w1+collector 各自會重啟一次)
+PREREQ=RHEL 9 / Rocky 9, sudo, ansible-vault (collector 用), Python 3.9+
+SAFE_TO_RERUN=yes (子 install.sh 都是 idempotent)
+NEXT_MANUAL=填 data/vmware/vcenters.yaml + ansible-vault create vc_credentials.vault, 見 notes/2026-04-27/1015 + 1030
