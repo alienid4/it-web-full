@@ -1,0 +1,13 @@
+# VMware vCenter 清單 (plaintext, 不含帳密)
+# 帳密放 vc_credentials.vault (ansible-vault 加密)
+#
+# 複製此檔為 vcenters.yaml 並填入真實 IP 和 label:
+#   cp vcenters.yaml.sample vcenters.yaml
+#   chmod 600 vcenters.yaml
+
+vcenters:
+  - label: "範例-VC-1"      # 自訂 label, 顯示在 UI
+    ip:    "192.168.1.221"  # 改成實際 VC IP
+  - label: "範例-VC-2"
+    ip:    "192.168.1.221"
+  # 可加 5 個 VC (板橋/內湖-1/內湖-2/VCF/敦南)

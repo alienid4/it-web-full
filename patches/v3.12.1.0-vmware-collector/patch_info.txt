@@ -1,0 +1,9 @@
+VERSION=3.12.1.0-vmware-collector
+DESC=VMware collector 接真 vCenter (pyvmomi read-only) → MongoDB vmware_snapshots + 8H cron + ansible-vault 加密帳密 + 5 模式 (正常/dry-run/only/mock-write)
+DATE=2026-04-27
+AUTHOR=alien4job@gmail.com
+FILES=collector/vcenter_collector.py (新), webapp/services/vmware_service.py (新), webapp/routes/api_vmware.py (改 route 指向 vmware_service), data/vmware/vcenters.yaml.sample (新), data/vmware/README.md (新), data/version.json (prepend changelog), /etc/cron.d/inspection-vmware-collect (新 cron)
+REQUIRES_RESTART=yes
+PREREQ=v3.12.0.0-vmware-prereq (pyvmomi+python-ldap) AND v3.12.0.0-vmware-tab-w1 (UI tab + vmware_mock fallback) 都要先套
+POST_INSTALL_MANUAL=填 data/vmware/vcenters.yaml (5 VC 真 IP) + ansible-vault create vc_credentials.vault (見 data/vmware/README.md)
+NEXT=W2 月報 PPTX 產生器 (python-pptx 6 頁主管版)
