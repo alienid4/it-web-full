@@ -1,0 +1,9 @@
+VERSION=3.12.2.3-test-email-recipient
+DESC=測試 SMTP 改用「收件人」清單 (不再強迫設個人 Email); fallback user.email; 兩者都空才報錯
+DATE=2026-04-27
+AUTHOR=alien4job@gmail.com
+FILES=webapp/routes/api_admin.py (admin_test_email function 整個替換), data/version.json (prepend changelog)
+REQUIRES_RESTART=yes
+PREREQ=v3.12.2.0 或 v3.12.2.1 (admin_test_email function 已存在)
+SAFE_TO_RERUN=yes (檢查 # v3.12.2.3 admin_test_email marker)
+NEXT=W2 月報 PPTX
