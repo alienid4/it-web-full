@@ -1,0 +1,10 @@
+VERSION=3.13.0.1-mongodb-autodetect
+DESC=MongoDB Dump auto-detect (local mongodump RPM 優先 / podman 容器 mongodb 後備); SUPERSEDES v3.13.0.0
+DATE=2026-04-27
+AUTHOR=alien4job@gmail.com
+FILES=webapp/routes/api_admin.py (helper + 4 routes 全替換), webapp/templates/admin.html, webapp/static/js/admin.js, data/version.json
+REQUIRES_RESTART=yes
+PREREQ=本機要有 mongodump (local RPM 或 podman 容器 mongodb 二擇一)
+SAFE_TO_RERUN=yes (偵測 _v3_13_0_1_get_mongodump_cmd marker)
+SUPERSEDES=v3.13.0.0-db-dump (含其全部功能, 13 直接裝這顆)
+NEXT=v3.13.1.0 DB Restore (上傳 + mongorestore --drop, helper 已備齊); v3.13.2.0 Patch list+preview; v3.13.3.0 Patch apply/rollback
