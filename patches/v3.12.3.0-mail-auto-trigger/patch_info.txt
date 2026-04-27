@@ -1,0 +1,10 @@
+VERSION=3.12.3.0-mail-auto-trigger
+DESC=run_inspection.sh 結尾接 generate_report.py 自動寄 HTML 報告 (補上斷掉的 hook)
+DATE=2026-04-27
+AUTHOR=alien4job@gmail.com
+FILES=run_inspection.sh (注入 v3.12.3.0 email-report block 在 exit ${EXIT_CODE} 之前), data/version.json (prepend changelog)
+REQUIRES_RESTART=no (cron 下次觸發 06:30/13:30/17:30 自動生效)
+PREREQ=v3.12.2.x 以上 (settings.json notify_email 設好且測試 SMTP 已通)
+SAFE_TO_RERUN=yes (檢查 # v3.12.3.0 email-report marker)
+RUNTIME_REQ=settings.json notify_email.enabled=true; notify_email.to[] 至少 1 筆; SMTP host/port/tls/user 對
+NEXT=v3.12.4.0 dead button hot-fix; v3.13.0.0 backup tab 全補完
