@@ -1,0 +1,9 @@
+VERSION=3.12.3.1-mail-no-auth
+DESC=hot-fix no-auth SMTP relay 寄信失敗 ("smtp auth extension not supported by server"); generate_report.py 對齊 services/email_service.py 的 user+pass 雙檢查 + ENV: 前綴解析
+DATE=2026-04-27
+AUTHOR=alien4job@gmail.com
+FILES=scripts/generate_report.py (login 行區塊改寫), data/version.json (prepend changelog)
+REQUIRES_RESTART=no (純 script 改動, cron 下次觸發吃新版)
+PREREQ=v3.12.3.0 已套
+SAFE_TO_RERUN=yes (偵測 # v3.12.3.1 no-auth fix marker)
+NEXT=v3.12.4.0 dead button hot-fix; v3.13.0.0 backup tab 全補完
