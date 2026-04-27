@@ -1,0 +1,9 @@
+VERSION=3.12.2.2-savemail-rename
+DESC=hot-fix saveEmail 函式同名衝突 (admin.js v3.12.2.1 加的 saveEmail vs admin.html 早有的 saveEmail) - rename 為 saveNotifyEmail
+DATE=2026-04-27
+AUTHOR=alien4job@gmail.com
+FILES=webapp/static/js/admin.js (function 簽名 + button onclick 各一處 rename), data/version.json (prepend changelog)
+REQUIRES_RESTART=yes (Flask 重啟 + 瀏覽器 Ctrl+Shift+R 清 JS cache)
+PREREQ=v3.12.2.1-admin-smtp-edit 已套 (admin.js 必須有 /* v3.12.2.1 saveEmail */ marker)
+SAFE_TO_RERUN=yes (檢查 function saveNotifyEmail 已存在則 skip)
+NEXT=W2 月報 PPTX
