@@ -1,0 +1,11 @@
+VERSION=3.12.2.1-admin-smtp-edit
+DESC=SMTP 6 欄位全可編輯 (host/port/tls/user/from/pass) + 密碼分離管理 (no-auth relay 適用) + 後端 GET mask 不外傳 plaintext
+DATE=2026-04-27
+AUTHOR=alien4job@gmail.com
+FILES=webapp/static/js/admin.js (Disk excl 替換 + Email 6 欄位 + saveEmail 改寫 + 7 函式), webapp/routes/api_admin.py (admin_settings GET mask + admin_update_setting PUT preserve + 2 新 routes), data/version.json (prepend changelog)
+REQUIRES_RESTART=yes
+PREREQ=services/email_service.py 已存在 (舊版本提供, 已支援 empty user/pass 與 tls=false)
+SUPERSEDES=v3.12.2.0-admin-smtp-test (此 patch 同時包含 v3.12.2.0 的 SMTP test 按鈕 + 排除清單編輯, 不需先裝 2.0)
+SAFE_TO_RERUN=yes (5 個 marker idempotent: /* v3.12.2.1 */, // Email (v3.12.2.1:, /* v3.12.2.1 saveEmail */, v3.12.2.1: mask smtp_pass, notify_email/password)
+RUNTIME_REQ=當前登入者 user.email 要設好 (測試 SMTP 寄到這 email); SMTP_PASSWORD env (若設 ENV:SMTP_PASSWORD)
+NEXT=W2 月報 PPTX (python-pptx); SMTP 觸發告警引擎 (P2 roadmap)
