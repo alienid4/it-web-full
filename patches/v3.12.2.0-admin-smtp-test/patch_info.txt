@@ -1,0 +1,10 @@
+VERSION=3.12.2.0-admin-smtp-test
+DESC=Admin 設定頁: 磁碟排除清單 chip 可編輯 + Email 設定加「測試 SMTP」按鈕 (寄測試信給當前登入者)
+DATE=2026-04-27
+AUTHOR=alien4job@gmail.com
+FILES=webapp/static/js/admin.js (surgical regex inject + 5 新 JS 函式 append), webapp/routes/api_admin.py (新 route POST /api/admin/settings/notify_email/test 插在 Backups marker 前), data/version.json (prepend changelog)
+REQUIRES_RESTART=yes (Flask reload 才認新 route)
+PREREQ=services/email_service.py 必須在 (舊版本提供, send_email 用 settings.json notify_email config)
+SAFE_TO_RERUN=yes (有 /* v3.12.2.0 */ marker 與 notify_email/test 字串雙重檢查 idempotent)
+RUNTIME_REQ=後端要設 SMTP_PASSWORD 環境變數 (若 settings.json 的 smtp_pass 是 ENV:SMTP_PASSWORD), 且當前登入者要先設 email
+NEXT=W2 月報 PPTX (python-pptx); SMTP 觸發告警引擎 (P2 roadmap)
