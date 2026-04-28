@@ -28,6 +28,17 @@ document.addEventListener("DOMContentLoaded", function() {
     var btn = document.querySelector('.admin-tab[data-tab="' + hash + '"]');
     if (btn) btn.click();
   }
+  // v3.17.7.3+: hash = 主機管理 group → 隱藏其他 admin-nav-group
+  var HOST_TABS = ["hosts","jobs","scheduler","alerts"];
+  if (HOST_TABS.indexOf(hash) >= 0) {
+    document.querySelectorAll(".admin-nav-group").forEach(function(g){
+      var hasHostTab = false;
+      g.querySelectorAll(".admin-tab[data-tab]").forEach(function(b){
+        if (HOST_TABS.indexOf(b.getAttribute("data-tab")) >= 0) hasHostTab = true;
+      });
+      if (!hasHostTab) g.style.display = "none";
+    });
+  }
 
   // Set default month
   var now = new Date();
@@ -89,6 +100,10 @@ async function adminAction(url, method, confirmMsg) {
       else alert("\u2713 " + okText);
     }
     _tabLoaded = {};
+    // v3.17.7.3+: DELETE host auto reload
+    if (method === "DELETE" && url.indexOf("/hosts/") >= 0 && typeof loadHosts === "function") {
+      setTimeout(loadHosts, 200);
+    }
   } catch(e) {
     var emsg = (e.name === "AbortError") ? "請求逾時（超過 60 秒）" : (e.message || "未知錯誤");
     if (typeof _dashToast === "function") _dashToast("\u2717 " + emsg, "error");

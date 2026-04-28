@@ -760,51 +760,110 @@ def view_worklog():
 @bp.route("/hosts/import-csv", methods=["POST"])
 @admin_required
 def import_csv():
-    """從 CSV 匯入主機清單"""
+    """v3.17.7.3+: 從 CSV 匯入主機 (接受 29 欄資產表中文標頭 + 9 巡檢欄)"""
     import csv, io
     if "file" not in request.files:
-        # Try raw text body
         raw = request.get_data(as_text=True)
         if not raw:
             return jsonify({"success": False, "error": "未提供檔案"}), 400
         reader = csv.DictReader(io.StringIO(raw))
     else:
         f = request.files["file"]
-        content = f.read().decode("utf-8-sig")
+        raw_bytes = f.read()
+        content = None
+        for enc in ("utf-8-sig", "utf-8", "big5", "gbk"):
+            try:
+                content = raw_bytes.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if content is None:
+            return jsonify({"success": False, "error": "CSV 解碼失敗"}), 400
         reader = csv.DictReader(io.StringIO(content))
+
+    HEADER_MAP = {
+        "盤點單位-處別": "division", "處別": "division", "處": "division", "division": "division",
+        "盤點單位-部門": "department", "部門": "department", "department": "department",
+        "資產序號": "asset_seq", "asset_seq": "asset_seq",
+        "資產狀態": "status", "狀態": "status", "status": "status",
+        "群組名稱": "group_name", "群組": "group_name", "group_name": "group_name",
+        "APID": "apid", "apid": "apid",
+        "資產名稱": "asset_name", "asset_name": "asset_name",
+        "整體基礎架構": "device_type", "基礎架構": "device_type", "device_type": "device_type",
+        "設備型號": "device_model", "device_model": "device_model",
+        "資產用途": "asset_usage", "用途": "asset_usage", "asset_usage": "asset_usage",
+        "資產實體位置": "location", "實體位置": "location", "位置": "location", "location": "location",
+        "機櫃編號": "rack_no", "機櫃": "rack_no", "rack_no": "rack_no",
+        "數量": "quantity", "quantity": "quantity",
+        "擁有者": "owner", "owner": "owner",
+        "環境別": "environment", "環境": "environment", "environment": "environment",
+        "主機名稱": "hostname", "host": "hostname", "hostname": "hostname",
+        "作業系統": "os", "OS": "os", "os": "os",
+        "BIG IP/VIP": "bigip", "VIP": "bigip", "bigip": "bigip",
+        "硬體編號": "hardware_seq", "hardware_seq": "hardware_seq",
+        "IP位址": "ip", "IP": "ip", "ip": "ip",
+        "保管者": "custodian", "custodian": "custodian",
+        "系統管理者": "sys_admin", "sys_admin": "sys_admin",
+        "使用者": "user", "user": "user",
+        "附加說明": "note", "說明": "note", "備註": "note", "note": "note",
+        "所屬公司": "company", "公司": "company", "company": "company",
+        "機密性": "confidentiality", "confidentiality": "confidentiality",
+        "完整性": "integrity", "integrity": "integrity",
+        "可用性": "availability", "availability": "availability",
+        "申請單編號": "request_no", "申請單號": "request_no", "request_no": "request_no",
+        "OS Group": "os_group", "os_group": "os_group",
+        "AD帳號": "custodian_ad", "保管者AD": "custodian_ad", "custodian_ad": "custodian_ad",
+        "其他IP": "_ips_extra", "其他IP(分號分隔)": "_ips_extra",
+        "別名": "_aliases", "別名(分號分隔)": "_aliases",
+        "級別": "tier", "tier": "tier",
+        "系統別": "system_name", "system_name": "system_name",
+        "AP負責人": "ap_owner", "ap_owner": "ap_owner",
+        "使用單位": "user_unit", "user_unit": "user_unit",
+        "架構說明": "infra", "infra": "infra",
+    }
 
     col = get_collection("hosts")
     count = 0
     errors = []
     for i, row in enumerate(reader):
-        # Map common column names
-        hostname = row.get("hostname") or row.get("主機名稱") or row.get("host") or ""
-        ip = row.get("ip") or row.get("IP") or row.get("IP位址") or ""
-        if not hostname.strip():
-            errors.append(f"第 {i+2} 行缺少主機名稱")
+        doc = {}
+        for raw_k, raw_v in row.items():
+            if raw_k is None:
+                continue
+            db_k = HEADER_MAP.get(raw_k.strip())
+            if not db_k:
+                continue
+            v = (raw_v or "").strip() if isinstance(raw_v, str) else raw_v
+            doc[db_k] = v
+        hostname = (doc.get("hostname") or "").strip()
+        if not hostname:
+            errors.append("第 " + str(i + 2) + " 行缺少主機名稱")
             continue
-        doc = {
-            "hostname": hostname.strip(),
-            "ip": (ip or "").strip(),
-            "os": (row.get("os") or row.get("OS") or row.get("作業系統") or "").strip(),
-            "os_group": (row.get("os_group") or row.get("OS Group") or "").strip().lower(),
-            "status": (row.get("status") or row.get("狀態") or "使用中").strip(),
-            "environment": (row.get("environment") or row.get("環境") or "").strip(),
-            "group": (row.get("group") or row.get("群組") or "").strip() or None,
-            "has_python": True,
-            "custodian": (row.get("custodian") or row.get("保管者") or "").strip(),
-            "custodian_ad": (row.get("custodian_ad") or row.get("AD帳號") or "").strip(),
-            "department": (row.get("department") or row.get("部門") or "").strip(),
-            "division": (row.get("division") or row.get("處") or "").strip(),
-            "imported_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat(),
-        }
-        col.update_one({"hostname": doc["hostname"]}, {"$set": doc}, upsert=True)
+        # ips/aliases 處理 (分號 or 逗號分隔)
+        if "_ips_extra" in doc:
+            extras = [x.strip() for x in str(doc.pop("_ips_extra")).replace(",", ";").split(";") if x.strip()]
+            primary = (doc.get("ip") or "").strip()
+            doc["ips"] = ([primary] + extras) if primary else extras
+        if "_aliases" in doc:
+            doc["aliases"] = [x.strip() for x in str(doc.pop("_aliases")).replace(",", ";").split(";") if x.strip()]
+        # CIA / 數量 轉 int
+        for k in ("confidentiality", "integrity", "availability", "quantity"):
+            if k in doc and doc[k] not in (None, ""):
+                try:
+                    doc[k] = int(doc[k])
+                except (ValueError, TypeError):
+                    pass
+        doc["status"] = doc.get("status") or "使用中"
+        doc["has_python"] = True
+        doc["imported_at"] = datetime.now().isoformat()
+        doc["updated_at"] = datetime.now().isoformat()
+        col.update_one({"hostname": hostname}, {"$set": doc}, upsert=True)
         count += 1
 
     _sync_hosts_config()
-    log_action(session["username"], "import_csv", f"CSV 匯入 {count} 台主機", request.remote_addr)
-    return jsonify({"success": True, "message": f"成功匯入 {count} 台主機", "count": count, "errors": errors})
+    log_action(session["username"], "import_csv", "CSV 匯入 " + str(count) + " 台主機", request.remote_addr)
+    return jsonify({"success": True, "message": "成功匯入 " + str(count) + " 台主機", "count": count, "errors": errors})
+
 
 
 @bp.route("/hosts/import-json", methods=["POST"])
@@ -832,66 +891,15 @@ def import_json():
 @bp.route("/hosts/export-csv", methods=["GET"])
 @admin_required
 def export_csv():
-    """v3.17.7.2+: 匯出主機清單為 CSV (29 欄資產表順序 + 巡檢專屬欄位)"""
+    """匯出主機清單為 CSV"""
     import csv, io
     hosts = list(get_collection("hosts").find({}, {"_id": 0}))
-    # 29 欄資產表順序 (對齊使用者 Excel JPG)
-    asset_fields = [
-        ("division", "盤點單位-處別"),
-        ("department", "盤點單位-部門"),
-        ("asset_seq", "資產序號"),
-        ("status", "資產狀態"),
-        ("group_name", "群組名稱"),
-        ("apid", "APID"),
-        ("asset_name", "資產名稱"),
-        ("device_type", "整體基礎架構"),
-        ("device_model", "設備型號"),
-        ("asset_usage", "資產用途"),
-        ("location", "資產實體位置"),
-        ("rack_no", "機櫃編號"),
-        ("quantity", "數量"),
-        ("owner", "擁有者"),
-        ("environment", "環境別"),
-        ("hostname", "主機名稱"),
-        ("os", "作業系統"),
-        ("bigip", "BIG IP/VIP"),
-        ("hardware_seq", "硬體編號"),
-        ("ip", "IP"),
-        ("custodian", "保管者"),
-        ("sys_admin", "系統管理者"),
-        ("user", "使用者"),
-        ("note", "附加說明"),
-        ("company", "所屬公司"),
-        ("confidentiality", "機密性"),
-        ("integrity", "完整性"),
-        ("availability", "可用性"),
-        ("request_no", "申請單編號"),
-    ]
-    extra_fields = [
-        ("os_group", "os_group"),
-        ("ips", "其他IP(分號分隔)"),
-        ("aliases", "別名(分號分隔)"),
-        ("tier", "級別"),
-        ("system_name", "系統別"),
-        ("ap_owner", "AP負責人"),
-        ("user_unit", "使用單位"),
-        ("infra", "架構說明"),
-        ("custodian_ad", "保管者AD"),
-    ]
-    all_fields = asset_fields + extra_fields
     output = io.StringIO()
-    output.write("﻿")  # BOM, Excel 開 CSV 顯示中文不亂碼
-    headers = [label for _, label in all_fields]
-    writer = csv.writer(output)
-    writer.writerow(headers)
+    fields = ["hostname", "ip", "os", "os_group", "status", "environment", "group", "custodian", "custodian_ad", "department", "division"]
+    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+    writer.writeheader()
     for h in hosts:
-        row = []
-        for key, _ in all_fields:
-            v = h.get(key, "")
-            if isinstance(v, list):
-                v = ";".join(str(x) for x in v)
-            row.append(v)
-        writer.writerow(row)
+        writer.writerow(h)
     from flask import Response
     return Response(output.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment;filename=hosts_export.csv"})
@@ -902,10 +910,7 @@ def export_csv():
 def template_csv():
     """下載 CSV 範本 (BOM for Excel)"""
     from flask import Response
-    # v3.17.7.2+: 29 欄資產表順序
-    headers = "盤點單位-處別,盤點單位-部門,資產序號,資產狀態,群組名稱,APID,資產名稱,整體基礎架構,設備型號,資產用途,資產實體位置,機櫃編號,數量,擁有者,環境別,主機名稱,作業系統,BIG IP/VIP,硬體編號,IP,保管者,系統管理者,使用者,附加說明,所屬公司,機密性,完整性,可用性,申請單編號,os_group,其他IP,別名,級別,系統別,AP負責人,使用單位,架構說明,保管者AD"
-    sample = "資訊管理處,資訊架構部,HW-00001001,使用中,H9-IT 管理性系統設備,巡檢系統,L-001,地端資產 (VM),VMware VM,AP Server,LAB機房,R12,1,資訊架構部,正式,SECSVR-EXAMPLE,Rocky Linux,無,VM-12345,10.0.0.1,林凱文,李大華,lab-admin,Rocky Linux 主機,敦南總公司,1,1,1,E000000000001,rocky,,,金,巡檢系統,王大明,資訊架構部,LAB測試環境,lin.kaiwen"
-    template = headers + "\n" + sample + "\n"
+    template = "hostname,ip,os,os_group,status,environment,group,custodian,custodian_ad,department,division\nEXAMPLE-SVR01,10.0.0.1,Rocky Linux,rocky,使用中,正式,,林凱文,lin.kaiwen,資訊架構部,資訊管理處\n"
     bom = "\ufeff"
     return Response(bom + template, mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition": "attachment;filename=hosts_template.csv"})
