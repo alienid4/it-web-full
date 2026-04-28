@@ -42,6 +42,7 @@
       <button class="admin-tab" data-tab="linux-init">🔧 Linux 初始化</button>
       <button class="admin-tab" data-tab="ssh-keys">🔑 SSH 金鑰</button>
       <button class="admin-tab" data-tab="remote-tools">🛠 遠端工具</button>
+      <button class="admin-tab" data-tab="dependencies-mgmt" data-feature="dependencies">🗺️ 系統聯通圖</button>
     </div>
   </div>
   <div class="admin-nav-group">
@@ -1119,6 +1120,128 @@ async function rtExec() {
   } catch(e) { rtShowResult("❌ 錯誤", '<div style="color:var(--red);">' + e + '</div>'); }
 }
 </script>
+
+<!-- ===== 系統聯通圖管理 (v3.14.0.0+) ===== -->
+<div id="tab-dependencies-mgmt" class="tab-panel" data-feature="dependencies">
+
+  <!-- 採集 / 排程 / Ghost 三大入口 -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-title" style="margin-bottom:12px;">🗺️ 系統聯通圖 — 採集與分析</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;">
+      <div style="padding:12px;background:var(--bg);border-radius:8px;">
+        <div style="font-weight:600;margin-bottom:6px;">📡 立即採集</div>
+        <div style="font-size:11px;color:var(--c3);margin-bottom:8px;line-height:1.5;">在受監控 Linux 主機跑 ss -tunp,自動建邊。手動觸發,跑一次馬上看結果。</div>
+        <button class="btn btn-primary btn-sm" onclick="depMgmtCollectNow()" id="depmgmt-collect-btn">立即採集</button>
+        <div id="depmgmt-collect-status" style="font-size:11px;color:var(--c3);margin-top:6px;"></div>
+      </div>
+
+      <div style="padding:12px;background:var(--bg);border-radius:8px;">
+        <div style="font-weight:600;margin-bottom:6px;">⏰ 採集排程 (cron)</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;margin-bottom:8px;">
+          <select id="depmgmt-sched-interval" style="padding:4px 8px;border:1px solid var(--c4);border-radius:6px;font-size:12px;">
+            <option value="0">關閉</option>
+            <option value="5">每 5 分鐘</option>
+            <option value="10">每 10 分鐘</option>
+            <option value="15">每 15 分鐘</option>
+            <option value="30">每 30 分鐘</option>
+            <option value="60">每 1 小時</option>
+          </select>
+          <label style="font-size:12px;cursor:pointer;"><input type="checkbox" id="depmgmt-sched-bizhour" checked> 僅上班時間 (週一到五 9-18)</label>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <button class="btn btn-sm btn-primary" onclick="depMgmtSaveSchedule()">套用</button>
+          <span id="depmgmt-sched-status" style="font-size:11px;color:var(--c3);"></span>
+        </div>
+      </div>
+
+      <div style="padding:12px;background:var(--bg);border-radius:8px;">
+        <div style="font-weight:600;margin-bottom:6px;">👻 Ghost 分析</div>
+        <div style="font-size:11px;color:var(--c3);margin-bottom:8px;line-height:1.5;">採集到但不在 hosts 清單內的對端 (shadow IT 偵測)</div>
+        <a href="/dependencies/ghosts" target="_blank" class="btn btn-sm">開啟 Ghost 頁</a>
+        <a href="/dependencies" target="_blank" class="btn btn-sm" style="margin-left:6px;">🗺️ 拓撲圖</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <div class="card-title" style="margin:0;">業務系統清單 <span id="depmgmt-sys-count" style="font-size:13px;font-weight:400;color:var(--c3);"></span></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="openDepSystemModal()">➕ 新增系統</button>
+      </div>
+    </div>
+    <div id="depmgmt-sys-table">載入中...</div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <div class="card-title" style="margin:0;">依賴關係 (邊) <span id="depmgmt-rel-count" style="font-size:13px;font-weight:400;color:var(--c3);"></span></div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="depmgmt-rel-source" onchange="loadDependenciesMgmtRelations()" style="padding:5px 10px;border:1px solid var(--c4);border-radius:6px;font-size:12px;">
+          <option value="">全部來源</option>
+          <option value="manual">手動</option>
+          <option value="ss-tunp">自動偵測 (ss-tunp)</option>
+          <option value="inferred">推斷</option>
+        </select>
+        <button class="btn btn-primary" onclick="openDepRelationModal()">➕ 新增關係</button>
+      </div>
+    </div>
+    <div id="depmgmt-rel-table">載入中...</div>
+  </div>
+
+  <!-- 系統 Modal -->
+  <div class="modal-overlay" id="dep-sys-modal">
+    <div class="modal" style="max-width:540px;">
+      <div class="modal-title" id="dep-sys-modal-title">新增業務系統</div>
+      <div style="display:grid;grid-template-columns:120px 1fr;gap:10px 12px;font-size:13px;">
+        <label>系統 ID *</label><input id="dep-sys-id" type="text" placeholder="ERP-CORE" style="padding:6px;border:1px solid var(--c4);border-radius:6px;">
+        <label>顯示名稱</label><input id="dep-sys-name" type="text" placeholder="ERP 核心系統" style="padding:6px;border:1px solid var(--c4);border-radius:6px;">
+        <label>級別</label>
+        <select id="dep-sys-tier" style="padding:6px;border:1px solid var(--c4);border-radius:6px;">
+          <option value="A">A 級</option><option value="B">B 級</option><option value="C" selected>C 級</option>
+        </select>
+        <label>類別</label>
+        <select id="dep-sys-category" style="padding:6px;border:1px solid var(--c4);border-radius:6px;">
+          <option value="AP">AP 應用</option><option value="DB">資料庫</option><option value="Infra">基礎設施</option><option value="Network">網路</option><option value="External">外部</option>
+        </select>
+        <label>負責人</label><input id="dep-sys-owner" type="text" style="padding:6px;border:1px solid var(--c4);border-radius:6px;">
+        <label>主機 (逗號分隔)</label><input id="dep-sys-hosts" type="text" placeholder="web01, web02" style="padding:6px;border:1px solid var(--c4);border-radius:6px;">
+        <label>說明</label><textarea id="dep-sys-desc" rows="2" style="padding:6px;border:1px solid var(--c4);border-radius:6px;font-family:inherit;"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+        <button class="btn" onclick="document.getElementById('dep-sys-modal').classList.remove('active')">取消</button>
+        <button class="btn btn-primary" onclick="saveDependencySystem()">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 關係 Modal -->
+  <div class="modal-overlay" id="dep-rel-modal">
+    <div class="modal" style="max-width:540px;">
+      <div class="modal-title" id="dep-rel-modal-title">新增依賴關係</div>
+      <div style="display:grid;grid-template-columns:120px 1fr;gap:10px 12px;font-size:13px;">
+        <label>來源系統 *</label><select id="dep-rel-from" style="padding:6px;border:1px solid var(--c4);border-radius:6px;"></select>
+        <label>目標系統 *</label><select id="dep-rel-to" style="padding:6px;border:1px solid var(--c4);border-radius:6px;"></select>
+        <label>類型</label>
+        <select id="dep-rel-type" style="padding:6px;border:1px solid var(--c4);border-radius:6px;">
+          <option value="api">API</option><option value="db">DB</option><option value="mq">MQ</option><option value="file">File</option><option value="network">Network</option><option value="unknown" selected>Unknown</option>
+        </select>
+        <label>協定</label>
+        <select id="dep-rel-proto" style="padding:6px;border:1px solid var(--c4);border-radius:6px;">
+          <option value="TCP" selected>TCP</option><option value="UDP">UDP</option><option value="HTTP">HTTP</option>
+        </select>
+        <label>Port</label><input id="dep-rel-port" type="number" min="0" max="65535" style="padding:6px;border:1px solid var(--c4);border-radius:6px;">
+        <label>說明</label><textarea id="dep-rel-desc" rows="2" style="padding:6px;border:1px solid var(--c4);border-radius:6px;font-family:inherit;"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+        <button class="btn" onclick="document.getElementById('dep-rel-modal').classList.remove('active')">取消</button>
+        <button class="btn btn-primary" onclick="saveDependencyRelation()">儲存</button>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ===== END 系統聯通圖管理 ===== -->
+
 <div id="tab-linux-init" class="tab-panel">
   <div class="card-title" style="margin-bottom:12px;">Linux 初始化工具 (SysExpert) <span style="font-size:11px;font-weight:400;color:var(--c3);margin-left:8px;">僅限 Linux 主機</span></div>
   <!-- Sub-tabs -->

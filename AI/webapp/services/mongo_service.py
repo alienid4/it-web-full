@@ -17,9 +17,14 @@ def get_collection(name):
     return get_db()[name]
 
 
+def get_hosts_col():
+    """主機/資產清單 collection. 未來若 collection 改名 (hosts → assets), 只改這一行"""
+    return get_hosts_col()
+
+
 # --- hosts ---
 def get_all_hosts(query=None, page=1, per_page=50):
-    col = get_collection("hosts")
+    col = get_hosts_col()
     q = query or {}
     skip = (page - 1) * per_page
     total = col.count_documents(q)
@@ -28,11 +33,11 @@ def get_all_hosts(query=None, page=1, per_page=50):
 
 
 def get_host(hostname):
-    return get_collection("hosts").find_one({"hostname": hostname}, {"_id": 0})
+    return get_hosts_col().find_one({"hostname": hostname}, {"_id": 0})
 
 
 def upsert_host(doc):
-    col = get_collection("hosts")
+    col = get_hosts_col()
     col.update_one({"hostname": doc["hostname"]}, {"$set": doc}, upsert=True)
 
 
@@ -72,7 +77,7 @@ def get_latest_inspections():
         {"$project": {"_id": 0}},
     ]
     results = list(col.aggregate(pipeline))
-    hosts_map = {h["hostname"]: h for h in get_collection("hosts").find(
+    hosts_map = {h["hostname"]: h for h in get_hosts_col().find(
         {}, {"_id": 0, "hostname": 1, "ip": 1, "custodian": 1}
     )}
     for r in results:
@@ -183,7 +188,7 @@ def get_summary_report():
     """產生異常總結報告：依嚴重度排序，含原因、建議、負責人、趨勢比較"""
     from datetime import datetime, timedelta
     col = get_collection("inspections")
-    hosts_col = get_collection("hosts")
+    hosts_col = get_hosts_col()
 
     # 最新巡檢
     pipeline = [

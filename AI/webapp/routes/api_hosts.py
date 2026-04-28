@@ -43,6 +43,6 @@ def host_detail(hostname):
 def update_host_group(hostname):
     data = request.get_json(force=True)
     group = data.get("group")
-    from services.mongo_service import get_collection
-    get_collection("hosts").update_one({"hostname": hostname}, {"$set": {"group": group}})
+    from services.mongo_service import get_collection, get_hosts_col
+    get_hosts_col().update_one({"hostname": hostname}, {"$set": {"group": group}})
     return jsonify({"success": True, "message": f"{hostname} 群組已更新為 {group}"})

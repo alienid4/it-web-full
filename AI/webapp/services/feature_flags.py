@@ -14,6 +14,7 @@ DEFAULT_FLAGS = [
     {"key": "summary",        "name": "異常總結",     "description": "/summary 頁"},
     {"key": "security_audit", "name": "系統安全稽核", "description": "admin 稽核專區 + Ansible 審計"},
     {"key": "history",        "name": "歷史查詢",     "description": "/history 頁 (巡檢歷史趨勢查詢)"},
+    {"key": "dependencies",   "name": "系統聯通圖",     "description": "/dependencies 頁 + admin 系統聯通圖管理 tab (vis-network 互動圖)"},
 ]
 
 

@@ -103,4 +103,16 @@ find "${LOG_DIR}"    -name "*.log"  -mtime +30 -delete 2>/dev/null
 find "${REPORT_DIR}" -name "*.html" -mtime +90 -delete 2>/dev/null
 find "${REPORT_DIR}" -name "*.json" -mtime +90 -delete 2>/dev/null
 
+# === Smoke test (v3.14.1.0+): 巡檢跑完驗證系統還活著 ===
+# 失敗不擋 exit code, 只記 log 給人看
+SMOKE_SCRIPT="${INSPECTION_HOME}/scripts/smoke_test.sh"
+if [ -x "${SMOKE_SCRIPT}" ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] 跑 smoke test..." | tee -a "${LOG_FILE}"
+    bash "${SMOKE_SCRIPT}" localhost 2>&1 | tee -a "${LOG_FILE}"
+    SMOKE_RC=${PIPESTATUS[0]}
+    if [ "${SMOKE_RC}" -ne 0 ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: smoke test 失敗 (rc=${SMOKE_RC}), 巡檢結果可能不準, 請查上方輸出" | tee -a "${LOG_FILE}"
+    fi
+fi
+
 exit ${EXIT_CODE}

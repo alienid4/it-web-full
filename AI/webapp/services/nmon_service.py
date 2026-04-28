@@ -7,7 +7,7 @@ import os
 import glob
 import re
 from datetime import datetime
-from services.mongo_service import get_db, get_collection
+from services.mongo_service import get_db, get_collection, get_hosts_col
 
 NMON_DIR = os.environ.get("INSPECTION_HOME", "/opt/inspection") + "/data/nmon"
 
@@ -272,7 +272,7 @@ def _delta(cur, prev):
 
 
 def _host_meta(hostname):
-    return get_collection("hosts").find_one({"hostname": hostname}, {
+    return get_hosts_col().find_one({"hostname": hostname}, {
         "_id": 0, "hostname": 1, "ip": 1, "os": 1,
         "system_name": 1, "tier": 1,
     }) or {"hostname": hostname}
@@ -418,7 +418,7 @@ def get_week_report(hostname, start_date):
 # ---------- query ----------
 def list_enabled_hosts():
     """回傳 nmon_enabled=True 的主機清單 (加 ip/os/system_name/tier)"""
-    col = get_collection("hosts")
+    col = get_hosts_col()
     docs = list(col.find(
         {"nmon_enabled": True},
         {"_id": 0, "hostname": 1, "ip": 1, "os": 1, "os_group": 1, "system_name": 1, "tier": 1, "ap_owner": 1},
@@ -515,7 +515,7 @@ def get_monthly_report(hostname, year, month):
     }
 
     # host meta
-    host_col = get_collection("hosts")
+    host_col = get_hosts_col()
     host_doc = host_col.find_one({"hostname": hostname}, {
         "_id": 0, "hostname": 1, "ip": 1, "os": 1,
         "system_name": 1, "tier": 1, "ap_owner": 1,

@@ -50,6 +50,7 @@
         {% if FEATURES.packages %}<li><a href="/packages" id="nav-packages">軟體盤點</a></li>{% endif %}
         {% if FEATURES.perf %}<li><a href="/perf" id="nav-perf">效能月報</a></li>{% endif %}
         {% if FEATURES.twgcb %}<li><a href="/twgcb" id="nav-twgcb">TWGCB合規</a></li>{% endif %}
+        {# 系統聯通圖入口從 navbar 隱藏 (v3.15.4.4),改從「系統管理 → 系統聯通圖」進去,需要看才打開 #}
         <li><a href="/admin" id="nav-admin" style="color:var(--orange);">系統管理</a></li>
         {% if session.get("role") in ["admin", "superadmin"] %}
         <li><a href="/superadmin" id="nav-superadmin" style="color:var(--red);">開發後台</a></li>
@@ -102,6 +103,7 @@
       {name:"異常總結", url:"/summary", tags:"summary 異常 總結 錯誤 警告"},
       {name:"帳號盤點", url:"/audit", tags:"audit 帳號 盤點 密碼 登入 hr"},
       {name:"TWGCB 合規檢查", url:"/twgcb", tags:"twgcb 合規 資安 強化 基準"},
+      {name:"系統聯通圖", url:"/dependencies", tags:"dependencies 系統聯通 連線 拓撲 影響分析 故障 service map"},
       {name:"系統管理 → 系統狀態", url:"/admin#dashboard", tags:"admin 系統 狀態 flask mongodb tunnel 外部存取 cloudflare"},
       {name:"系統管理 → 設定管理", url:"/admin#settings", tags:"settings 設定 閾值 disk cpu mem 磁碟排除"},
       {name:"系統管理 → 備份管理", url:"/admin#backups", tags:"backup 備份 還原 dump restore tar"},
@@ -144,7 +146,7 @@
 
     // Highlight active nav
     const path = location.pathname;
-    const navMap = {"/":"nav-dashboard","/executive":"nav-executive","/report":"nav-report","/history":"nav-history","/summary":"nav-summary","/audit":"nav-audit","/packages":"nav-packages","/perf":"nav-perf","/twgcb":"nav-twgcb","/admin":"nav-admin","/superadmin":"nav-superadmin"};
+    const navMap = {"/":"nav-dashboard","/executive":"nav-executive","/report":"nav-report","/history":"nav-history","/summary":"nav-summary","/audit":"nav-audit","/packages":"nav-packages","/perf":"nav-perf","/twgcb":"nav-twgcb","/dependencies":"nav-dependencies","/admin":"nav-admin","/superadmin":"nav-superadmin"};
     const activeId = navMap[path];
     if(activeId) document.getElementById(activeId).classList.add("active");
     // 手機版：點導覽連結自動收合選單

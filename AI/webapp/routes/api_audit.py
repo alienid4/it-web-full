@@ -5,7 +5,7 @@ import sys, os, json, csv, io
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from services.mongo_service import get_collection, get_all_settings, update_setting
+from services.mongo_service import get_collection, get_hosts_col, get_all_settings, update_setting
 from config import INSPECTION_HOME
 
 bp = Blueprint("api_audit", __name__, url_prefix="/api/audit")
@@ -16,7 +16,7 @@ def _get_audit_data():
     audit_col = get_collection("account_audit")
     notes_col = get_collection("account_notes")
     hr_col = get_collection("hr_users")
-    hosts_col = get_collection("hosts")
+    hosts_col = get_hosts_col()
     settings_col = get_collection("settings")
 
     pw_days = 180

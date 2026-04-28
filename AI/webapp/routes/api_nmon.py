@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from decorators import login_required, admin_required
 from services import nmon_service, nmon_charts
-from services.mongo_service import get_collection
+from services.mongo_service import get_collection, get_hosts_col
 
 bp = Blueprint("api_nmon", __name__, url_prefix="/api/nmon")
 
@@ -63,7 +63,7 @@ def toggle():
     enabled = bool(body.get("enabled"))
     if not host:
         return jsonify({"success": False, "error": "host required"}), 400
-    col = get_collection("hosts")
+    col = get_hosts_col()
     r = col.update_one({"hostname": host}, {"$set": {"nmon_enabled": enabled}})
     if r.matched_count == 0:
         return jsonify({"success": False, "error": f"host {host} not found"}), 404
@@ -82,7 +82,7 @@ def schedule_get():
     s = settings_col.find_one({"key": "nmon_interval_min"}, {"_id": 0, "value": 1}) or {}
     cur_interval = int(s.get("value") or 5)
 
-    hosts_col = get_collection("hosts")
+    hosts_col = get_hosts_col()
     hosts = list(hosts_col.find({}, {
         "_id": 0, "hostname": 1, "ip": 1, "os": 1, "os_group": 1,
         "system_name": 1, "tier": 1, "nmon_enabled": 1,
@@ -141,7 +141,7 @@ def schedule_preview():
     body = request.get_json(silent=True) or {}
     configs = _parse_host_configs(body)
 
-    hosts_col = get_collection("hosts")
+    hosts_col = get_hosts_col()
     all_hosts = list(hosts_col.find({}, {
         "_id": 0, "hostname": 1, "os_group": 1, "nmon_enabled": 1, "nmon_interval_min": 1,
     }))
@@ -213,7 +213,7 @@ def schedule_post():
 
     configs = _parse_host_configs(body)
 
-    hosts_col = get_collection("hosts")
+    hosts_col = get_hosts_col()
     all_hosts = list(hosts_col.find({}, {
         "_id": 0, "hostname": 1, "os_group": 1, "nmon_enabled": 1,
     }))

@@ -85,6 +85,7 @@ from routes.api_packages import bp as packages_bp
 from routes.api_nmon import bp as nmon_bp
 from routes.api_cio import bp as cio_bp
 from routes.api_deep_check import bp as deep_check_bp
+from routes.api_dependencies import bp as dependencies_bp
 
 app.register_blueprint(hosts_bp)
 app.register_blueprint(inspections_bp)
@@ -102,6 +103,7 @@ app.register_blueprint(packages_bp)
 app.register_blueprint(nmon_bp)
 app.register_blueprint(cio_bp)
 app.register_blueprint(deep_check_bp)
+app.register_blueprint(dependencies_bp)
 
 # 確保預設 admin 帳號存在
 # v3.9.3.0: static asset cache busting (自動帶 ?v=版本)
@@ -129,6 +131,7 @@ _FEATURE_PATH_MAP = [
     ("summary",        ["/summary"]),
     ("security_audit", ["/api/security-audit", "/api/security_audit"]),
     ("history",        ["/history"]),
+    ("dependencies",   ["/dependencies", "/api/dependencies"]),
 ]
 
 
@@ -185,8 +188,13 @@ def feature_disabled_page():
 # ===== Feature Flag end =====
 
 from services.auth_service import ensure_default_admin
+from services import dependency_service as _dep_svc
 with app.app_context():
     ensure_default_admin()
+    try:
+        _dep_svc.ensure_indexes()
+    except Exception as _e:
+        print(f"[WARN] dependency_service.ensure_indexes 失敗: {_e}")
 
 
 # 在線使用者 API

@@ -3,12 +3,12 @@ CIO / 資訊主管 儀表板 service
 彙整: 主機健康 / TWGCB 合規率 / Top 5 高風險主機 / 綜合健康指數 / 事件摘要
 """
 from datetime import datetime, timedelta
-from services.mongo_service import get_collection, get_db
+from services.mongo_service import get_collection, get_hosts_col, get_db
 
 
 def get_host_health():
     """主機健康卡"""
-    hosts_col = get_collection("hosts")
+    hosts_col = get_hosts_col()
     total = hosts_col.count_documents({"status": {"$ne": "停用"}})
     # online 以 ping cache 為準 (如果有), 否則 fallback 所有主機假設 online
     try:
@@ -260,7 +260,7 @@ def get_aging_analysis(threshold_days=30):
     """
     from datetime import datetime, timedelta
     twgcb_col = get_collection("twgcb_results")
-    hosts_col = get_collection("hosts")
+    hosts_col = get_hosts_col()
 
     # 抓所有 hostname → {department, ap_owner} map
     meta = {}

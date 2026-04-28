@@ -10,7 +10,7 @@ PING_CACHE_TTL = 60
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from decorators import login_required, admin_required
 from services.auth_service import verify_login, change_password, log_action, get_user
-from services.mongo_service import get_collection, get_all_settings, update_setting
+from services.mongo_service import get_collection, get_hosts_col, get_all_settings, update_setting
 from config import INSPECTION_HOME, SETTINGS_FILE
 
 
@@ -107,7 +107,7 @@ def login():
     if user == "LOCKED":
         return jsonify({"success": False, "error": "帳號已鎖定，請 15 分鐘後再試"}), 429
     if not user:
-        from services.mongo_service import get_collection
+        from services.mongo_service import get_collection, get_hosts_col
         attempt = get_collection("login_attempts").find_one({"username": data.get("username", "")})
         attempts = attempt.get("attempts", 0) if attempt else 0
         remaining = max(0, 5 - attempts)
@@ -425,7 +425,7 @@ def add_host():
         return jsonify({"success": False, "error": "缺少 hostname 欄位"}), 400
     data["imported_at"] = datetime.now().isoformat()
     data["updated_at"] = datetime.now().isoformat()
-    get_collection("hosts").update_one({"hostname": data["hostname"]}, {"$set": data}, upsert=True)
+    get_hosts_col().update_one({"hostname": data["hostname"]}, {"$set": data}, upsert=True)
     # Also update hosts_config.json
     _sync_hosts_config()
     log_action(session["username"], "host_add", f"新增主機: {data['hostname']}", request.remote_addr)
@@ -437,7 +437,7 @@ def add_host():
 def edit_host(hostname):
     data = request.get_json(force=True)
     data["updated_at"] = datetime.now().isoformat()
-    get_collection("hosts").update_one({"hostname": hostname}, {"$set": data})
+    get_hosts_col().update_one({"hostname": hostname}, {"$set": data})
     _sync_hosts_config()
     log_action(session["username"], "host_edit", f"編輯主機: {hostname}", request.remote_addr)
     return jsonify({"success": True})
@@ -446,7 +446,7 @@ def edit_host(hostname):
 @bp.route("/hosts/<hostname>", methods=["DELETE"])
 @admin_required
 def delete_host(hostname):
-    get_collection("hosts").delete_one({"hostname": hostname})
+    get_hosts_col().delete_one({"hostname": hostname})
     _sync_hosts_config()
     log_action(session["username"], "host_delete", f"刪除主機: {hostname}", request.remote_addr)
     return jsonify({"success": True})
@@ -602,7 +602,7 @@ def import_csv():
         content = f.read().decode("utf-8-sig")
         reader = csv.DictReader(io.StringIO(content))
 
-    col = get_collection("hosts")
+    col = get_hosts_col()
     count = 0
     errors = []
     for i, row in enumerate(reader):
@@ -645,7 +645,7 @@ def import_json():
         with open(config_path) as f:
             data = json.load(f)
         hosts = data if isinstance(data, list) else data.get("hosts", [data])
-        col = get_collection("hosts")
+        col = get_hosts_col()
         count = 0
         for h in hosts:
             h.setdefault("imported_at", datetime.now().isoformat())
@@ -663,7 +663,7 @@ def import_json():
 def export_csv():
     """匯出主機清單為 CSV"""
     import csv, io
-    hosts = list(get_collection("hosts").find({}, {"_id": 0}))
+    hosts = list(get_hosts_col().find({}, {"_id": 0}))
     output = io.StringIO()
     fields = ["hostname", "ip", "os", "os_group", "status", "environment", "group", "custodian", "custodian_ad", "department", "division"]
     writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
@@ -1232,7 +1232,7 @@ def patch_history():
 # ========== Helpers ==========
 def _sync_hosts_config():
     """Sync MongoDB hosts to hosts_config.json"""
-    hosts = list(get_collection("hosts").find({}, {"_id": 0}))
+    hosts = list(get_hosts_col().find({}, {"_id": 0}))
     config_path = os.path.join(INSPECTION_HOME, "data/hosts_config.json")
     with open(config_path, "w") as f:
         json.dump({"hosts": hosts}, f, indent=2, ensure_ascii=False, default=str)
@@ -1332,7 +1332,7 @@ def service_control(hostname):
         return jsonify({"success": False, "error": "無效的操作，僅支援 start/stop/restart"}), 400
 
     # 查 OS 類型
-    hosts_col = get_collection("hosts")
+    hosts_col = get_hosts_col()
     host = hosts_col.find_one({"hostname": hostname})
     if not host:
         return jsonify({"success": False, "error": "找不到主機 " + hostname}), 404
@@ -1382,7 +1382,7 @@ def service_live_status(hostname):
     services = data.get("services", [])
     if not services:
         return jsonify({"success": False, "error": "未指定服務清單"}), 400
-    hosts_col = get_collection("hosts")
+    hosts_col = get_hosts_col()
     host = hosts_col.find_one({"hostname": hostname})
     if not host:
         return jsonify({"success": False, "error": "找不到主機"}), 404
@@ -1590,7 +1590,7 @@ def twgcb_fix():
             "hostname": hostname, "check_id": check_id, "locked": True
         }), 409
 
-    from services.mongo_service import get_collection
+    from services.mongo_service import get_collection, get_hosts_col
     config = get_collection("twgcb_config").find_one({"check_id": check_id})
     remediation = ""
     if config:
@@ -1606,7 +1606,7 @@ def twgcb_fix():
     if not remediation:
         return jsonify({"success": False, "error": "此項目無修復指令（check_id: %s）" % check_id}), 400
 
-    host = get_collection("hosts").find_one({"hostname": hostname})
+    host = get_hosts_col().find_one({"hostname": hostname})
     is_windows = "windows" in (host.get("os", "") if host else "").lower()
     inventory = os.path.join(INSPECTION_HOME, "ansible/inventory/hosts.yml")
     vault_file = os.path.join(INSPECTION_HOME, ".vault_pass")
@@ -1666,7 +1666,7 @@ def twgcb_fix():
                         capture_output=True, text=True, timeout=180
                     )
                     # 把 JSON 寫回 MongoDB（複製 api_twgcb._import_results 邏輯，避免循環 import）
-                    from services.mongo_service import get_collection
+                    from services.mongo_service import get_collection, get_hosts_col
                     report_path = os.path.join(INSPECTION_HOME, "data/reports", "twgcb_%s.json" % _hostname)
                     if os.path.exists(report_path):
                         with open(report_path) as fh:
@@ -1702,7 +1702,7 @@ def twgcb_fix():
 @admin_required
 def get_remediation(check_id):
     """取得單項修復指令"""
-    from services.mongo_service import get_collection
+    from services.mongo_service import get_collection, get_hosts_col
     config = get_collection("twgcb_config").find_one({"check_id": check_id}, {"_id":0, "remediation":1, "description":1, "category":1})
     if not config:
         return jsonify({"success": False, "error": "找不到"}), 404
@@ -1797,7 +1797,7 @@ def ping_all_hosts():
                     "age_sec": cached["age_sec"],
                 })
 
-        hosts = list(get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1}))
+        hosts = list(get_hosts_col().find({}, {"_id": 0, "hostname": 1, "ip": 1}))
         results = {}
 
         def do_ping(hostname, ip):
@@ -1841,7 +1841,7 @@ def faillock_action(hostname):
     if not user or action not in ("lock", "unlock", "reset"):
         return jsonify({"success": False, "error": "缺少 user 或 action (lock/unlock/reset)"}), 400
 
-    hosts_col = get_collection("hosts")
+    hosts_col = get_hosts_col()
     host = hosts_col.find_one({"hostname": hostname})
     if not host:
         return jsonify({"success": False, "error": "找不到主機"}), 404
@@ -1904,8 +1904,8 @@ def twgcb_fix_all():
             "hostname": hostname, "locked": True
         }), 409
 
-    from services.mongo_service import get_collection
-    host = get_collection("hosts").find_one({"hostname": hostname})
+    from services.mongo_service import get_collection, get_hosts_col
+    host = get_hosts_col().find_one({"hostname": hostname})
     if not host:
         _mongo_release_lock_host(hostname)
         return jsonify({"success": False, "error": "找不到主機"}), 404
@@ -2104,7 +2104,7 @@ def twgcb_fix_all():
 @login_required
 def twgcb_fix_status(hostname):
     """查詢修復進度（F5 安全）"""
-    from services.mongo_service import get_collection
+    from services.mongo_service import get_collection, get_hosts_col
     doc = get_collection("twgcb_fix_status").find_one({"hostname": hostname}, {"_id": 0})
     if not doc:
         return jsonify({"success": True, "data": None})
@@ -2122,7 +2122,7 @@ def twgcb_restore_all():
     if not hostname:
         return jsonify({"success": False, "error": "缺少 hostname"}), 400
 
-    host = get_collection("hosts").find_one({"hostname": hostname})
+    host = get_hosts_col().find_one({"hostname": hostname})
     if not host:
         return jsonify({"success": False, "error": "找不到主機"}), 404
 
@@ -2257,7 +2257,7 @@ def ssh_status():
         except:
             pass
 
-    hosts = list(get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1, "os_group": 1, "ssh_key_records": 1}))
+    hosts = list(get_hosts_col().find({}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1, "os_group": 1, "ssh_key_records": 1}))
     return jsonify({"success": True, "data": {"key": key_info, "hosts": hosts}})
 
 
@@ -2338,11 +2338,11 @@ def ssh_test():
 
     if target_ip:
         # Single host test
-        host_doc = get_collection("hosts").find_one({"ip": target_ip}, {"_id": 0, "hostname": 1, "ip": 1, "ssh_key_records": 1}) or {}
+        host_doc = get_hosts_col().find_one({"ip": target_ip}, {"_id": 0, "hostname": 1, "ip": 1, "ssh_key_records": 1}) or {}
         hosts = [{"ip": target_ip, "hostname": data.get("hostname", host_doc.get("hostname", target_ip)), "ssh_key_records": host_doc.get("ssh_key_records", {})}]
     else:
         # All hosts
-        hosts = list(get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1, "ssh_key_records": 1}))
+        hosts = list(get_hosts_col().find({}, {"_id": 0, "hostname": 1, "ip": 1, "ssh_key_records": 1}))
 
     results = []
     for h in hosts:
@@ -2430,10 +2430,10 @@ def ssh_batch_deploy():
 
     # 逐台逐帳號執行，精確回報
     results = []
-    linux_hosts = [h for h in get_collection("hosts").find({"os_group": {"$in": ["linux", "Linux"]}}, {"_id": 0, "hostname": 1, "ip": 1}) if h.get("ip")]
+    linux_hosts = [h for h in get_hosts_col().find({"os_group": {"$in": ["linux", "Linux"]}}, {"_id": 0, "hostname": 1, "ip": 1}) if h.get("ip")]
     if not linux_hosts:
         # fallback: 用 os 欄位判斷
-        linux_hosts = [h for h in get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1})
+        linux_hosts = [h for h in get_hosts_col().find({}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1})
                        if h.get("ip") and h.get("os", "").lower() not in ["windows", ""] and "windows" not in h.get("os", "").lower()]
 
     for host in linux_hosts:
@@ -2494,11 +2494,11 @@ def ssh_batch_deploy():
         if deployed_users:
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
-                host_doc = get_collection("hosts").find_one({"hostname": hostname}, {"ssh_key_records": 1}) or {}
+                host_doc = get_hosts_col().find_one({"hostname": hostname}, {"ssh_key_records": 1}) or {}
                 records = host_doc.get("ssh_key_records", {})
                 for du in deployed_users:
                     records[du] = now
-                get_collection("hosts").update_one(
+                get_hosts_col().update_one(
                     {"hostname": hostname},
                     {"$set": {"ssh_key_records": records}}
                 )
@@ -2535,9 +2535,9 @@ def ssh_batch_remove():
 
     selected = data.get("hosts", []) if isinstance(data.get("hosts"), list) else []
     host_filter = {"hostname": {"$in": selected}} if selected else {"os_group": {"$in": ["linux", "Linux"]}}
-    linux_hosts = [h for h in get_collection("hosts").find(host_filter, {"_id": 0, "hostname": 1, "ip": 1}) if h.get("ip")]
+    linux_hosts = [h for h in get_hosts_col().find(host_filter, {"_id": 0, "hostname": 1, "ip": 1}) if h.get("ip")]
     if not linux_hosts and not selected:
-        linux_hosts = [h for h in get_collection("hosts").find({}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1})
+        linux_hosts = [h for h in get_hosts_col().find({}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1})
                        if h.get("ip") and "windows" not in h.get("os", "").lower()]
 
     results = []
@@ -2578,17 +2578,17 @@ def ssh_batch_remove():
 
         if removed_users:
             try:
-                host_doc = get_collection("hosts").find_one({"hostname": hostname}, {"ssh_key_records": 1}) or {}
+                host_doc = get_hosts_col().find_one({"hostname": hostname}, {"ssh_key_records": 1}) or {}
                 records = host_doc.get("ssh_key_records", {})
                 for ru in removed_users:
                     records.pop(ru, None)
                 if records:
-                    get_collection("hosts").update_one(
+                    get_hosts_col().update_one(
                         {"hostname": hostname},
                         {"$set": {"ssh_key_records": records}}
                     )
                 else:
-                    get_collection("hosts").update_one(
+                    get_hosts_col().update_one(
                         {"hostname": hostname},
                         {"$unset": {"ssh_key_records": ""}}
                     )
@@ -2665,7 +2665,7 @@ def _run_ansible(hostname, module, args, become=True, timeout=60, exec_user=None
 @admin_required
 def remote_hosts_list():
     """List all Linux hosts for remote tools"""
-    hosts = list(get_collection("hosts").find(
+    hosts = list(get_hosts_col().find(
         {}, {"_id": 0, "hostname": 1, "ip": 1, "os": 1, "os_group": 1, "ssh_key_records": 1}
     ))
     linux_hosts = [h for h in hosts if h.get("ip") and "windows" not in (h.get("os","") + h.get("os_group","")).lower()]

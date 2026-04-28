@@ -56,6 +56,7 @@ function loadTab(tab) {
     "security-audit": loadSecurityAuditTab,
     "linux-init": loadLinuxInitTab,
     "ssh-keys": loadSSHKeysTab,
+    "dependencies-mgmt": loadDependenciesMgmtTab,
   };
   if (loaders[tab]) loaders[tab]();
 }
@@ -881,3 +882,301 @@ function saveNmonSchedule() {
   }
 })();
 // ===== end =====
+
+
+// ===== 系統聯通圖管理 (v3.14.0.0+) =====
+var _depSysCache = [];
+var _depEditingSysId = null;
+var _depEditingRelId = null;
+
+function loadDependenciesMgmtTab() {
+  loadDependenciesMgmtSystems();
+  loadDependenciesMgmtRelations();
+  loadDependenciesMgmtSchedule();
+}
+
+function loadDependenciesMgmtSchedule() {
+  fetch("/api/dependencies/collect/schedule", {credentials:"include"}).then(r => r.json()).then(res => {
+    if (!res.success) return;
+    const d = res.data || {};
+    const sel = document.getElementById("depmgmt-sched-interval");
+    const cb = document.getElementById("depmgmt-sched-bizhour");
+    const st = document.getElementById("depmgmt-sched-status");
+    if (sel) sel.value = String(d.interval_min || 0);
+    if (cb) cb.checked = !!d.business_hours_only;
+    if (st) {
+      if (d.enabled) {
+        const last = d.last_run_at ? new Date(d.last_run_at).toLocaleString('zh-TW',{hour12:false}).slice(5) : "—";
+        st.innerHTML = '<span style="color:var(--g1);">✓ 已啟用</span> <span style="color:var(--c3);">最後跑: ' + last + '</span>';
+      } else {
+        st.innerHTML = '<span style="color:var(--c4);">未啟用</span>';
+      }
+    }
+  });
+}
+
+async function depMgmtCollectNow() {
+  const btn = document.getElementById("depmgmt-collect-btn");
+  const st = document.getElementById("depmgmt-collect-status");
+  btn.disabled = true;
+  const orig = btn.innerHTML;
+  btn.innerHTML = "⏳ 採集中...";
+  st.textContent = "ansible-playbook 執行中,5 秒輪詢進度...";
+  try {
+    const r = await fetch("/api/dependencies/collect/trigger", {method:"POST", credentials:"include"});
+    const res = await r.json();
+    if (!res.success) {
+      st.innerHTML = '<span style="color:var(--red);">✗ ' + (res.error || "失敗") + '</span>';
+      btn.disabled = false; btn.innerHTML = orig;
+      return;
+    }
+    const runId = res.data.run_id;
+    let polls = 0;
+    const timer = setInterval(async function() {
+      polls++;
+      try {
+        const s = await fetch("/api/dependencies/collect/status/" + runId, {credentials:"include"}).then(x => x.json());
+        if (s.success && s.data && (s.data.status === "success" || s.data.status === "failed")) {
+          clearInterval(timer);
+          btn.disabled = false; btn.innerHTML = orig;
+          if (s.data.status === "success") {
+            const m = s.data;
+            st.innerHTML = '<span style="color:var(--g1);">✓ 完成</span> 新增 ' + (m.edges_added||0) + ' / 更新 ' + (m.edges_updated||0) + (m.new_unknowns && m.new_unknowns.length ? ' / 新發現 ' + m.new_unknowns.length + ' 個未知 IP' : '');
+            if (typeof _dashToast === "function") _dashToast("✓ 採集完成", "success");
+          } else {
+            st.innerHTML = '<span style="color:var(--red);">✗ 採集失敗</span>';
+            if (typeof _dashToast === "function") _dashToast("✗ 採集失敗", "error");
+          }
+        } else if (polls > 60) {
+          clearInterval(timer);
+          btn.disabled = false; btn.innerHTML = orig;
+          st.innerHTML = '<span style="color:var(--orange);">⚠ 5 分鐘未完成,請看 logs/dep_collect_*.log</span>';
+        }
+      } catch(e) {}
+    }, 5000);
+  } catch(e) {
+    st.innerHTML = '<span style="color:var(--red);">✗ ' + e.message + '</span>';
+    btn.disabled = false; btn.innerHTML = orig;
+  }
+}
+
+async function depMgmtSaveSchedule() {
+  const interval = parseInt(document.getElementById("depmgmt-sched-interval").value, 10);
+  const biz = document.getElementById("depmgmt-sched-bizhour").checked;
+  const st = document.getElementById("depmgmt-sched-status");
+  st.textContent = "套用中...";
+  try {
+    const r = await fetch("/api/dependencies/collect/schedule", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      credentials: "include",
+      body: JSON.stringify({interval_min: interval, business_hours_only: biz}),
+    });
+    const res = await r.json();
+    if (!res.success) {
+      st.innerHTML = '<span style="color:var(--red);">✗ ' + (res.error || "失敗") + '</span>';
+      return;
+    }
+    if (typeof _dashToast === "function") _dashToast("✓ " + (res.data.message || "已套用"), "success");
+    loadDependenciesMgmtSchedule();
+  } catch(e) {
+    st.innerHTML = '<span style="color:var(--red);">✗ ' + e.message + '</span>';
+  }
+}
+
+function loadDependenciesMgmtSystems() {
+  var box = document.getElementById("depmgmt-sys-table");
+  if (!box) return;
+  fetch("/api/dependencies/systems", {credentials:"include"}).then(function(r){return r.json();}).then(function(res){
+    if (!res.success) { box.innerHTML = '<span style="color:var(--red);">載入失敗: '+(res.error||"")+'</span>'; return; }
+    _depSysCache = res.data || [];
+    document.getElementById("depmgmt-sys-count").textContent = "(共 " + _depSysCache.length + " 個)";
+    if (!_depSysCache.length) { box.innerHTML = '<div style="padding:24px;text-align:center;color:var(--c3);">尚無資料,點「➕ 新增系統」建立第一個業務系統</div>'; return; }
+    var html = '<table class="data-table" style="width:100%;font-size:13px;"><thead><tr>'+
+      '<th>ID</th><th>名稱</th><th>級別</th><th>類別</th><th>負責人</th><th>主機</th><th>說明</th><th style="width:120px;">操作</th>'+
+      '</tr></thead><tbody>';
+    _depSysCache.forEach(function(s){
+      var t = (s.tier||"C").toUpperCase();
+      html += '<tr>'+
+        '<td><code>'+escDep(s.system_id)+'</code></td>'+
+        '<td>'+escDep(s.display_name||s.system_id)+'</td>'+
+        '<td><span class="dep-tier-badge dep-tier-'+t+'">'+t+'</span></td>'+
+        '<td>'+escDep(s.category||"")+'</td>'+
+        '<td>'+escDep(s.owner||"-")+'</td>'+
+        '<td style="font-size:11px;color:var(--c3);">'+escDep((s.host_refs||[]).join(", ")||"-")+'</td>'+
+        '<td style="font-size:11px;color:var(--c3);max-width:240px;">'+escDep(s.description||"")+'</td>'+
+        '<td><button class="btn btn-sm" onclick="editDependencySystem(\''+escDep(s.system_id)+'\')">編輯</button> <button class="btn btn-sm" style="background:var(--red);color:#fff;" onclick="deleteDependencySystem(\''+escDep(s.system_id)+'\')">刪除</button></td>'+
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    box.innerHTML = html;
+  });
+}
+
+function loadDependenciesMgmtRelations() {
+  var box = document.getElementById("depmgmt-rel-table");
+  if (!box) return;
+  var src = document.getElementById("depmgmt-rel-source").value;
+  var url = "/api/dependencies/relations" + (src ? "?source="+encodeURIComponent(src) : "");
+  fetch(url, {credentials:"include"}).then(function(r){return r.json();}).then(function(res){
+    if (!res.success) { box.innerHTML = '<span style="color:var(--red);">載入失敗</span>'; return; }
+    var rels = res.data || [];
+    document.getElementById("depmgmt-rel-count").textContent = "(共 " + rels.length + " 條)";
+    if (!rels.length) { box.innerHTML = '<div style="padding:24px;text-align:center;color:var(--c3);">尚無關係,點「➕ 新增關係」建立第一條依賴邊</div>'; return; }
+    var html = '<table class="data-table" style="width:100%;font-size:13px;"><thead><tr>'+
+      '<th>來源 →</th><th>→ 目標</th><th>類型</th><th>協定/Port</th><th>來源</th><th>確認</th><th>說明</th><th style="width:120px;">操作</th>'+
+      '</tr></thead><tbody>';
+    rels.forEach(function(e){
+      var srcLabel = e.source==="ss-tunp" ? '<span style="color:var(--orange);">自動</span>' : (e.source==="inferred" ? '推斷' : '手動');
+      var confirmed = e.manual_confirmed ? '<span style="color:var(--g1);">✓</span>' : '<span style="color:var(--orange);">待確認</span>';
+      html += '<tr>'+
+        '<td><code>'+escDep(e.from_system)+'</code></td>'+
+        '<td><code>'+escDep(e.to_system)+'</code></td>'+
+        '<td>'+escDep(e.relation_type||"unknown")+'</td>'+
+        '<td>'+escDep(e.protocol||"TCP")+':'+escDep(e.port||"-")+'</td>'+
+        '<td>'+srcLabel+'</td>'+
+        '<td>'+confirmed+'</td>'+
+        '<td style="font-size:11px;color:var(--c3);max-width:240px;">'+escDep(e.description||"")+'</td>'+
+        '<td>'+
+          (e.manual_confirmed ? '' : '<button class="btn btn-sm btn-primary" onclick="confirmDepRelation(\''+escDep(e._id)+'\')">確認</button> ') +
+          '<button class="btn btn-sm" style="background:var(--red);color:#fff;" onclick="deleteDependencyRelation(\''+escDep(e._id)+'\')">刪除</button></td>'+
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    box.innerHTML = html;
+  });
+}
+
+function escDep(s) {
+  return String(s==null?"":s).replace(/[&<>"']/g, function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});
+}
+
+function openDepSystemModal() {
+  _depEditingSysId = null;
+  document.getElementById("dep-sys-modal-title").textContent = "新增業務系統";
+  document.getElementById("dep-sys-id").value = "";
+  document.getElementById("dep-sys-id").disabled = false;
+  document.getElementById("dep-sys-name").value = "";
+  document.getElementById("dep-sys-tier").value = "C";
+  document.getElementById("dep-sys-category").value = "AP";
+  document.getElementById("dep-sys-owner").value = "";
+  document.getElementById("dep-sys-hosts").value = "";
+  document.getElementById("dep-sys-desc").value = "";
+  document.getElementById("dep-sys-modal").classList.add("active");
+}
+
+function editDependencySystem(systemId) {
+  var s = _depSysCache.find(function(x){return x.system_id===systemId;});
+  if (!s) return;
+  _depEditingSysId = systemId;
+  document.getElementById("dep-sys-modal-title").textContent = "編輯系統: " + systemId;
+  document.getElementById("dep-sys-id").value = s.system_id;
+  document.getElementById("dep-sys-id").disabled = true;
+  document.getElementById("dep-sys-name").value = s.display_name||"";
+  document.getElementById("dep-sys-tier").value = (s.tier||"C").toUpperCase();
+  document.getElementById("dep-sys-category").value = s.category||"AP";
+  document.getElementById("dep-sys-owner").value = s.owner||"";
+  document.getElementById("dep-sys-hosts").value = (s.host_refs||[]).join(", ");
+  document.getElementById("dep-sys-desc").value = s.description||"";
+  document.getElementById("dep-sys-modal").classList.add("active");
+}
+
+async function saveDependencySystem() {
+  var sysId = document.getElementById("dep-sys-id").value.trim();
+  if (!sysId) { _dashToast && _dashToast("✗ system_id 必填", "error"); return; }
+  var hosts = document.getElementById("dep-sys-hosts").value.split(",").map(function(x){return x.trim();}).filter(Boolean);
+  var payload = {
+    system_id: sysId,
+    display_name: document.getElementById("dep-sys-name").value.trim(),
+    tier: document.getElementById("dep-sys-tier").value,
+    category: document.getElementById("dep-sys-category").value,
+    owner: document.getElementById("dep-sys-owner").value.trim(),
+    host_refs: hosts,
+    description: document.getElementById("dep-sys-desc").value.trim(),
+  };
+  var url = _depEditingSysId ? "/api/dependencies/systems/"+encodeURIComponent(_depEditingSysId) : "/api/dependencies/systems";
+  var method = _depEditingSysId ? "PUT" : "POST";
+  try {
+    var r = await fetch(url, {method:method, headers:{"Content-Type":"application/json"}, credentials:"include", body:JSON.stringify(payload)});
+    var res = await r.json();
+    if (!res.success) { _dashToast && _dashToast("✗ "+(res.error||"儲存失敗"), "error"); return; }
+    _dashToast && _dashToast("✓ 已儲存", "success");
+    document.getElementById("dep-sys-modal").classList.remove("active");
+    loadDependenciesMgmtSystems();
+  } catch(e) { _dashToast && _dashToast("✗ "+e.message, "error"); }
+}
+
+async function deleteDependencySystem(systemId) {
+  if (!confirm("確定刪除系統「"+systemId+"」?\n注意:相關的依賴邊也會一併刪除")) return;
+  try {
+    var r = await fetch("/api/dependencies/systems/"+encodeURIComponent(systemId), {method:"DELETE", credentials:"include"});
+    var res = await r.json();
+    if (!res.success) { _dashToast && _dashToast("✗ "+(res.error||""), "error"); return; }
+    _dashToast && _dashToast("✓ 已刪除 (連帶 "+res.data.cascade_relations+" 條邊)", "success");
+    loadDependenciesMgmtTab();
+  } catch(e) { _dashToast && _dashToast("✗ "+e.message, "error"); }
+}
+
+function openDepRelationModal() {
+  _depEditingRelId = null;
+  document.getElementById("dep-rel-modal-title").textContent = "新增依賴關係";
+  var fromSel = document.getElementById("dep-rel-from");
+  var toSel = document.getElementById("dep-rel-to");
+  var opts = '<option value="">--</option>' + _depSysCache.map(function(s){
+    return '<option value="'+escDep(s.system_id)+'">'+escDep(s.system_id)+' ('+escDep(s.display_name||"")+')</option>';
+  }).join("");
+  fromSel.innerHTML = opts;
+  toSel.innerHTML = opts;
+  document.getElementById("dep-rel-type").value = "unknown";
+  document.getElementById("dep-rel-proto").value = "TCP";
+  document.getElementById("dep-rel-port").value = "";
+  document.getElementById("dep-rel-desc").value = "";
+  document.getElementById("dep-rel-modal").classList.add("active");
+}
+
+async function saveDependencyRelation() {
+  var fs = document.getElementById("dep-rel-from").value;
+  var ts = document.getElementById("dep-rel-to").value;
+  if (!fs || !ts) { _dashToast && _dashToast("✗ 來源/目標必選", "error"); return; }
+  if (fs === ts) { _dashToast && _dashToast("✗ 不能連自己", "error"); return; }
+  var payload = {
+    from_system: fs,
+    to_system: ts,
+    relation_type: document.getElementById("dep-rel-type").value,
+    protocol: document.getElementById("dep-rel-proto").value,
+    port: parseInt(document.getElementById("dep-rel-port").value || "0", 10),
+    description: document.getElementById("dep-rel-desc").value.trim(),
+    source: "manual",
+    manual_confirmed: true,
+  };
+  try {
+    var r = await fetch("/api/dependencies/relations", {method:"POST", headers:{"Content-Type":"application/json"}, credentials:"include", body:JSON.stringify(payload)});
+    var res = await r.json();
+    if (!res.success) { _dashToast && _dashToast("✗ "+(res.error||""), "error"); return; }
+    _dashToast && _dashToast("✓ 已新增", "success");
+    document.getElementById("dep-rel-modal").classList.remove("active");
+    loadDependenciesMgmtRelations();
+  } catch(e) { _dashToast && _dashToast("✗ "+e.message, "error"); }
+}
+
+async function confirmDepRelation(relId) {
+  try {
+    var r = await fetch("/api/dependencies/relations/"+encodeURIComponent(relId), {method:"PUT", headers:{"Content-Type":"application/json"}, credentials:"include", body:JSON.stringify({manual_confirmed: true})});
+    var res = await r.json();
+    if (!res.success) { _dashToast && _dashToast("✗ "+(res.error||""), "error"); return; }
+    _dashToast && _dashToast("✓ 已確認", "success");
+    loadDependenciesMgmtRelations();
+  } catch(e) { _dashToast && _dashToast("✗ "+e.message, "error"); }
+}
+
+async function deleteDependencyRelation(relId) {
+  if (!confirm("確定刪除這條依賴關係?")) return;
+  try {
+    var r = await fetch("/api/dependencies/relations/"+encodeURIComponent(relId), {method:"DELETE", credentials:"include"});
+    var res = await r.json();
+    if (!res.success) { _dashToast && _dashToast("✗ "+(res.error||""), "error"); return; }
+    _dashToast && _dashToast("✓ 已刪除", "success");
+    loadDependenciesMgmtRelations();
+  } catch(e) { _dashToast && _dashToast("✗ "+e.message, "error"); }
+}
+// ===== END 系統聯通圖管理 =====
