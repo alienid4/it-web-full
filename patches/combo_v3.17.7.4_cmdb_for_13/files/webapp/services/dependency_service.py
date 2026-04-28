@@ -985,7 +985,7 @@ def _topology_from_hosts(center=None, limit=200):
         seen_ids.add(hn)
         nodes.append({
             "system_id": hn,
-            "display_name": h.get("system_name") or h.get("apid") or hn,
+            "display_name": h.get("asset_name") or h.get("system_name") or h.get("apid") or hn,
             "tier": _tier_to_letter(h.get("tier", "")),
             "category": h.get("group_name") or "Internal",
             "host_refs": [hn],

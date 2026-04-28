@@ -1000,10 +1000,23 @@ function loadDependenciesMgmtSchedule() {
 async function depMgmtCollectNow() {
   const btn = document.getElementById("depmgmt-collect-btn");
   const st = document.getElementById("depmgmt-collect-status");
+  // v3.17.7.4+: 預估時間 + 二次確認 (避免使用者以為當機)
+  const hostCount = (typeof _allNodesCache !== "undefined" && _allNodesCache.length) || 4;
+  const estMin = Math.max(1, Math.ceil(hostCount * 0.5));
+  const estMax = Math.max(2, Math.ceil(hostCount * 1.5));
+  const msg = `採集會跑約 ${estMin}-${estMax} 分鐘 (依主機數量 ${hostCount} 估算)
+
+` +
+              `期間頁面會顯示「採集中...」並每 5 秒輪詢進度,
+` +
+              `不要重新整理或關閉視窗。
+
+確定執行?`;
+  if (!confirm(msg)) return;
   btn.disabled = true;
   const orig = btn.innerHTML;
   btn.innerHTML = "⏳ 採集中...";
-  st.textContent = "ansible-playbook 執行中,5 秒輪詢進度...";
+  st.innerHTML = '<span style="color:var(--g2);">⏳ ansible 採集中... 預計 ' + estMin + '-' + estMax + ' 分鐘, 5 秒輪詢一次. 過程中此頁不要關 / 不要重整.</span>';
   try {
     const r = await fetch("/api/dependencies/collect/trigger", {method:"POST", credentials:"include"});
     const res = await r.json();
