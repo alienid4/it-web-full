@@ -4,7 +4,7 @@
 # 行為: snapshot 替換檔案 + DB migration + 智能 idempotent
 set -e
 
-PATCH_VER="3.17.9.0"
+PATCH_VER="3.17.9.1"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # auto-detect INSPECTION_HOME (公司 13 通常 /opt/inspection, 家裡 221 是 /seclog/AI/inspection)
