@@ -832,15 +832,66 @@ def import_json():
 @bp.route("/hosts/export-csv", methods=["GET"])
 @admin_required
 def export_csv():
-    """匯出主機清單為 CSV"""
+    """v3.17.7.2+: 匯出主機清單為 CSV (29 欄資產表順序 + 巡檢專屬欄位)"""
     import csv, io
     hosts = list(get_collection("hosts").find({}, {"_id": 0}))
+    # 29 欄資產表順序 (對齊使用者 Excel JPG)
+    asset_fields = [
+        ("division", "盤點單位-處別"),
+        ("department", "盤點單位-部門"),
+        ("asset_seq", "資產序號"),
+        ("status", "資產狀態"),
+        ("group_name", "群組名稱"),
+        ("apid", "APID"),
+        ("asset_name", "資產名稱"),
+        ("device_type", "整體基礎架構"),
+        ("device_model", "設備型號"),
+        ("asset_usage", "資產用途"),
+        ("location", "資產實體位置"),
+        ("rack_no", "機櫃編號"),
+        ("quantity", "數量"),
+        ("owner", "擁有者"),
+        ("environment", "環境別"),
+        ("hostname", "主機名稱"),
+        ("os", "作業系統"),
+        ("bigip", "BIG IP/VIP"),
+        ("hardware_seq", "硬體編號"),
+        ("ip", "IP"),
+        ("custodian", "保管者"),
+        ("sys_admin", "系統管理者"),
+        ("user", "使用者"),
+        ("note", "附加說明"),
+        ("company", "所屬公司"),
+        ("confidentiality", "機密性"),
+        ("integrity", "完整性"),
+        ("availability", "可用性"),
+        ("request_no", "申請單編號"),
+    ]
+    extra_fields = [
+        ("os_group", "os_group"),
+        ("ips", "其他IP(分號分隔)"),
+        ("aliases", "別名(分號分隔)"),
+        ("tier", "級別"),
+        ("system_name", "系統別"),
+        ("ap_owner", "AP負責人"),
+        ("user_unit", "使用單位"),
+        ("infra", "架構說明"),
+        ("custodian_ad", "保管者AD"),
+    ]
+    all_fields = asset_fields + extra_fields
     output = io.StringIO()
-    fields = ["hostname", "ip", "os", "os_group", "status", "environment", "group", "custodian", "custodian_ad", "department", "division"]
-    writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
-    writer.writeheader()
+    output.write("﻿")  # BOM, Excel 開 CSV 顯示中文不亂碼
+    headers = [label for _, label in all_fields]
+    writer = csv.writer(output)
+    writer.writerow(headers)
     for h in hosts:
-        writer.writerow(h)
+        row = []
+        for key, _ in all_fields:
+            v = h.get(key, "")
+            if isinstance(v, list):
+                v = ";".join(str(x) for x in v)
+            row.append(v)
+        writer.writerow(row)
     from flask import Response
     return Response(output.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": "attachment;filename=hosts_export.csv"})
@@ -851,7 +902,10 @@ def export_csv():
 def template_csv():
     """下載 CSV 範本 (BOM for Excel)"""
     from flask import Response
-    template = "hostname,ip,os,os_group,status,environment,group,custodian,custodian_ad,department,division\nEXAMPLE-SVR01,10.0.0.1,Rocky Linux,rocky,使用中,正式,,林凱文,lin.kaiwen,資訊架構部,資訊管理處\n"
+    # v3.17.7.2+: 29 欄資產表順序
+    headers = "盤點單位-處別,盤點單位-部門,資產序號,資產狀態,群組名稱,APID,資產名稱,整體基礎架構,設備型號,資產用途,資產實體位置,機櫃編號,數量,擁有者,環境別,主機名稱,作業系統,BIG IP/VIP,硬體編號,IP,保管者,系統管理者,使用者,附加說明,所屬公司,機密性,完整性,可用性,申請單編號,os_group,其他IP,別名,級別,系統別,AP負責人,使用單位,架構說明,保管者AD"
+    sample = "資訊管理處,資訊架構部,HW-00001001,使用中,H9-IT 管理性系統設備,巡檢系統,L-001,地端資產 (VM),VMware VM,AP Server,LAB機房,R12,1,資訊架構部,正式,SECSVR-EXAMPLE,Rocky Linux,無,VM-12345,10.0.0.1,林凱文,李大華,lab-admin,Rocky Linux 主機,敦南總公司,1,1,1,E000000000001,rocky,,,金,巡檢系統,王大明,資訊架構部,LAB測試環境,lin.kaiwen"
+    template = headers + "\n" + sample + "\n"
     bom = "\ufeff"
     return Response(bom + template, mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition": "attachment;filename=hosts_template.csv"})

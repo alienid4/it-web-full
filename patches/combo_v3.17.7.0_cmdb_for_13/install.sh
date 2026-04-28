@@ -109,6 +109,14 @@ cp "$HERE/files/webapp/app.py" "$INSPECTION_HOME/webapp/app.py"
 cp "$HERE/files/webapp/static/js/admin.js"        "$INSPECTION_HOME/webapp/static/js/admin.js"
 cp "$HERE/files/webapp/static/js/dependencies.js" "$INSPECTION_HOME/webapp/static/js/dependencies.js"
 cp "$HERE/files/webapp/static/css/example.css"    "$INSPECTION_HOME/webapp/static/css/example.css"
+# v3.17.7.2+: 拓撲採集 (ansible playbook/role + scripts)
+mkdir -p "$INSPECTION_HOME/ansible/playbooks" "$INSPECTION_HOME/ansible/roles/collect_connections/tasks"
+cp "$HERE/files/ansible/playbooks/collect_connections.yml" "$INSPECTION_HOME/ansible/playbooks/"
+cp "$HERE/files/ansible/roles/collect_connections/tasks/main.yml"  "$INSPECTION_HOME/ansible/roles/collect_connections/tasks/"
+cp "$HERE/files/ansible/roles/collect_connections/tasks/linux.yml" "$INSPECTION_HOME/ansible/roles/collect_connections/tasks/"
+cp "$HERE/files/scripts/dependency_seed_collect.py" "$INSPECTION_HOME/scripts/"
+cp "$HERE/files/scripts/run_dep_collect.sh"         "$INSPECTION_HOME/scripts/"
+chmod +x "$INSPECTION_HOME/scripts/dependency_seed_collect.py" "$INSPECTION_HOME/scripts/run_dep_collect.sh"
 chown -R sysinfra:itagent "$INSPECTION_HOME/webapp" 2>/dev/null || true
 echo "      OK"
 

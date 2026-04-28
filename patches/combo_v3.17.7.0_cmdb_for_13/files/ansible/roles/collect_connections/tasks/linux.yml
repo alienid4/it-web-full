@@ -1,0 +1,45 @@
+---
+# 依賴拓撲 - Linux ss 採集
+# 輸出: <controller>:<inspection_home>/data/reports/connections_<epoch>_<host>.json
+
+- name: "Linux: 確認 ss 指令存在"
+  command: which ss
+  register: ss_path
+  changed_when: false
+  failed_when: ss_path.rc != 0
+
+- name: "Linux: 收集 listening ports (含 process)"
+  shell: "ss -tunlp -H -n 2>/dev/null"
+  register: listen_raw
+  changed_when: false
+
+- name: "Linux: 收集 established connections (含 process)"
+  shell: "ss -tunp -H -n state established 2>/dev/null"
+  register: estab_raw
+  changed_when: false
+
+- name: "Linux: 確認 controller 上 reports/ 目錄存在"
+  delegate_to: localhost
+  become: false
+  file:
+    path: "{{ inspection_home_override }}/data/reports"
+    state: directory
+    mode: "0775"
+  run_once: true
+
+- name: "Linux: 把 raw output 與 metadata 組成 JSON 寫到 controller"
+  delegate_to: localhost
+  become: false
+  copy:
+    content: |
+      {
+        "host": "{{ inventory_hostname }}",
+        "ip": "{{ ansible_default_ipv4.address | default(ansible_host | default('')) }}",
+        "os": "{{ ansible_distribution | default('Linux') }} {{ ansible_distribution_version | default('') }}",
+        "collected_at": "{{ ansible_date_time.iso8601 }}",
+        "collector": "ss",
+        "listen_raw": {{ listen_raw.stdout | to_json }},
+        "estab_raw": {{ estab_raw.stdout | to_json }}
+      }
+    dest: "{{ inspection_home_override }}/data/reports/connections_{{ ansible_date_time.epoch }}_{{ inventory_hostname }}.json"
+    mode: "0664"
