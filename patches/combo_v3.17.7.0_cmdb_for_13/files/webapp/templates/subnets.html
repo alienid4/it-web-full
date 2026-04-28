@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}網段管理 (IPAM) - IT 監控系統{% endblock %}
+
+{% block head %}
+<style>
+.sn-wrap { max-width: 1300px; margin: 24px auto; padding: 0 24px; }
+.sn-toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+.sn-toolbar input { padding: 7px 12px; border: 1px solid #ccc; border-radius: 5px; width: 250px; }
+.sn-tbl {
+  width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.sn-tbl th, .sn-tbl td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; text-align: left; }
+.sn-tbl th { background: #f8fafc; color: #475569; font-weight: 600; font-size: 13px; }
+.sn-tbl tbody tr:hover { background: #f9fafb; }
+.sn-cidr { font-family: monospace; font-weight: 600; color: var(--g1); }
+.sn-bar { width: 120px; height: 16px; background: #e5e7eb; border-radius: 8px; overflow: hidden; display: inline-block; vertical-align: middle; }
+.sn-bar-fill { height: 100%; background: linear-gradient(90deg, #10b981, #059669); }
+.sn-bar-fill.warn { background: linear-gradient(90deg, #f59e0b, #d97706); }
+.sn-bar-fill.full { background: linear-gradient(90deg, #ef4444, #dc2626); }
+.sn-percent { display: inline-block; margin-left: 8px; font-family: monospace; }
+.sn-actions button { padding: 4px 10px; margin-right: 4px; font-size: 12px; }
+.sn-empty { color: #6b7280; padding: 40px; text-align: center; background: #fff; border-radius: 8px; }
+.sn-modal-overlay { display:none; position:fixed; top:0;left:0;right:0;bottom:0; background:rgba(0,0,0,.5); z-index:200; }
+.sn-modal-overlay.active { display:flex; align-items:center; justify-content:center; }
+.sn-modal { background:#fff; border-radius:12px; padding:28px; width: 540px; max-height:85vh; overflow-y:auto; }
+.sn-modal h3 { margin: 0 0 16px; color: var(--g1); }
+.sn-form-row { display:grid; grid-template-columns: 110px 1fr; gap: 8px 12px; margin-bottom: 10px; align-items: center; }
+.sn-form-row label { color:#475569; font-size: 13px; }
+.sn-form-row input, .sn-form-row select, .sn-form-row textarea { padding:7px 10px; border:1px solid #ccc; border-radius:5px; font: inherit; box-sizing: border-box; width:100%; }
+.sn-detail-overlay { display:none; position:fixed; top:0;right:0; width:520px; height:100vh; background:#fff; box-shadow:-4px 0 20px rgba(0,0,0,.15); z-index:150; padding:24px; overflow-y:auto; }
+.sn-detail-overlay.active { display:block; }
+.sn-detail-overlay .close { position:absolute; top:16px; right:16px; background:none; border:none; font-size:24px; cursor:pointer; }
+.sn-msg { font-size: 13px; padding: 0 8px; }
+.sn-msg.ok { color: var(--g2); font-weight: 600; }
+.sn-msg.err { color: #dc2626; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sn-wrap">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+    <h2 style="margin:0;color:var(--g1);">🌐 網段管理 (IPAM)</h2>
+    <div>
+      <span id="sn-msg" class="sn-msg"></span>
+      <button class="btn btn-primary" onclick="snOpenAdd()">➕ 新增網段</button>
+      <button class="btn" onclick="snLoad()">🔄 重新整理</button>
+    </div>
+  </div>
+
+  <div id="sn-content">
+    <div class="sn-empty">載入中...</div>
+  </div>
+</div>
+
+<!-- Edit/Add Modal -->
+<div class="sn-modal-overlay" id="sn-modal">
+  <div class="sn-modal">
+    <h3 id="sn-modal-title">新增網段</h3>
+    <div class="sn-form-row"><label>CIDR *</label><input id="sn-cidr" placeholder="例: 192.168.1.0/24"></div>
+    <div class="sn-form-row"><label>VLAN</label><input id="sn-vlan" type="number" placeholder="例: 100"></div>
+    <div class="sn-form-row"><label>環境</label><select id="sn-env"><option value="">--</option><option>OA</option><option>正式</option><option>使用者測試(UAT)</option><option>備援</option><option>測試</option><option>開發環境(DEV)</option></select></div>
+    <div class="sn-form-row"><label>地點</label><input id="sn-location" placeholder="例: LAB機房"></div>
+    <div class="sn-form-row"><label>用途</label><input id="sn-purpose" placeholder="例: 測試主網段 / 業務 / DMZ"></div>
+    <div class="sn-form-row"><label>Gateway</label><input id="sn-gateway" placeholder="例: 192.168.1.1"></div>
+    <div class="sn-form-row"><label>備註</label><textarea id="sn-notes" rows="2"></textarea></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+      <button class="btn" onclick="snCloseModal()">取消</button>
+      <button class="btn btn-primary" onclick="snSave()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Detail (右側 drawer) -->
+<div class="sn-detail-overlay" id="sn-detail">
+  <button class="close" onclick="snCloseDetail()">×</button>
+  <h2 id="sn-detail-title" style="margin:0 0 12px;color:var(--g1);"></h2>
+  <div id="sn-detail-body"></div>
+</div>
+
+<script>
+let _editingCidr = null;
+
+function setMsg(t, cls) {
+  const el = document.getElementById("sn-msg");
+  el.textContent = t || ""; el.className = "sn-msg " + (cls || "");
+}
+
+async function snLoad() {
+  setMsg("載入中...");
+  try {
+    const r = await fetch("/api/admin/subnets", { credentials: "include" });
+    const res = await r.json();
+    if (!res.success) { setMsg("失敗: " + (res.error || ""), "err"); return; }
+    render(res.subnets || []);
+    setMsg(`✓ ${(res.subnets || []).length} 段`, "ok");
+  } catch (e) { setMsg("錯誤: " + e.message, "err"); }
+}
+
+function render(subnets) {
+  const c = document.getElementById("sn-content");
+  if (!subnets.length) {
+    c.innerHTML = '<div class="sn-empty">📭 還沒登錄任何網段, 點「新增網段」開始</div>';
+    return;
+  }
+  let html = '<table class="sn-tbl"><thead><tr><th>網段</th><th>VLAN</th><th>環境</th><th>地點</th><th>用途</th><th>使用率</th><th>Gateway</th><th>操作</th></tr></thead><tbody>';
+  subnets.forEach(s => {
+    const cls = s.percent >= 90 ? "full" : (s.percent >= 70 ? "warn" : "");
+    html += `<tr>
+      <td><span class="sn-cidr">${escapeHtml(s.cidr)}</span></td>
+      <td>${escapeHtml(s.vlan || "-")}</td>
+      <td>${escapeHtml(s.env || "-")}</td>
+      <td>${escapeHtml(s.location || "-")}</td>
+      <td>${escapeHtml(s.purpose || "-")}</td>
+      <td>
+        <span class="sn-bar"><span class="sn-bar-fill ${cls}" style="width:${Math.min(100, s.percent || 0)}%;display:block;"></span></span>
+        <span class="sn-percent">${s.used}/${s.total} (${s.percent}%)</span>
+      </td>
+      <td style="font-family:monospace;">${escapeHtml(s.gateway || "-")}</td>
+      <td class="sn-actions">
+        <button class="btn" style="background:#3b82f6;color:#fff;" onclick="snDetail('${escapeAttr(s.cidr)}')">IP 表</button>
+        <button class="btn" style="background:#10b981;color:#fff;" onclick="snEdit('${escapeAttr(s.cidr)}')">編輯</button>
+        <button class="btn btn-danger" onclick="snDelete('${escapeAttr(s.cidr)}')">刪除</button>
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  c.innerHTML = html;
+}
+
+function snOpenAdd() {
+  _editingCidr = null;
+  document.getElementById("sn-modal-title").textContent = "新增網段";
+  ["cidr","vlan","env","location","purpose","gateway","notes"].forEach(k => {
+    const el = document.getElementById("sn-" + k); if (el) el.value = "";
+  });
+  document.getElementById("sn-cidr").readOnly = false;
+  document.getElementById("sn-modal").classList.add("active");
+}
+
+async function snEdit(cidr) {
+  try {
+    const r = await fetch("/api/admin/subnets/" + encodeURIComponent(cidr), { credentials: "include" });
+    const res = await r.json();
+    if (!res.success) { setMsg("載入失敗", "err"); return; }
+    const s = res.subnet;
+    _editingCidr = cidr;
+    document.getElementById("sn-modal-title").textContent = "編輯網段 - " + cidr;
+    document.getElementById("sn-cidr").value = s.cidr; document.getElementById("sn-cidr").readOnly = true;
+    document.getElementById("sn-vlan").value = s.vlan || "";
+    document.getElementById("sn-env").value = s.env || "";
+    document.getElementById("sn-location").value = s.location || "";
+    document.getElementById("sn-purpose").value = s.purpose || "";
+    document.getElementById("sn-gateway").value = s.gateway || "";
+    document.getElementById("sn-notes").value = s.notes || "";
+    document.getElementById("sn-modal").classList.add("active");
+  } catch (e) { setMsg("錯誤: " + e.message, "err"); }
+}
+
+function snCloseModal() { document.getElementById("sn-modal").classList.remove("active"); }
+
+async function snSave() {
+  const data = {
+    cidr: document.getElementById("sn-cidr").value.trim(),
+    vlan: document.getElementById("sn-vlan").value.trim(),
+    env: document.getElementById("sn-env").value,
+    location: document.getElementById("sn-location").value.trim(),
+    purpose: document.getElementById("sn-purpose").value.trim(),
+    gateway: document.getElementById("sn-gateway").value.trim(),
+    notes: document.getElementById("sn-notes").value.trim(),
+  };
+  if (!data.cidr) { setMsg("CIDR 必填", "err"); return; }
+  setMsg("儲存中...");
+  try {
+    const url = _editingCidr ? "/api/admin/subnets/" + encodeURIComponent(_editingCidr) : "/api/admin/subnets";
+    const method = _editingCidr ? "PUT" : "POST";
+    const r = await fetch(url, { method, headers: {"Content-Type":"application/json"}, credentials: "include", body: JSON.stringify(data) });
+    const res = await r.json();
+    if (!res.success) { setMsg("失敗: " + (res.error || ""), "err"); return; }
+    setMsg("✓ " + (res.message || "已儲存"), "ok");
+    snCloseModal(); snLoad();
+  } catch (e) { setMsg("錯誤: " + e.message, "err"); }
+}
+
+async function snDelete(cidr) {
+  if (!confirm("確定刪除網段 " + cidr + " ? (主機資料不會動)")) return;
+  try {
+    const r = await fetch("/api/admin/subnets/" + encodeURIComponent(cidr), { method:"DELETE", credentials: "include" });
+    const res = await r.json();
+    if (!res.success) { setMsg("失敗: " + (res.error || ""), "err"); return; }
+    setMsg("✓ 已刪除", "ok"); snLoad();
+  } catch (e) { setMsg("錯誤: " + e.message, "err"); }
+}
+
+async function snDetail(cidr) {
+  document.getElementById("sn-detail-title").textContent = cidr + " IP 使用清單";
+  document.getElementById("sn-detail-body").innerHTML = "<div>載入中...</div>";
+  document.getElementById("sn-detail").classList.add("active");
+  try {
+    const r = await fetch("/api/admin/subnets/" + encodeURIComponent(cidr), { credentials: "include" });
+    const res = await r.json();
+    if (!res.success) { document.getElementById("sn-detail-body").innerHTML = "失敗"; return; }
+    const s = res.subnet;
+    let html = `
+      <div style="background:#f8fafc;padding:12px;border-radius:8px;margin-bottom:14px;">
+        <div>容量 (host bits): <b>${s.total}</b></div>
+        <div>已用: <b>${s.used}</b> | 剩餘: <b>${s.available}</b> | 使用率: <b>${s.percent}%</b></div>
+        <div>下一可用 IP: <b style="font-family:monospace;color:var(--g2);">${escapeHtml(res.next_ip || "(無)")}</b></div>
+      </div>
+      <h4 style="margin:0 0 8px;">已使用 IP (${s.used})</h4>
+      <table class="sn-tbl">
+        <thead><tr><th>IP</th><th>主機</th></tr></thead>
+        <tbody>
+          ${(s.used_ips || []).map(u => `<tr><td style="font-family:monospace;">${escapeHtml(u.ip)}</td><td>${escapeHtml(u.hostname || "-")}</td></tr>`).join("") || '<tr><td colspan="2" style="color:#9ca3af;text-align:center;padding:20px;">尚無已使用 IP</td></tr>'}
+        </tbody>
+      </table>
+    `;
+    document.getElementById("sn-detail-body").innerHTML = html;
+  } catch (e) {
+    document.getElementById("sn-detail-body").innerHTML = "錯誤: " + e.message;
+  }
+}
+
+function snCloseDetail() { document.getElementById("sn-detail").classList.remove("active"); }
+
+function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function escapeAttr(s) { return escapeHtml(s).replace(/'/g, "\\'"); }
+
+document.addEventListener("DOMContentLoaded", snLoad);
+</script>
+{% endblock %}

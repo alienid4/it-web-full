@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}對帳差異 - IT 監控系統{% endblock %}
+
+{% block head %}
+<style>
+.rc-wrap { max-width: 1500px; margin: 24px auto; padding: 0 24px; }
+.rc-upload {
+  background: #fff; border: 2px dashed #cbd5e1; border-radius: 12px;
+  padding: 28px; text-align: center; margin-bottom: 18px;
+}
+.rc-upload.dragging { border-color: var(--g2); background: #f0fdf4; }
+.rc-upload input[type=file] { display: none; }
+.rc-upload-btn { display: inline-block; padding: 8px 18px; background: var(--g2); color: #fff; border-radius: 6px; cursor: pointer; }
+.rc-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+.rc-stat-card { background: #fff; border-radius: 10px; padding: 14px 18px; text-align: center; }
+.rc-stat-card .v { font-size: 28px; font-weight: 700; color: var(--g1); }
+.rc-stat-card .l { font-size: 13px; color: #6b7280; margin-top: 4px; }
+.rc-board { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+.rc-col {
+  background: #fff; border-radius: 10px; padding: 16px; max-height: 70vh; overflow-y: auto;
+}
+.rc-col h3 { margin: 0 0 12px; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb; font-size: 15px; }
+.rc-col.excel-only h3 { color: #d97706; border-bottom-color: #fbbf24; }
+.rc-col.matched h3 { color: var(--g2); border-bottom-color: #10b981; }
+.rc-col.db-only h3 { color: #dc2626; border-bottom-color: #ef4444; }
+.rc-row {
+  padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; font-size: 13px;
+  background: #f9fafb;
+}
+.rc-row.excel-only { border-left: 3px solid #fbbf24; }
+.rc-row.matched { border-left: 3px solid #10b981; }
+.rc-row.db-only { border-left: 3px solid #ef4444; }
+.rc-row .hn { font-weight: 600; }
+.rc-row .ip { font-family: monospace; color: #6b7280; }
+.rc-empty-col { color: #9ca3af; padding: 30px; text-align: center; font-size: 13px; }
+.rc-msg { font-size: 13px; padding: 0 8px; }
+.rc-msg.ok { color: var(--g2); font-weight: 600; }
+.rc-msg.err { color: #dc2626; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rc-wrap">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+    <h2 style="margin:0;color:var(--g1);">📊 對帳差異 (Excel ↔ DB)</h2>
+    <span id="rc-msg" class="rc-msg"></span>
+  </div>
+
+  <div class="rc-upload" id="rc-upload-area">
+    <div style="font-size:36px;">📁</div>
+    <div style="margin:10px 0;color:#475569;">拖入 .xlsx / .csv 或點按鈕選檔</div>
+    <input type="file" id="rc-file" accept=".xlsx,.xlsm,.csv" onchange="rcUpload(this.files[0])">
+    <label for="rc-file" class="rc-upload-btn">選擇檔案</label>
+    <div style="margin-top:12px;font-size:12px;color:#9ca3af;">
+      支援欄位名 (大小寫不敏感): hostname / host / 主機 / 主機名稱 / IP / IP位址
+    </div>
+  </div>
+
+  <div id="rc-result" style="display:none;">
+    <div class="rc-stats" id="rc-stats"></div>
+    <div class="rc-board" id="rc-board"></div>
+  </div>
+</div>
+
+<script>
+function setMsg(t, cls) {
+  const el = document.getElementById("rc-msg");
+  el.textContent = t || ""; el.className = "rc-msg " + (cls || "");
+}
+
+const dropArea = document.getElementById("rc-upload-area");
+["dragenter","dragover"].forEach(e => dropArea.addEventListener(e, ev => { ev.preventDefault(); dropArea.classList.add("dragging"); }));
+["dragleave","drop"].forEach(e => dropArea.addEventListener(e, ev => { ev.preventDefault(); dropArea.classList.remove("dragging"); }));
+dropArea.addEventListener("drop", ev => {
+  if (ev.dataTransfer.files.length) rcUpload(ev.dataTransfer.files[0]);
+});
+
+async function rcUpload(file) {
+  if (!file) return;
+  setMsg("解析中: " + file.name + " ...");
+  const fd = new FormData();
+  fd.append("file", file);
+  try {
+    const r = await fetch("/api/admin/recon/upload", { method: "POST", credentials: "include", body: fd });
+    const res = await r.json();
+    if (!res.success) { setMsg("失敗: " + (res.error || ""), "err"); return; }
+    render(res.result);
+    setMsg("✓ " + file.name + " 解析完成", "ok");
+  } catch (e) { setMsg("錯誤: " + e.message, "err"); }
+}
+
+function render(r) {
+  document.getElementById("rc-result").style.display = "block";
+  // stats
+  const s = r.stats;
+  document.getElementById("rc-stats").innerHTML = `
+    <div class="rc-stat-card"><div class="v">${s.excel_total}</div><div class="l">Excel 總筆數</div></div>
+    <div class="rc-stat-card"><div class="v" style="color:var(--g2)">${s.matched_count}</div><div class="l">✓ 對得起來</div></div>
+    <div class="rc-stat-card"><div class="v" style="color:#d97706">${s.excel_only_count}</div><div class="l">⚠️ Excel 有 DB 沒</div></div>
+    <div class="rc-stat-card"><div class="v" style="color:#dc2626">${s.db_only_count}</div><div class="l">🔴 DB 有 Excel 沒</div></div>
+    <div class="rc-stat-card"><div class="v">${s.db_total}</div><div class="l">DB 總筆數</div></div>
+  `;
+  // board
+  document.getElementById("rc-board").innerHTML = `
+    <div class="rc-col excel-only">
+      <h3>⚠️ Excel 有但 DB 沒 (${r.excel_only.length})</h3>
+      ${r.excel_only.length ? r.excel_only.map(rw => `<div class="rc-row excel-only"><span class="hn">${escapeHtml(rw.hostname || "(無 hostname)")}</span> <span class="ip">${escapeHtml(rw.ip || "")}</span></div>`).join("") : '<div class="rc-empty-col">✅ 全對得起來</div>'}
+    </div>
+    <div class="rc-col matched">
+      <h3>✅ 對得起來 (${r.matched.length})</h3>
+      ${r.matched.length ? r.matched.map(m => `<div class="rc-row matched"><span class="hn">${escapeHtml(m.db_hostname)}</span> <span class="ip">${escapeHtml(m.db_ip)}</span> <span style="font-size:11px;color:#6b7280;">[by ${m.match_by}]</span></div>`).join("") : '<div class="rc-empty-col">沒有配對成功</div>'}
+    </div>
+    <div class="rc-col db-only">
+      <h3>🔴 DB 有但 Excel 沒 (${r.db_only.length})</h3>
+      ${r.db_only.length ? r.db_only.map(d => `<div class="rc-row db-only"><span class="hn">${escapeHtml(d.hostname)}</span> <span class="ip">${escapeHtml(d.ip)}</span></div>`).join("") : '<div class="rc-empty-col">✅ DB 都對得起來</div>'}
+    </div>
+  `;
+}
+
+function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+</script>
+{% endblock %}

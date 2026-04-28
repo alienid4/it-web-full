@@ -1,0 +1,19 @@
+v3.15.6.0 - 主機編輯 Modal 擴充 29 欄 + scrollable
+==================================================
+
+問題: 主機編輯 Modal 滑鼠滾輪不能捲動,且只顯示 12 欄,無法填 29 欄資產表。
+
+修法:
+  1. Modal 容器加 max-height:88vh + overflow-y:auto (滾動)
+  2. 分 5 區段顯示 (基本/資產表/人員/資安/巡檢專屬)
+  3. 加 18 個新 input
+  4. 環境別 / 資產狀態 / 群組名稱 / CIA 改下拉 (locked enum)
+  5. saveHost + editHost 同步讀寫 29 欄
+
+影響檔案:
+  webapp/templates/admin.html  (host-modal 區塊替換)
+  webapp/static/js/admin.js    (saveHost / editHost 替換)
+
+需要重啟: itagent-web + itagent-tunnel
+
+執行: bash install.sh

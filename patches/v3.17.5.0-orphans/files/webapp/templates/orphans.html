@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}孤兒主機 / 稽核曝光 - IT 監控系統{% endblock %}
+
+{% block head %}
+<style>
+.or-wrap { max-width: 1300px; margin: 24px auto; padding: 0 24px; }
+.or-defenses {
+  background: #fff; border-radius: 10px; padding: 16px 20px; margin-bottom: 18px;
+}
+.or-defense-row { display: flex; gap: 16px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+.or-defense-row:last-child { border-bottom: none; }
+.or-defense-tag {
+  flex-shrink: 0; padding: 2px 10px; border-radius: 12px; font-weight: 600;
+}
+.or-defense-tag.on  { background: #d1fae5; color: #065f46; }
+.or-defense-tag.off { background: #fee2e2; color: #991b1b; }
+.or-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+.or-stat-card { background: #fff; border-radius: 10px; padding: 16px 20px; }
+.or-stat-card .v { font-size: 32px; font-weight: 700; }
+.or-stat-card .l { font-size: 13px; color: #6b7280; margin-top: 4px; }
+.or-stat-card.warn { border-left: 4px solid #f59e0b; }
+.or-stat-card.danger { border-left: 4px solid #ef4444; }
+.or-section { background: #fff; border-radius: 10px; padding: 18px 22px; margin-bottom: 16px; }
+.or-section h3 { margin: 0 0 12px; color: var(--g1); border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; }
+.or-tbl { width: 100%; border-collapse: collapse; }
+.or-tbl th, .or-tbl td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+.or-tbl th { background: #f8fafc; color: #475569; font-weight: 600; }
+.or-days-badge {
+  display: inline-block; padding: 2px 10px; border-radius: 12px; font-weight: 600;
+}
+.or-days-badge.high { background: #fee2e2; color: #991b1b; }
+.or-days-badge.mid  { background: #fef3c7; color: #92400e; }
+.or-days-badge.low  { background: #fef9c3; color: #713f12; }
+.or-msg { font-size: 13px; padding: 0 8px; }
+.or-msg.ok { color: var(--g2); font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="or-wrap">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+    <h2 style="margin:0;color:var(--g1);">👻 孤兒主機 / 稽核曝光</h2>
+    <span id="or-msg" class="or-msg"></span>
+  </div>
+
+  <div class="or-defenses">
+    <h3 style="margin:0 0 10px;color:var(--g1);font-size:15px;">6 道防線狀態</h3>
+    <div class="or-defense-row"><span class="or-defense-tag off">未開</span><span><b>1. 網路出口攔截</b> — 需要 IPAM ↔ DHCP 整合 (公司沒給)</span></div>
+    <div class="or-defense-row"><span class="or-defense-tag on">已開</span><span><b>2. 每日全網掃描</b> — 用既有巡檢系統 inspections 資料 (見下「久未巡檢」)</span></div>
+    <div class="or-defense-row"><span class="or-defense-tag off">未開</span><span><b>3. DHCP/AD 訂閱</b> — 需要 DHCP/AD log 推送 (公司沒給)</span></div>
+    <div class="or-defense-row"><span class="or-defense-tag off">未開</span><span><b>4. Switch ARP/CDP</b> — 需要核心 switch SSH 權限 (公司沒給)</span></div>
+    <div class="or-defense-row"><span class="or-defense-tag off">未開</span><span><b>5. 變更單綁定</b> — 需要 ITSM 整合 (公司沒給)</span></div>
+    <div class="or-defense-row"><span class="or-defense-tag on">已開</span><span><b>6. 每月稽核曝光</b> — 本頁就是 (見下「IPAM 網段 GAP 分析」)</span></div>
+  </div>
+
+  <div class="or-stats" id="or-stats"></div>
+
+  <div class="or-section">
+    <h3>⏰ 久未巡檢的主機 (>30 天)</h3>
+    <div id="or-stale"></div>
+  </div>
+
+  <div class="or-section">
+    <h3>🌐 IPAM 網段 GAP 分析（每段未登記的 IP）</h3>
+    <div id="or-gaps"></div>
+  </div>
+</div>
+
+<script>
+function setMsg(t, cls) {
+  const el = document.getElementById("or-msg");
+  el.textContent = t || ""; el.className = "or-msg " + (cls || "");
+}
+
+async function load() {
+  setMsg("分析中...");
+  try {
+    const r = await fetch("/api/admin/orphans/audit", { credentials: "include" });
+    const res = await r.json();
+    if (!res.success) { setMsg("失敗: " + (res.error || ""), "err"); return; }
+    render(res.audit);
+    setMsg("✓ 完成 " + new Date().toLocaleTimeString(), "ok");
+  } catch (e) { setMsg("錯誤: " + e.message, "err"); }
+}
+
+function render(a) {
+  // stats
+  document.getElementById("or-stats").innerHTML = `
+    <div class="or-stat-card warn"><div class="v" style="color:#d97706">${a.stale_hosts_count}</div><div class="l">久未巡檢主機</div></div>
+    <div class="or-stat-card"><div class="v">${a.subnet_gaps.subnets_count}</div><div class="l">納管網段</div></div>
+    <div class="or-stat-card danger"><div class="v" style="color:#dc2626">${a.subnet_gaps.total_gap_ips}</div><div class="l">未登記 IP (GAP)</div></div>
+  `;
+  // stale
+  const stale = a.stale_hosts || [];
+  document.getElementById("or-stale").innerHTML = stale.length ? `
+    <table class="or-tbl">
+      <thead><tr><th>主機</th><th>IP</th><th>系統別</th><th>保管者</th><th>最後巡檢</th><th>距今</th></tr></thead>
+      <tbody>${stale.map(s => `<tr>
+        <td><b>${esc(s.hostname)}</b></td>
+        <td style="font-family:monospace;">${esc(s.ip)}</td>
+        <td>${esc(s.system_name || "-")}</td>
+        <td>${esc(s.custodian || "-")}</td>
+        <td>${esc(s.last_seen)}</td>
+        <td><span class="or-days-badge ${s.days_since > 90 ? "high" : (s.days_since > 60 ? "mid" : "low")}">${s.days_since} 天</span></td>
+      </tr>`).join("")}</tbody>
+    </table>` : '<div style="color:#9ca3af;padding:20px;text-align:center;">✅ 沒有久未巡檢主機</div>';
+  // gaps
+  const gaps = a.subnet_gaps.details || [];
+  document.getElementById("or-gaps").innerHTML = gaps.length ? `
+    <table class="or-tbl">
+      <thead><tr><th>網段</th><th>環境</th><th>用途</th><th>容量</th><th>已用</th><th>GAP</th><th>GAP 樣本</th></tr></thead>
+      <tbody>${gaps.map(g => `<tr>
+        <td style="font-family:monospace;font-weight:600;">${esc(g.cidr)}</td>
+        <td>${esc(g.env || "-")}</td>
+        <td>${esc(g.purpose || "-")}</td>
+        <td>${g.total_host_bits}</td>
+        <td>${g.used}</td>
+        <td><span class="or-days-badge ${g.gap_count > 100 ? "high" : (g.gap_count > 30 ? "mid" : "low")}">${g.gap_count}</span></td>
+        <td style="font-family:monospace;font-size:11px;color:#6b7280;">${esc((g.gap_sample || []).slice(0,5).join(", "))}${g.gap_count > 5 ? "..." : ""}</td>
+      </tr>`).join("")}</tbody>
+    </table>` : '<div style="color:#9ca3af;padding:20px;text-align:center;">沒有納管網段</div>';
+}
+
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+document.addEventListener("DOMContentLoaded", load);
+</script>
+{% endblock %}

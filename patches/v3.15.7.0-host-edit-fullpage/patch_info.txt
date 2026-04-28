@@ -1,0 +1,18 @@
+v3.15.7.0 - 主機編輯改全頁新分頁
+================================
+
+問題: v3.15.6.x modal 30 欄要捲很長, 不好用。
+修法: 把編輯改成獨立全頁, 點「編輯」開新分頁。
+
+新檔:
+  webapp/templates/host_edit.html  全頁編輯模板 (5 區卡片 grid layout)
+
+改檔:
+  webapp/app.py                    加 /admin/host-edit/<hostname> 與 /admin/host-edit/new 路由
+  webapp/static/js/admin.js        主機表格「編輯」按鈕改 <a target="_blank">
+
+API 不動 (PUT /api/admin/hosts/<hostname>)。
+
+需要重啟: itagent-web + itagent-tunnel
+
+執行: bash install.sh

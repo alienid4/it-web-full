@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}IT 監控系統{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/example.css?v={{ APP_VER }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <nav class="navbar" style="height:auto;flex-direction:column;padding:0;">
+    <!-- Row 1: Brand + Search + User -->
+    <div style="display:flex;align-items:center;width:100%;padding:8px 24px;border-bottom:1px solid rgba(0,0,0,0.04);">
+      <a href="/" class="navbar-brand" style="margin-right:auto;font-weight:600;color:var(--c2);">IT 監控系統</a>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="position:relative;" id="search-wrap">
+          <input type="text" id="global-search" placeholder="搜尋功能..." oninput="globalSearch(this.value)" onfocus="globalSearch(this.value)" autocomplete="off"
+            style="width:160px;padding:5px 10px 5px 28px;border:1px solid #e0e0e0;border-radius:16px;font-size:12px;background:var(--bg);outline:none;">
+          <span style="position:absolute;left:9px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--c4);">&#128269;</span>
+          <div id="search-results" style="display:none;position:absolute;top:100%;right:0;background:white;border:1px solid #e0e0e0;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.12);margin-top:4px;max-height:360px;overflow-y:auto;z-index:300;min-width:280px;"></div>
+        </div>
+        <span id="nav-version" style="font-size:11px;color:var(--c4);font-family:JetBrains Mono,monospace;white-space:nowrap;"></span>
+        <span style="color:var(--c4);">|</span>
+        <div id="nav-user-status" style="font-size:12px;color:var(--c3);white-space:nowrap;display:flex;align-items:center;gap:6px;">
+          {% if session.get("username") %}
+            <span style="color:var(--c2);">{{ session.get("display_name", session.get("username")) }} ({{ session.get("role") }})</span>
+            <span style="color:var(--c4);">|</span>
+            <span onclick="showAccountModal()" style="color:var(--g1);cursor:pointer;">帳號設定</span>
+            <span style="color:var(--c4);">|</span>
+            <a href="#" onclick="fetch('/api/admin/logout',{method:'POST',credentials:'include'}).then(function(){location.href='/login';});return false;" style="color:var(--red);text-decoration:none;">登出</a>
+          {% else %}
+            <a href="/login" style="color:var(--g1);text-decoration:none;">登入</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <!-- Row 2: Navigation Links -->
+    <div style="display:flex;align-items:center;width:100%;padding:0 24px;overflow-x:auto;">
+      <button class="hamburger" onclick="document.querySelector('.nav-links').classList.toggle('nav-open')" aria-label="選單">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" style="gap:0;">
+        <li><a href="/" id="nav-dashboard">Dashboard</a></li>
+        {% if session.get("role") in ["admin", "superadmin"] %}<li><a href="/executive" id="nav-executive" style="color:var(--g2);font-weight:600;">👔 主管儀表板</a></li>{% endif %}
+        <li><a href="/report" id="nav-report">今日報告</a></li>
+        {% if FEATURES.history %}<li><a href="/history" id="nav-history">歷史查詢</a></li>{% endif %}
+        {% if FEATURES.summary %}<li><a href="/summary" id="nav-summary">異常總結</a></li>{% endif %}
+        {% if FEATURES.audit %}<li><a href="/audit" id="nav-audit">帳號盤點</a></li>{% endif %}
+        {% if FEATURES.packages %}<li><a href="/packages" id="nav-packages">軟體盤點</a></li>{% endif %}
+        {% if FEATURES.perf %}<li><a href="/perf" id="nav-perf">效能月報</a></li>{% endif %}
+        {% if FEATURES.twgcb %}<li><a href="/twgcb" id="nav-twgcb">TWGCB合規</a></li>{% endif %}
+        {% if FEATURES.dependencies %}<li><a href="/dependencies" id="nav-dependencies">🗺️ 系統聯通圖</a></li>{% endif %}
+        <li><a href="/admin/subnets" id="nav-subnets">🌐 IPAM</a></li>
+        <li><a href="/admin" id="nav-admin" style="color:var(--orange);">系統管理</a></li>
+        {% if session.get("role") in ["admin", "superadmin"] %}
+        <li><a href="/superadmin" id="nav-superadmin" style="color:var(--red);">開發後台</a></li>
+        {% endif %}
+      </ul>
+    </div>
+  </nav>
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
+  <script>window.FEATURES = {{ FEATURES | tojson | safe }};</script>
+  <script src="/static/js/icons.js?v={{ APP_VER }}"></script>
+  <script src="/static/js/dashboard.js?v={{ APP_VER }}"></script>
+  <script>
+    // 使用者角色（由 Flask 注入）
+    window.USER_ROLE = "{{ session.get('role', 'oper') }}";
+    window.USER_NAME = "{{ session.get('username', '') }}";
+
+    // 權限檢查：oper 無法執行變更操作
+    function requirePermission(minRole) {
+      minRole = minRole || "admin";
+      var levels = {"oper":0, "admin":1, "superadmin":2};
+      var userLevel = levels[window.USER_ROLE] || 0;
+      var needLevel = levels[minRole] || 1;
+      if (userLevel >= needLevel) return true;
+      showPermissionDenied();
+      return false;
+    }
+    function showPermissionDenied() {
+      var existing = document.getElementById("perm-toast");
+      if (existing) existing.remove();
+      var toast = document.createElement("div");
+      toast.id = "perm-toast";
+      toast.innerHTML = '<div style="position:fixed;top:80px;left:50%;transform:translateX(-50%);background:var(--red);color:white;padding:14px 28px;border-radius:12px;z-index:9999;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.3);display:flex;align-items:center;gap:10px;animation:slideUp 0.3s ease;"><span style="font-size:20px;">🔒</span><div><strong>權限不足</strong><br><span style="font-size:12px;">請聯繫管理員申請帳號權限</span></div></div>';
+      document.body.appendChild(toast);
+      setTimeout(function(){ toast.remove(); }, 3000);
+    }
+
+    // 導覽列權限控制：oper 可瀏覽所有頁面（含系統管理），但操作按鈕會擋
+    var navSuperadmin = document.getElementById("nav-superadmin");
+    if (window.USER_ROLE === "oper" || window.USER_ROLE === "admin") {
+      if (navSuperadmin) navSuperadmin.parentElement.style.display = "none";
+    }
+
+    // 全站功能搜尋
+    var SEARCH_INDEX = [
+      {name:"Dashboard 總覽", url:"/", tags:"dashboard 首頁 總覽 kpi 主機狀態"},
+      {name:"今日報告", url:"/report", tags:"report 今日 巡檢 報告 linux windows"},
+      {name:"歷史查詢", url:"/history", tags:"history 歷史 趨勢 查詢"},
+      {name:"異常總結", url:"/summary", tags:"summary 異常 總結 錯誤 警告"},
+      {name:"帳號盤點", url:"/audit", tags:"audit 帳號 盤點 密碼 登入 hr"},
+      {name:"TWGCB 合規檢查", url:"/twgcb", tags:"twgcb 合規 資安 強化 基準"},
+      {name:"系統聯通圖", url:"/dependencies", tags:"dependencies 系統聯通 連線 拓撲 影響分析 故障 service map"},
+      {name:"系統管理 → 系統狀態", url:"/admin#dashboard", tags:"admin 系統 狀態 flask mongodb tunnel 外部存取 cloudflare"},
+      {name:"系統管理 → 設定管理", url:"/admin#settings", tags:"settings 設定 閾值 disk cpu mem 磁碟排除"},
+      {name:"系統管理 → 備份管理", url:"/admin#backups", tags:"backup 備份 還原 dump restore tar"},
+      {name:"系統管理 → 工作排程", url:"/admin#jobs", tags:"jobs 排程 巡檢 cron seed mongodb 匯入"},
+      {name:"主機管理 → 伺服器清單", url:"/admin#hosts", tags:"hosts 主機 伺服器 清單 csv inventory 服務 啟動 重啟 停止"},
+      {name:"主機管理 → 排程設定", url:"/admin#scheduler", tags:"scheduler 排程 時間 巡檢"},
+      {name:"主機管理 → 告警管理", url:"/admin#alerts", tags:"alerts 告警 通知 email"},
+      {name:"合規安全 → TWGCB設定", url:"/admin#twgcb", tags:"twgcb 設定 檢查項 強化"},
+      {name:"合規安全 → 合規報告", url:"/admin#reports", tags:"reports 報告 報表 pdf 簽核"},
+      {name:"合規安全 → 帳號盤點設定", url:"/admin#acctmgmt", tags:"acctmgmt 帳號 hr 密碼天數"},
+      {name:"帳號設定 → 使用者管理", url:"/admin#usermgmt", tags:"usermgmt 使用者 帳號 新增 角色 admin oper superadmin 密碼"},
+      {name:"日誌 → 日誌檢視", url:"/admin#logs", tags:"logs 日誌 log 錯誤"},
+      {name:"日誌 → 操作紀錄", url:"/admin#worklog", tags:"worklog 操作 紀錄 audit"},
+      {name:"開發後台", url:"/superadmin", tags:"superadmin 開發 github git commit 推送 文件"},
+      {name:"MongoDB Dump/Restore", url:"/admin#backups", tags:"dump restore mongodb 備份 還原 匯出 匯入 下載"},
+      {name:"Cloudflare Tunnel", url:"/admin#dashboard", tags:"tunnel cloudflare 外部 存取 網址 複製 demo"},
+      {name:"服務控制 (啟動/重啟/停止)", url:"/admin#hosts", tags:"service 服務 啟動 停止 重啟 start stop restart sshd crond"},
+      {name:"登入", url:"/login", tags:"login 登入 帳號 密碼"},
+    ];
+    function globalSearch(q) {
+      var box = document.getElementById("search-results");
+      q = (q||"").trim().toLowerCase();
+      if (!q) { box.style.display = "none"; return; }
+      var matches = SEARCH_INDEX.filter(function(item) {
+        return item.name.toLowerCase().indexOf(q) >= 0 || item.tags.indexOf(q) >= 0;
+      });
+      if (!matches.length) {
+        box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--c3);font-size:13px;">找不到「' + q + '」相關功能</div>';
+      } else {
+        box.innerHTML = matches.map(function(m) {
+          return '<a href="' + m.url + '" style="display:block;padding:10px 16px;text-decoration:none;color:var(--c1);font-size:13px;border-bottom:1px solid #f0f0f0;" onmouseover="this.style.background=\'var(--g-light)\'" onmouseout="this.style.background=\'white\'">' + m.name + '</a>';
+        }).join("");
+      }
+      box.style.display = "block";
+    }
+    document.addEventListener("click", function(e) {
+      var wrap = document.getElementById("search-wrap");
+      if (wrap && !wrap.contains(e.target)) document.getElementById("search-results").style.display = "none";
+    });
+
+    // Highlight active nav
+    const path = location.pathname;
+    const navMap = {"/":"nav-dashboard","/executive":"nav-executive","/report":"nav-report","/history":"nav-history","/summary":"nav-summary","/audit":"nav-audit","/packages":"nav-packages","/perf":"nav-perf","/twgcb":"nav-twgcb","/dependencies":"nav-dependencies","/admin":"nav-admin","/superadmin":"nav-superadmin"};
+    const activeId = navMap[path];
+    if(activeId) document.getElementById(activeId).classList.add("active");
+    // 手機版：點導覽連結自動收合選單
+    document.querySelectorAll(".nav-links a").forEach(function(a){
+      a.addEventListener("click",function(){document.querySelector(".nav-links").classList.remove("nav-open");});
+    });
+  </script>
+  <script>
+    fetch("/api/settings/version").then(function(r){return r.json();}).then(function(res){
+      if(res.success && res.data) var t = "v" + res.data.version + " | " + (res.data.updated_at || "");
+      var nv = document.getElementById("nav-version"); if(nv) nv.textContent = t;
+      var fv = document.getElementById("app-version"); if(fv) fv.textContent = t;
+    }).catch(function(){});
+  </script>
+  <footer style="text-align:center;padding:12px;font-size:11px;color:var(--c4);font-family:JetBrains Mono,monospace;">
+    <span id="app-version"></span>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

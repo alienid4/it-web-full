@@ -1,0 +1,30 @@
+v3.15.5.0 - hosts collection 29 欄資產表對齊
+============================================
+
+目的:
+  把 hosts collection 對齊使用者 29 欄資產表。
+  221 已有 24 欄, 此 patch 補齊剩 5 欄 + 兩台主機缺的資料。
+
+新增 5 個欄位:
+  - device_model    設備型號
+  - rack_no         機櫃編號
+  - quantity        數量 (default 1)
+  - hardware_seq    硬體編號
+  - sys_admin       系統管理者
+
+Backfill 兩台缺資料的主機:
+  - secansible        (192.168.1.221) - 巡檢主機
+  - WIN-7L4JNM4P2KN   (192.168.1.110) - Windows 測試機
+  其他兩台 (secclient1 / sec9c2) 已完整, 只補 5 個新欄位 default
+
+備份:
+  hosts collection 透過 mongoexport 備份到
+  /var/backups/inspection/hosts/hosts_pre_v3.15.5.0_<TS>.json
+
+回滾:
+  podman exec -i mongodb mongoimport --db inspection --collection hosts --drop < <backup.json>
+
+不需重啟服務 (純 DB 改動)
+
+執行:
+  bash install.sh
