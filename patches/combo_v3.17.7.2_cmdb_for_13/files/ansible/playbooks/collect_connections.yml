@@ -1,0 +1,27 @@
+---
+# 依賴拓撲連線採集 (v3.15.0.0+)
+#
+# 在受監控主機跑 ss/netstat 抓 listening port + established connections
+# 結果以 JSON 寫到 controller 的 data/reports/connections_<TS>_<host>.json
+# 之後由 dependency_seed_collect.py 解析灌進 dependency_relations
+#
+# 用法:
+#   sudo -u sysinfra ansible-playbook -i inventory/hosts.yml playbooks/collect_connections.yml
+#   sudo -u sysinfra ansible-playbook -i inventory/hosts.yml playbooks/collect_connections.yml --limit secclient1
+#
+# 變數可調 (extra-vars 或 group_vars):
+#   inspection_home_override: 控制 reports 寫入位置 (預設 /opt/inspection)
+#   ignore_ports: 過濾雜訊 (預設 22 53 123 9090 27017 等)
+
+- name: "依賴拓撲連線採集"
+  hosts: all
+  gather_facts: yes
+  become: yes
+  vars:
+    inspection_home_override: "{{ inspection_home_override | default('/opt/inspection') }}"
+  tasks:
+    - name: "依 OS 分流 (Linux only,Windows/AIX 暫跳過)"
+      include_tasks: "{{ role_path | default(playbook_dir + '/../roles/collect_connections') }}/tasks/linux.yml"
+      vars:
+        role_path: "{{ playbook_dir }}/../roles/collect_connections"
+      when: ansible_system | lower == "linux"

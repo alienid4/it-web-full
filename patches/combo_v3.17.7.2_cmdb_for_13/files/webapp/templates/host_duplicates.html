@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}重複/相似主機偵測 - IT 監控系統{% endblock %}
+
+{% block head %}
+<style>
+.hd-wrap { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
+.hd-header {
+  position: sticky; top: 0; z-index: 50; background: #fff;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 24px; border-bottom: 2px solid #eee; margin-bottom: 24px;
+}
+.hd-header h2 { margin: 0; color: var(--g1); }
+.hd-card {
+  background: #fff; border-radius: 10px; padding: 18px 22px;
+  border: 1px solid #e5e7eb; margin-bottom: 16px;
+}
+.hd-pair {
+  border: 2px solid #fbbf24; background: #fffbeb;
+  border-radius: 10px; padding: 16px 20px; margin-bottom: 14px;
+}
+.hd-pair-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.hd-pair-title { font-size: 16px; font-weight: 600; color: #92400e; }
+.hd-score-badge {
+  background: #f59e0b; color: #fff; padding: 4px 12px;
+  border-radius: 12px; font-size: 13px; font-weight: 600;
+}
+.hd-reasons { list-style: none; padding: 0; margin: 8px 0; font-size: 13px; color: #78350f; }
+.hd-reasons li { padding: 3px 0; }
+.hd-cmp {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0;
+}
+.hd-host {
+  background: #fff; border: 1px solid #fcd34d; border-radius: 8px;
+  padding: 12px 14px; font-size: 13px;
+}
+.hd-host h4 { margin: 0 0 8px; color: var(--g1); font-size: 14px; }
+.hd-host .row { display: flex; justify-content: space-between; padding: 2px 0; }
+.hd-host .row .k { color: #6b7280; }
+.hd-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.hd-msg { font-size: 13px; }
+.hd-msg.ok { color: var(--g2); font-weight: 600; }
+.hd-msg.err { color: #dc2626; font-weight: 600; }
+.hd-empty { color: #6b7280; padding: 30px; text-align: center; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="hd-header">
+  <h2>🔍 重複/相似主機偵測</h2>
+  <div>
+    <span id="hd-msg" class="hd-msg"></span>
+    <button class="btn btn-primary" onclick="hdReload()">🔄 重新偵測</button>
+    <button class="btn" style="background:#999;" onclick="window.close()">關閉</button>
+  </div>
+</div>
+
+<div class="hd-wrap">
+  <div class="hd-card">
+    <h3>偵測規則</h3>
+    <ul style="font-size:13px;color:#666;margin:6px 0;">
+      <li>hostname 相似度 ≥ 70%（如 server01 / serevr01）</li>
+      <li>一台主機名出現在另一台的 aliases 內</li>
+      <li>兩台主機共用 IP</li>
+    </ul>
+  </div>
+
+  <div id="hd-results">
+    <div class="hd-empty">載入中...</div>
+  </div>
+</div>
+
+<script>
+function setMsg(t, cls) {
+  const el = document.getElementById("hd-msg");
+  el.textContent = t || "";
+  el.className = "hd-msg " + (cls || "");
+}
+
+async function hdReload() {
+  setMsg("偵測中...");
+  try {
+    const r = await fetch("/api/admin/hosts/duplicates", { credentials: "include" });
+    const res = await r.json();
+    if (!res.success) { setMsg("失敗: " + (res.error || "?"), "err"); return; }
+    render(res.pairs || []);
+    setMsg("✓ 找到 " + (res.pairs || []).length + " 組可疑配對 " + new Date().toLocaleTimeString(), "ok");
+  } catch (e) { setMsg("網路錯誤: " + e.message, "err"); }
+}
+
+function render(pairs) {
+  const c = document.getElementById("hd-results");
+  if (!pairs.length) {
+    c.innerHTML = '<div class="hd-empty">✅ 沒有發現可疑配對</div>';
+    return;
+  }
+  let html = "";
+  pairs.forEach((p, idx) => {
+    html += `<div class="hd-pair">
+      <div class="hd-pair-head">
+        <div class="hd-pair-title">${escapeHtml(p.host1)} ⇄ ${escapeHtml(p.host2)}</div>
+        <div class="hd-score-badge">分數 ${p.score}</div>
+      </div>
+      <ul class="hd-reasons">
+        ${(p.reasons || []).map(r => "<li>• " + escapeHtml(r) + "</li>").join("")}
+      </ul>
+      <div class="hd-cmp">
+        ${renderHost(p.host1, p.h1_data)}
+        ${renderHost(p.host2, p.h2_data)}
+      </div>
+      <div class="hd-actions">
+        <button class="btn btn-sm" style="background:#10b981;color:#fff;" onclick="hdMerge('${escapeAttr(p.host1)}', '${escapeAttr(p.host2)}')">⇨ 把 ${escapeHtml(p.host2)} 合併進 ${escapeHtml(p.host1)}</button>
+        <button class="btn btn-sm" style="background:#10b981;color:#fff;" onclick="hdMerge('${escapeAttr(p.host2)}', '${escapeAttr(p.host1)}')">⇦ 反向</button>
+      </div>
+    </div>`;
+  });
+  c.innerHTML = html;
+}
+
+function renderHost(name, d) {
+  return `<div class="hd-host">
+    <h4>${escapeHtml(name)}</h4>
+    <div class="row"><span class="k">主 IP</span><span>${escapeHtml(d.ip || "-")}</span></div>
+    <div class="row"><span class="k">所有 IP</span><span>${escapeHtml((d.ips || []).join(", ") || "-")}</span></div>
+    <div class="row"><span class="k">資產序號</span><span>${escapeHtml(d.asset_seq || "-")}</span></div>
+    <div class="row"><span class="k">系統別</span><span>${escapeHtml(d.system_name || "-")}</span></div>
+    <div class="row"><span class="k">別名</span><span>${escapeHtml((d.aliases || []).join(", ") || "-")}</span></div>
+  </div>`;
+}
+
+async function hdMerge(primary, duplicate) {
+  if (!confirm(`確定把「${duplicate}」合併進「${primary}」?\n\n${duplicate} 將被刪除, 它的 hostname 會加進 ${primary}.aliases, IP 也會合併.`)) return;
+  setMsg("合併中...");
+  try {
+    const r = await fetch("/api/admin/hosts/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ primary, duplicate }),
+    });
+    const res = await r.json();
+    if (!res.success) { setMsg("失敗: " + (res.error || "?"), "err"); return; }
+    setMsg("✓ " + (res.message || "已合併"), "ok");
+    setTimeout(hdReload, 1000);
+  } catch (e) { setMsg("網路錯誤: " + e.message, "err"); }
+}
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+function escapeAttr(s) { return escapeHtml(s).replace(/'/g, "\\'"); }
+
+document.addEventListener("DOMContentLoaded", hdReload);
+</script>
+{% endblock %}
