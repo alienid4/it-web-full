@@ -15,15 +15,32 @@ done
 [ -z "$INSPECTION_HOME" ] && { echo "[FAIL] 找不到 INSPECTION_HOME"; exit 1; }
 echo "[i] INSPECTION_HOME=$INSPECTION_HOME"
 
-# 偵測 podman / docker
-DOCKER_CMD=""
-if command -v podman >/dev/null 2>&1 && podman ps 2>/dev/null | grep -q mongodb; then
-    DOCKER_CMD="podman"
+# 偵測 mongo 執行方式 (公司 13/11 沒 podman, 走系統 mongosh; 家裡 221 走 podman)
+MONGOSH=""
+MONGOEXPORT=""
+MONGOIMPORT=""
+if command -v mongosh >/dev/null 2>&1; then
+    MONGOSH="mongosh inspection --quiet"
+    MONGOEXPORT="mongoexport --db inspection"
+    MONGOIMPORT="mongoimport --db inspection"
+    echo "[i] MONGO 走系統 mongosh"
+elif command -v mongo >/dev/null 2>&1; then
+    MONGOSH="mongo inspection --quiet"
+    MONGOEXPORT="mongoexport --db inspection"
+    MONGOIMPORT="mongoimport --db inspection"
+    echo "[i] MONGO 走系統 mongo (legacy)"
+elif command -v podman >/dev/null 2>&1 && podman ps 2>/dev/null | grep -q mongodb; then
+    MONGOSH="podman exec -i mongodb mongosh inspection --quiet"
+    MONGOEXPORT="podman exec mongodb mongoexport --db inspection"
+    MONGOIMPORT="podman exec -i mongodb mongoimport --db inspection"
+    echo "[i] MONGO 走 podman container"
 elif command -v docker >/dev/null 2>&1 && docker ps 2>/dev/null | grep -q mongodb; then
-    DOCKER_CMD="docker"
+    MONGOSH="docker exec -i mongodb mongosh inspection --quiet"
+    MONGOEXPORT="docker exec mongodb mongoexport --db inspection"
+    MONGOIMPORT="docker exec -i mongodb mongoimport --db inspection"
+    echo "[i] MONGO 走 docker container"
 fi
-[ -z "$DOCKER_CMD" ] && { echo "[FAIL] 找不到 podman/docker mongodb container"; exit 1; }
-echo "[i] DOCKER_CMD=$DOCKER_CMD"
+[ -z "$MONGOSH" ] && { echo "[FAIL] 找不到 mongosh/mongo/podman/docker — 至少要有一種"; exit 1; }
 
 # 偵測 service name
 SERVICE=""
@@ -62,8 +79,14 @@ for f in "${FILES[@]}"; do
         cp "$src" "$BACKUP_ROOT/$f"
     fi
 done
-$DOCKER_CMD exec mongodb mongoexport --db inspection --collection hosts --out /tmp/hosts.json 2>&1 | tail -1
-$DOCKER_CMD cp mongodb:/tmp/hosts.json "$BACKUP_ROOT/hosts.json" 2>/dev/null || true
+# 備份 hosts collection (跨環境相容: podman 要從 container 拷, 系統直接寫到本機)
+if [[ "$MONGOEXPORT" == podman* ]] || [[ "$MONGOEXPORT" == docker* ]]; then
+    $MONGOEXPORT --collection hosts --out /tmp/hosts.json 2>&1 | tail -1
+    DRT="${MONGOEXPORT%% *}"  # podman or docker
+    $DRT cp mongodb:/tmp/hosts.json "$BACKUP_ROOT/hosts.json" 2>/dev/null || true
+else
+    $MONGOEXPORT --collection hosts --out "$BACKUP_ROOT/hosts.json" 2>&1 | tail -1
+fi
 echo "      備份在 $BACKUP_ROOT"
 
 # ============ Step 2: 部署新檔案 ============
@@ -92,7 +115,7 @@ echo "      OK"
 # ============ Step 3: DB migrations (idempotent) ============
 echo ""
 echo "[3/6] DB migrations (全 idempotent, 重跑安全)"
-$DOCKER_CMD exec -i mongodb mongosh inspection --quiet <<'JSEOF'
+$MONGOSH <<'JSEOF'
 let r = 0;
 
 // Migration A: hosts 加 5 新欄位 + ips array + aliases array (P1)
@@ -227,5 +250,5 @@ fi
 echo ""
 echo "回滾 (若需要):"
 echo "  cp -r $BACKUP_ROOT/webapp/* $INSPECTION_HOME/webapp/"
-echo "  $DOCKER_CMD exec -i mongodb mongoimport --db inspection --collection hosts --drop < $BACKUP_ROOT/hosts.json"
+echo "  $MONGOIMPORT --collection hosts --drop < $BACKUP_ROOT/hosts.json"
 echo "  systemctl restart $SERVICE ${TUNNEL_SVC:+$TUNNEL_SVC}"
