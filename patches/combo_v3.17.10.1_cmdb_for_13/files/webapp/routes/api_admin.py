@@ -426,6 +426,16 @@ def add_host():
     data["imported_at"] = datetime.now().isoformat()
     data["updated_at"] = datetime.now().isoformat()
     hn = data["hostname"]
+    # v3.17.10.1+: 編輯/新增也走 parse_os
+    if data.get("os"):
+        try:
+            from services.os_parse import parse_os
+            fam, ver = parse_os(data["os"])
+            data["os"] = fam
+            if not data.get("os_version"):
+                data["os_version"] = ver
+        except Exception:
+            pass
     existing = get_collection("hosts").find_one({"hostname": hn})
     get_collection("hosts").update_one({"hostname": hn}, {"$set": data}, upsert=True)
     # Also update hosts_config.json
@@ -447,6 +457,16 @@ def add_host():
 def edit_host(hostname):
     data = request.get_json(force=True)
     data["updated_at"] = datetime.now().isoformat()
+    # v3.17.10.1+: 編輯時自動解析 OS
+    if data.get("os"):
+        try:
+            from services.os_parse import parse_os
+            fam, ver = parse_os(data["os"])
+            data["os"] = fam
+            if not data.get("os_version"):
+                data["os_version"] = ver
+        except Exception:
+            pass
     existing = get_collection("hosts").find_one({"hostname": hostname})
     get_collection("hosts").update_one({"hostname": hostname}, {"$set": data})
     _sync_hosts_config()
@@ -857,6 +877,16 @@ def import_csv():
         doc["has_python"] = True
         doc["imported_at"] = datetime.now().isoformat()
         doc["updated_at"] = datetime.now().isoformat()
+        # v3.17.10.1+: import 時自動解析 OS 字串 (打錯也容忍)
+        if doc.get("os"):
+            try:
+                from services.os_parse import parse_os
+                fam, ver = parse_os(doc["os"])
+                doc["os"] = fam
+                if not doc.get("os_version"):
+                    doc["os_version"] = ver
+            except Exception:
+                pass
         col.update_one({"hostname": hostname}, {"$set": doc}, upsert=True)
         count += 1
 
