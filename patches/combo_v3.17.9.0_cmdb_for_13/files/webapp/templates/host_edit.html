@@ -165,6 +165,8 @@ async function heLoad() {
       const v = h[dbKey];
       el.value = (v == null) ? (id === "quantity" ? 1 : "") : v;
     });
+    // v3.17.9.0+: 對照實際偵測值, 顯示 WARN 警示 + 一鍵採用
+    showMismatchWarnings(h._mismatches || []);
     // ips array: 主 IP 已經由 "ip" 處理 (FIELD_IDS 內), 副 IP 從 ips[1:] 倒進 textarea
     const ipsArr = Array.isArray(h.ips) ? h.ips : [];
     const extras = ipsArr.length > 1 ? ipsArr.slice(1) : [];
@@ -212,6 +214,50 @@ async function heSave() {
   } catch (e) {
     setMsg("儲存失敗: " + e.message, "err");
   }
+}
+
+function showMismatchWarnings(mismatches) {
+  // 移除舊 banner
+  document.querySelectorAll(".he-mismatch-banner").forEach(e => e.remove());
+  if (!mismatches || !mismatches.length) return;
+  // 在 sticky header 下方加 banner
+  const banner = document.createElement("div");
+  banner.className = "he-mismatch-banner";
+  banner.style = "background:#fef3c7;border-left:4px solid #f59e0b;padding:14px 20px;margin:0 0 16px;font-size:14px;";
+  let html = '<div style="font-weight:700;color:#92400e;margin-bottom:8px;">⚠️ 資產表填寫值跟實際偵測值不一致</div>';
+  html += '<table style="font-size:13px;width:100%;"><thead><tr><th style="text-align:left;padding:4px;">欄位</th><th style="text-align:left;padding:4px;">資產表 (你填)</th><th style="text-align:left;padding:4px;">實際偵測</th><th></th></tr></thead><tbody>';
+  const NAME = {os: "作業系統", ip: "IP", hostname: "主機名稱"};
+  mismatches.forEach(m => {
+    html += '<tr>' +
+      '<td style="padding:4px;font-weight:600;">' + (NAME[m.field] || m.field) + '</td>' +
+      '<td style="padding:4px;color:#dc2626;">' + escapeAttr(m.user) + '</td>' +
+      '<td style="padding:4px;color:#059669;font-weight:600;">' + escapeAttr(m.actual) + '</td>' +
+      '<td style="padding:4px;"><button class="btn btn-sm" style="background:#10b981;color:#fff;font-size:12px;" onclick="adoptActual(\'' + m.field + '\')">⇨ 一鍵採用實際值</button></td>' +
+      '</tr>';
+  });
+  html += '</tbody></table>';
+  banner.innerHTML = html;
+  const wrap = document.querySelector(".he-wrap");
+  if (wrap) wrap.insertBefore(banner, wrap.firstChild);
+}
+
+async function adoptActual(field) {
+  if (!confirm("確定把「" + field + "」改成實際偵測值?\n(改的是資產表記錄, 不影響真實主機)")) return;
+  setMsg("採用中...");
+  try {
+    const r = await fetch("/api/hosts/" + encodeURIComponent(HE_HOSTNAME) + "/adopt-actual", {
+      method: "POST", headers: {"Content-Type":"application/json"}, credentials: "include",
+      body: JSON.stringify({field: field})
+    });
+    const res = await r.json();
+    if (!res.success) { setMsg("失敗: " + (res.error || ""), "err"); return; }
+    setMsg("✓ " + (res.message || "已採用"), "ok");
+    setTimeout(heLoad, 500);  // 重抓資料
+  } catch(e) { setMsg("錯誤: " + e.message, "err"); }
+}
+
+function escapeAttr(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 }
 
 document.addEventListener("DOMContentLoaded", heLoad);

@@ -381,8 +381,18 @@ function renderHosts() {
     var hn = h.hostname;
     html += '<tr>';
     html += '<td><strong>' + escapeHtml(hn) + '</strong></td>';
-    html += '<td>' + escapeHtml(h.ip || "-") + '</td>';
-    html += '<td>' + escapeHtml(h.os || "-") + '</td>';
+    var ipBadge = "";
+    if (h._mismatches && h._mismatches.find(function(m){return m.field === "ip";})) {
+      var ipmm = h._mismatches.find(function(m){return m.field === "ip";});
+      ipBadge = ' <span style="color:#dc2626;font-weight:700;cursor:help;" title="實際偵測: ' + escapeHtml(ipmm.actual) + '">⚠️</span>';
+    }
+    html += '<td>' + escapeHtml(h.ip || "-") + ipBadge + '</td>';
+    var osBadge = "";
+    if (h._mismatches && h._mismatches.find(function(m){return m.field === "os";})) {
+      var mm = h._mismatches.find(function(m){return m.field === "os";});
+      osBadge = ' <span style="color:#dc2626;font-weight:700;cursor:help;" title="實際偵測: ' + escapeHtml(mm.actual) + '">⚠️</span>';
+    }
+    html += '<td>' + escapeHtml(h.os || "-") + osBadge + '</td>';
     html += '<td>' + escapeHtml(h.environment || "-") + '</td>';
     html += '<td>' + escapeHtml(h.asset_name || "-") + '</td>';
     html += '<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;" title="' + escapeHtml(h.note || "") + '">' + escapeHtml((h.note || "-").substring(0, 60)) + ((h.note || "").length > 60 ? "..." : "") + '</td>';

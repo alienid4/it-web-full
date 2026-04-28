@@ -4,7 +4,7 @@
 # 行為: snapshot 替換檔案 + DB migration + 智能 idempotent
 set -e
 
-PATCH_VER="3.17.8.0"
+PATCH_VER="3.17.9.0"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # auto-detect INSPECTION_HOME (公司 13 通常 /opt/inspection, 家裡 221 是 /seclog/AI/inspection)
@@ -97,9 +97,11 @@ for f in admin.html base.html host_edit.html host_history.html host_duplicates.h
     cp "$HERE/files/webapp/templates/$f" "$INSPECTION_HOME/webapp/templates/$f"
 done
 # services (7 個 = 6 新 + feature_flags 更新)
-for f in dependency_service.py change_log.py host_dedup.py subnet_service.py recon_service.py orphan_service.py feature_flags.py; do
+for f in dependency_service.py change_log.py host_dedup.py subnet_service.py recon_service.py orphan_service.py feature_flags.py actuals_service.py; do
     cp "$HERE/files/webapp/services/$f" "$INSPECTION_HOME/webapp/services/$f"
 done
+# v3.17.9.0+: api_hosts.py 也部署 (含 annotate)
+cp "$HERE/files/webapp/routes/api_hosts.py" "$INSPECTION_HOME/webapp/routes/api_hosts.py" 2>/dev/null || true
 # routes (2 個)
 cp "$HERE/files/webapp/routes/api_admin.py"        "$INSPECTION_HOME/webapp/routes/api_admin.py"
 cp "$HERE/files/webapp/routes/api_dependencies.py" "$INSPECTION_HOME/webapp/routes/api_dependencies.py"
