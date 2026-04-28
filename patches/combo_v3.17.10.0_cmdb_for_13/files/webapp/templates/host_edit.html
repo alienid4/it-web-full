@@ -61,6 +61,7 @@
       <div class="form-group"><label>其他 IP (一行一個, 選填)</label><textarea id="h-ips-extra" rows="2" placeholder="10.0.0.5&#10;10.0.0.6" style="width:100%;font-family:inherit;"></textarea></div>
       <div class="form-group"><label>主機別名 / 歷史名稱 (一行一個, 給搜尋用)</label><textarea id="h-aliases" rows="2" placeholder="server01&#10;srv-prd-01" style="width:100%;font-family:inherit;"></textarea></div>
       <div class="form-group"><label>作業系統</label><select id="h-os"><option value="Rocky Linux">Rocky Linux</option><option value="RHEL">RHEL</option><option value="Debian">Debian</option><option value="AIX">AIX</option><option value="Windows Server 2016">Windows Server 2016</option><option value="Windows Server 2019">Windows Server 2019</option><option value="Windows Server 2022">Windows Server 2022</option><option value="Cisco IOS">Cisco IOS</option><option value="Juniper">Juniper</option><option value="Fortinet">Fortinet</option><option value="Aruba">Aruba</option><option value="Network Device">網路設備</option><option value="IBM AS/400">IBM AS/400</option></select></div>
+      <div class="form-group"><label>OS 版本 (例: 9.6 / 13 / 2019)</label><input type="text" id="h-os-version" placeholder="9.6"></div>
       <div class="form-group"><label>OS Group</label><select id="h-osgroup"><option value="rocky">rocky</option><option value="rhel">rhel</option><option value="debian">debian</option><option value="aix">aix</option><option value="windows">windows</option><option value="snmp">snmp</option><option value="as400">as400</option></select></div>
       <div class="form-group"><label>環境別</label><select id="h-env"><option value="OA">OA</option><option value="正式">正式</option><option value="使用者測試(UAT)">使用者測試(UAT)</option><option value="備援">備援</option><option value="測試">測試</option><option value="開發環境(DEV)">開發環境(DEV)</option></select></div>
       <div class="form-group"><label>資產狀態</label><select id="h-status"><option value="使用中">使用中</option><option value="停用">停用</option><option value="報廢">報廢</option><option value="待退役">待退役</option></select></div>
@@ -128,7 +129,7 @@ const FIELD_IDS = [
 ];
 // 對應 DB 欄位 (kebab → snake; 特殊 mapping 注意)
 const ID_TO_DB = {
-  "hostname":"hostname","ip":"ip","os":"os","osgroup":"os_group",
+  "hostname":"hostname","ip":"ip","os":"os","os-version":"os_version","osgroup":"os_group",
   "env":"environment","status":"status",
   "division":"division","department":"department","asset-seq":"asset_seq",
   "group-name":"group_name","apid":"apid","asset-name":"asset_name",

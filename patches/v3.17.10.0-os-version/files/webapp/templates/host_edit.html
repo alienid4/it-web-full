@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+{% block title %}編輯主機 {{ hostname }} - IT 監控系統{% endblock %}
+
+{% block head %}
+<style>
+.he-wrap { max-width: 1400px; margin: 24px auto; padding: 0 24px; }
+.he-header {
+  position: sticky; top: 0; z-index: 50; background: #fff;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 24px; border-bottom: 2px solid #eee; margin-bottom: 24px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+.he-header h2 { margin: 0; color: var(--g1); }
+.he-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+}
+@media (max-width: 900px) { .he-grid { grid-template-columns: 1fr; } }
+.he-card {
+  background: #fff; border-radius: 10px; padding: 18px 22px;
+  border: 1px solid #e5e5e5;
+}
+.he-card h3 {
+  margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid #eee;
+  color: var(--g1); font-size: 16px;
+}
+.he-card .form-group { margin-bottom: 12px; }
+.he-card label {
+  display: block; font-size: 13px; color: #555; margin-bottom: 4px;
+}
+.he-card input, .he-card select, .he-card textarea {
+  width: 100%; padding: 7px 10px; border: 1px solid #ccc;
+  border-radius: 5px; font-size: 14px; font-family: inherit;
+  box-sizing: border-box;
+}
+.he-card textarea { resize: vertical; }
+.he-actions { display: flex; gap: 10px; }
+.he-msg { font-size: 13px; color: #666; }
+.he-msg.ok { color: var(--g2); font-weight: 600; }
+.he-msg.err { color: var(--red); font-weight: 600; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="he-header">
+  <h2>{{ '新增主機' if is_new else '編輯主機 - ' + hostname }}</h2>
+  <div class="he-actions">
+    <span id="he-msg" class="he-msg"></span>
+    <button class="btn" style="background:#999;" onclick="window.close()">關閉</button>
+    <button class="btn btn-primary" onclick="heSave()">💾 儲存</button>
+  </div>
+</div>
+
+<div class="he-wrap">
+  <div class="he-grid">
+
+    <!-- 基本 -->
+    <div class="he-card">
+      <h3>📋 基本</h3>
+      <div class="form-group"><label>主機名稱</label><input type="text" id="h-hostname" {% if not is_new %}readonly style="background:#f5f5f5"{% endif %}></div>
+      <div class="form-group"><label>主 IP</label><input type="text" id="h-ip" placeholder="例: 192.168.1.221"></div>
+      <div class="form-group"><label>其他 IP (一行一個, 選填)</label><textarea id="h-ips-extra" rows="2" placeholder="10.0.0.5&#10;10.0.0.6" style="width:100%;font-family:inherit;"></textarea></div>
+      <div class="form-group"><label>主機別名 / 歷史名稱 (一行一個, 給搜尋用)</label><textarea id="h-aliases" rows="2" placeholder="server01&#10;srv-prd-01" style="width:100%;font-family:inherit;"></textarea></div>
+      <div class="form-group"><label>作業系統</label><select id="h-os"><option value="Rocky Linux">Rocky Linux</option><option value="RHEL">RHEL</option><option value="Debian">Debian</option><option value="AIX">AIX</option><option value="Windows Server 2016">Windows Server 2016</option><option value="Windows Server 2019">Windows Server 2019</option><option value="Windows Server 2022">Windows Server 2022</option><option value="Cisco IOS">Cisco IOS</option><option value="Juniper">Juniper</option><option value="Fortinet">Fortinet</option><option value="Aruba">Aruba</option><option value="Network Device">網路設備</option><option value="IBM AS/400">IBM AS/400</option></select></div>
+      <div class="form-group"><label>OS 版本 (例: 9.6 / 13 / 2019)</label><input type="text" id="h-os-version" placeholder="9.6"></div>
+      <div class="form-group"><label>OS Group</label><select id="h-osgroup"><option value="rocky">rocky</option><option value="rhel">rhel</option><option value="debian">debian</option><option value="aix">aix</option><option value="windows">windows</option><option value="snmp">snmp</option><option value="as400">as400</option></select></div>
+      <div class="form-group"><label>環境別</label><select id="h-env"><option value="OA">OA</option><option value="正式">正式</option><option value="使用者測試(UAT)">使用者測試(UAT)</option><option value="備援">備援</option><option value="測試">測試</option><option value="開發環境(DEV)">開發環境(DEV)</option></select></div>
+      <div class="form-group"><label>資產狀態</label><select id="h-status"><option value="使用中">使用中</option><option value="停用">停用</option><option value="報廢">報廢</option><option value="待退役">待退役</option></select></div>
+    </div>
+
+    <!-- 資產表 -->
+    <div class="he-card">
+      <h3>📦 資產表</h3>
+      <div class="form-group"><label>盤點單位-處別</label><input type="text" id="h-division" placeholder="例: 資訊管理處"></div>
+      <div class="form-group"><label>盤點單位-部門</label><input type="text" id="h-department" placeholder="例: 資訊架構部"></div>
+      <div class="form-group"><label>資產序號</label><input type="text" id="h-asset-seq" placeholder="HW-XXXXXXXX"></div>
+      <div class="form-group"><label>群組名稱</label><select id="h-group-name"><option value="">未設定</option><option value="H1-第一類系統設備">H1-第一類系統設備</option><option value="H2-第二類系統設備">H2-第二類系統設備</option><option value="H3-第三類系統設備">H3-第三類系統設備</option><option value="H4-測試設備">H4-測試設備</option><option value="H5-關鍵網路設備">H5-關鍵網路設備</option><option value="H6-一般網路設備">H6-一般網路設備</option><option value="H7-基礎設備">H7-基礎設備</option><option value="H8-個人電腦及周邊設備">H8-個人電腦及周邊設備</option><option value="H9-IT 管理性系統設備">H9-IT 管理性系統設備</option></select></div>
+      <div class="form-group"><label>APID</label><input type="text" id="h-apid"></div>
+      <div class="form-group"><label>資產名稱</label><input type="text" id="h-asset-name"></div>
+      <div class="form-group"><label>整體基礎架構</label><input type="text" id="h-device-type" placeholder="地端資產 (VM)"></div>
+      <div class="form-group"><label>設備型號</label><input type="text" id="h-device-model"></div>
+      <div class="form-group"><label>資產用途</label><input type="text" id="h-asset-usage"></div>
+      <div class="form-group"><label>資產實體位置</label><input type="text" id="h-location"></div>
+      <div class="form-group"><label>機櫃編號</label><input type="text" id="h-rack-no"></div>
+      <div class="form-group"><label>數量</label><input type="number" id="h-quantity" value="1" min="1"></div>
+      <div class="form-group"><label>BIG IP/VIP</label><input type="text" id="h-bigip"></div>
+      <div class="form-group"><label>硬體編號</label><input type="text" id="h-hardware-seq"></div>
+    </div>
+
+    <!-- 人員 -->
+    <div class="he-card">
+      <h3>👤 人員</h3>
+      <div class="form-group"><label>擁有者</label><input type="text" id="h-owner"></div>
+      <div class="form-group"><label>保管者</label><input type="text" id="h-custodian"></div>
+      <div class="form-group"><label>系統管理者</label><input type="text" id="h-sys-admin"></div>
+      <div class="form-group"><label>使用者</label><input type="text" id="h-user"></div>
+    </div>
+
+    <!-- 資安 / 公司 -->
+    <div class="he-card">
+      <h3>🔐 資安 / 公司 <span style="font-weight:normal;font-size:12px;color:#888;">(CIA: 1=高 / 2=中 / 3=低)</span></h3>
+      <div class="form-group"><label>所屬公司</label><input type="text" id="h-company"></div>
+      <div class="form-group"><label>機密性</label><select id="h-confidentiality"><option value="1">1 (高)</option><option value="2">2 (中)</option><option value="3">3 (低)</option></select></div>
+      <div class="form-group"><label>完整性</label><select id="h-integrity"><option value="1">1 (高)</option><option value="2">2 (中)</option><option value="3">3 (低)</option></select></div>
+      <div class="form-group"><label>可用性</label><select id="h-availability"><option value="1">1 (高)</option><option value="2">2 (中)</option><option value="3">3 (低)</option></select></div>
+      <div class="form-group"><label>申請單編號</label><input type="text" id="h-request-no" placeholder="E000000000001"></div>
+    </div>
+
+    <!-- 附加說明 -->
+    <div class="he-card" style="grid-column: 1 / -1;">
+      <h3>📝 附加說明</h3>
+      <div class="form-group">
+        <textarea id="h-note" rows="3"></textarea>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const HE_HOSTNAME = {{ hostname|tojson }};
+const HE_IS_NEW = {{ 'true' if is_new else 'false' }};
+
+const FIELD_IDS = [
+  "hostname","ip","os","osgroup","env","status",
+  "division","department","asset-seq","group-name","apid","asset-name",
+  "device-type","device-model","asset-usage","location","rack-no","quantity",
+  "bigip","hardware-seq","owner","custodian","sys-admin","user","company","confidentiality","integrity","availability",
+  "request-no","note"
+];
+// 對應 DB 欄位 (kebab → snake; 特殊 mapping 注意)
+const ID_TO_DB = {
+  "hostname":"hostname","ip":"ip","os":"os","os-version":"os_version","osgroup":"os_group",
+  "env":"environment","status":"status",
+  "division":"division","department":"department","asset-seq":"asset_seq",
+  "group-name":"group_name","apid":"apid","asset-name":"asset_name",
+  "device-type":"device_type","device-model":"device_model",
+  "asset-usage":"asset_usage","location":"location","rack-no":"rack_no",
+  "quantity":"quantity","bigip":"bigip","hardware-seq":"hardware_seq",
+  "owner":"owner","custodian":"custodian","sys-admin":"sys_admin",
+  "user":"user","company":"company","confidentiality":"confidentiality",
+  "integrity":"integrity","availability":"availability",
+  "request-no":"request_no","note":"note"
+};
+
+function setMsg(text, cls) {
+  const el = document.getElementById("he-msg");
+  el.textContent = text;
+  el.className = "he-msg " + (cls || "");
+}
+
+async function heLoad() {
+  if (HE_IS_NEW) {
+    document.getElementById("h-quantity").value = 1;
+    document.getElementById("h-status").value = "使用中";
+    return;
+  }
+  try {
+    const r = await fetch("/api/hosts/" + encodeURIComponent(HE_HOSTNAME));
+    const res = await r.json();
+    if (!res.success) { setMsg("載入失敗: " + (res.error || "?"), "err"); return; }
+    const h = res.data;
+    FIELD_IDS.forEach(id => {
+      const el = document.getElementById("h-" + id);
+      if (!el) return;
+      const dbKey = ID_TO_DB[id];
+      const v = h[dbKey];
+      el.value = (v == null) ? (id === "quantity" ? 1 : "") : v;
+    });
+    // v3.17.9.0+: 對照實際偵測值, 顯示 WARN 警示 + 一鍵採用
+    showMismatchWarnings(h._mismatches || []);
+    // ips array: 主 IP 已經由 "ip" 處理 (FIELD_IDS 內), 副 IP 從 ips[1:] 倒進 textarea
+    const ipsArr = Array.isArray(h.ips) ? h.ips : [];
+    const extras = ipsArr.length > 1 ? ipsArr.slice(1) : [];
+    const extraEl = document.getElementById("h-ips-extra");
+    if (extraEl) extraEl.value = extras.join("\n");
+    // aliases array
+    const aliasesArr = Array.isArray(h.aliases) ? h.aliases : [];
+    const aliasesEl = document.getElementById("h-aliases");
+    if (aliasesEl) aliasesEl.value = aliasesArr.join("\n");
+  } catch (e) {
+    setMsg("載入失敗: " + e.message, "err");
+  }
+}
+
+async function heSave() {
+  const data = { has_python: true };
+  FIELD_IDS.forEach(id => {
+    const el = document.getElementById("h-" + id);
+    if (!el) return;
+    const dbKey = ID_TO_DB[id];
+    let v = el.value;
+    if (["quantity","confidentiality","integrity","availability"].includes(dbKey)) {
+      v = parseInt(v || (dbKey === "quantity" ? "1" : "1"), 10);
+    }
+    data[dbKey] = v;
+  });
+  // 組 ips array (主 IP 在 data.ip, 副 IP 從 textarea 拆)
+  const extraIPs = (document.getElementById("h-ips-extra")?.value || "")
+    .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  data.ips = data.ip ? [data.ip, ...extraIPs] : extraIPs;
+  // aliases array
+  data.aliases = (document.getElementById("h-aliases")?.value || "")
+    .split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+
+  if (!data.hostname) { setMsg("主機名稱必填", "err"); return; }
+
+  setMsg("儲存中...");
+  try {
+    const url = HE_IS_NEW ? "/api/admin/hosts" : "/api/admin/hosts/" + encodeURIComponent(HE_HOSTNAME);
+    const method = HE_IS_NEW ? "POST" : "PUT";
+    const r = await fetch(url, { method, headers: {"Content-Type":"application/json"}, body: JSON.stringify(data) });
+    const res = await r.json();
+    if (res.success === false) { setMsg("失敗: " + (res.error || res.message || "?"), "err"); return; }
+    setMsg("✓ 已儲存 " + new Date().toLocaleTimeString(), "ok");
+  } catch (e) {
+    setMsg("儲存失敗: " + e.message, "err");
+  }
+}
+
+function showMismatchWarnings(mismatches) {
+  // 移除舊 banner
+  document.querySelectorAll(".he-mismatch-banner").forEach(e => e.remove());
+  if (!mismatches || !mismatches.length) return;
+  // 在 sticky header 下方加 banner
+  const banner = document.createElement("div");
+  banner.className = "he-mismatch-banner";
+  banner.style = "background:#fef3c7;border-left:4px solid #f59e0b;padding:14px 20px;margin:0 0 16px;font-size:14px;";
+  let html = '<div style="font-weight:700;color:#92400e;margin-bottom:8px;">⚠️ 資產表填寫值跟實際偵測值不一致</div>';
+  html += '<table style="font-size:13px;width:100%;"><thead><tr><th style="text-align:left;padding:4px;">欄位</th><th style="text-align:left;padding:4px;">資產表 (你填)</th><th style="text-align:left;padding:4px;">實際偵測</th><th></th></tr></thead><tbody>';
+  const NAME = {os: "作業系統", ip: "IP", hostname: "主機名稱"};
+  mismatches.forEach(m => {
+    html += '<tr>' +
+      '<td style="padding:4px;font-weight:600;">' + (NAME[m.field] || m.field) + '</td>' +
+      '<td style="padding:4px;color:#dc2626;">' + escapeAttr(m.user) + '</td>' +
+      '<td style="padding:4px;color:#059669;font-weight:600;">' + escapeAttr(m.actual) + '</td>' +
+      '<td style="padding:4px;"><button class="btn btn-sm" style="background:#10b981;color:#fff;font-size:12px;" onclick="adoptActual(\'' + m.field + '\')">⇨ 一鍵採用實際值</button></td>' +
+      '</tr>';
+  });
+  html += '</tbody></table>';
+  banner.innerHTML = html;
+  const wrap = document.querySelector(".he-wrap");
+  if (wrap) wrap.insertBefore(banner, wrap.firstChild);
+}
+
+async function adoptActual(field) {
+  if (!confirm("確定把「" + field + "」改成實際偵測值?\n(改的是資產表記錄, 不影響真實主機)")) return;
+  setMsg("採用中...");
+  try {
+    const r = await fetch("/api/hosts/" + encodeURIComponent(HE_HOSTNAME) + "/adopt-actual", {
+      method: "POST", headers: {"Content-Type":"application/json"}, credentials: "include",
+      body: JSON.stringify({field: field})
+    });
+    const res = await r.json();
+    if (!res.success) { setMsg("失敗: " + (res.error || ""), "err"); return; }
+    setMsg("✓ " + (res.message || "已採用"), "ok");
+    setTimeout(heLoad, 500);  // 重抓資料
+  } catch(e) { setMsg("錯誤: " + e.message, "err"); }
+}
+
+function escapeAttr(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+
+document.addEventListener("DOMContentLoaded", heLoad);
+</script>
+{% endblock %}

@@ -392,7 +392,8 @@ function renderHosts() {
       var mm = h._mismatches.find(function(m){return m.field === "os";});
       osBadge = ' <span style="color:#dc2626;font-weight:700;cursor:help;" title="實際偵測: ' + escapeHtml(mm.actual) + '">⚠️</span>';
     }
-    html += '<td>' + escapeHtml(h.os || "-") + osBadge + '</td>';
+    var osDisplay = (h.os || "") + (h.os_version ? " " + h.os_version : "");
+    html += '<td>' + escapeHtml(osDisplay || "-") + osBadge + '</td>';
     html += '<td>' + escapeHtml(h.environment || "-") + '</td>';
     html += '<td>' + escapeHtml(h.asset_name || "-") + '</td>';
     html += '<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;" title="' + escapeHtml(h.note || "") + '">' + escapeHtml((h.note || "-").substring(0, 60)) + ((h.note || "").length > 60 ? "..." : "") + '</td>';
