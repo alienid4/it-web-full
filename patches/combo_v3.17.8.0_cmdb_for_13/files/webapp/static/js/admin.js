@@ -293,34 +293,116 @@ function loadFlaskLog() {
 }
 
 // === Hosts Tab ===
+var _allHosts = [];
+var _hostFilters = { env: null, os: null, usage: null };
+var _hostSort = { key: "hostname", dir: "asc" };
+
 function loadHostsTab() {
-  fetch("/api/hosts?per_page=200").then(function(r){return r.json();}).then(function(res) {
-    var data = res.data || [];
-    if (!data.length) {
+  fetch("/api/hosts?per_page=2000").then(function(r){return r.json();}).then(function(res) {
+    _allHosts = res.data || [];
+    if (!_allHosts.length) {
       document.getElementById("admin-hosts-list").innerHTML = '<div class="no-data">無主機</div>';
       return;
     }
-    var html = '<table style="width:100%;"><thead><tr><th>主機</th><th>IP</th><th>OS</th><th>環境</th><th>保管者</th><th>部門</th><th>群組</th><th>操作</th></tr></thead><tbody>';
-    data.forEach(function(h) {
-      var hn = h.hostname;
-      html += '<tr id="row-'+hn+'">';
-      html += '<td><strong>'+hn+'</strong></td>';
-      html += '<td>'+h.ip+'</td>';
-      html += '<td>'+(h.os||"-")+'</td>';
-      html += '<td>'+(h.environment||"-")+'</td>';
-      html += '<td id="custodian-'+hn+'">'+(h.custodian||"-")+'</td>';
-      html += '<td id="dept-'+hn+'">'+(h.department||"-")+'</td>';
-      html += '<td id="group-'+hn+'">'+(h.group||"-")+'</td>';
-      html += '<td style="white-space:nowrap;">';
-      html += '<a class="btn btn-sm" style="background:var(--g2);color:white;text-decoration:none;" href="/admin/host-edit/'+encodeURIComponent(hn)+'" target="_blank">📝 編輯</a> ';
-      html += '<button class="btn btn-sm" style="background:var(--g1);color:white;" onclick="pingHost(\''+hn+'\')">Ping</button> ';
-      html += '<button class="btn btn-sm btn-danger" onclick="adminAction(\'/api/admin/hosts/'+hn+'\',\'DELETE\',\'確定要刪除 '+hn+'？\')">刪除</button>';
-      html += '</td></tr>';
-    });
-    html += '</tbody></table>';
-    document.getElementById("admin-hosts-list").innerHTML = html;
+    buildFilterChips();
+    renderHosts();
   });
 }
+
+function buildFilterChips() {
+  function distinct(arr) { return [...new Set(arr.filter(Boolean))].sort(); }
+  var envs = distinct(_allHosts.map(function(h){return h.environment;}));
+  var oss  = distinct(_allHosts.map(function(h){return h.os_group || h.os;}));
+  var uses = distinct(_allHosts.map(function(h){return h.asset_usage;}));
+  function html(arr, type) {
+    return arr.map(function(v){
+      var active = _hostFilters[type] === v ? " active" : "";
+      return '<span class="hosts-chip' + active + '" onclick="hostsToggleFilter(\'' + type + '\',\'' + String(v).replace(/'/g,"&#39;") + '\')">' + escapeHtml(v) + '</span>';
+    }).join("");
+  }
+  document.getElementById("hosts-filter-env").innerHTML = html(envs, "env");
+  document.getElementById("hosts-filter-os").innerHTML = html(oss, "os");
+  document.getElementById("hosts-filter-usage").innerHTML = html(uses, "usage") || '<span style="color:#9ca3af;font-size:12px;">尚無 (請至主機編輯填「資產用途」)</span>';
+}
+
+function hostsToggleFilter(type, value) {
+  _hostFilters[type] = (_hostFilters[type] === value) ? null : value;
+  buildFilterChips();
+  renderHosts();
+}
+
+function hostsSetSort(key) {
+  if (_hostSort.key === key) _hostSort.dir = _hostSort.dir === "asc" ? "desc" : "asc";
+  else { _hostSort.key = key; _hostSort.dir = "asc"; }
+  renderHosts();
+}
+
+function escapeHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, function(c){return ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[c];});
+}
+
+function renderHosts() {
+  var search = (document.getElementById("hosts-search").value || "").trim().toLowerCase();
+  var filtered = _allHosts.filter(function(h) {
+    if (_hostFilters.env && h.environment !== _hostFilters.env) return false;
+    if (_hostFilters.os) {
+      var osg = h.os_group || h.os;
+      if (osg !== _hostFilters.os) return false;
+    }
+    if (_hostFilters.usage && h.asset_usage !== _hostFilters.usage) return false;
+    if (search) {
+      var hay = [h.hostname, h.ip, h.asset_name, h.note, h.system_name, h.apid].concat(h.aliases || []).concat(h.ips || []).join(" ").toLowerCase();
+      if (hay.indexOf(search) < 0) return false;
+    }
+    return true;
+  });
+  filtered.sort(function(a, b) {
+    var av = (a[_hostSort.key] || "").toString();
+    var bv = (b[_hostSort.key] || "").toString();
+    if (av < bv) return _hostSort.dir === "asc" ? -1 : 1;
+    if (av > bv) return _hostSort.dir === "asc" ? 1 : -1;
+    return 0;
+  });
+  var arrow = function(k){ return _hostSort.key === k ? (_hostSort.dir === "asc" ? " ▲" : " ▼") : ""; };
+  document.getElementById("hosts-result-count").innerHTML =
+    "顯示 <b>" + filtered.length + "</b> / " + _allHosts.length + " 台" +
+    ((_hostFilters.env || _hostFilters.os || _hostFilters.usage || search) ? ' <a href="javascript:hostsClearFilters()" style="color:#10b981;font-size:12px;">[清除全部 filter]</a>' : "");
+  var html = '<table style="width:100%;">' +
+    '<thead><tr>' +
+    '<th class="hosts-th-sortable" onclick="hostsSetSort(\'hostname\')">主機名稱' + arrow("hostname") + '</th>' +
+    '<th class="hosts-th-sortable" onclick="hostsSetSort(\'ip\')">IP' + arrow("ip") + '</th>' +
+    '<th class="hosts-th-sortable" onclick="hostsSetSort(\'os\')">OS' + arrow("os") + '</th>' +
+    '<th class="hosts-th-sortable" onclick="hostsSetSort(\'environment\')">環境' + arrow("environment") + '</th>' +
+    '<th class="hosts-th-sortable" onclick="hostsSetSort(\'asset_name\')">資產名稱' + arrow("asset_name") + '</th>' +
+    '<th>附加說明</th>' +
+    '<th>操作</th>' +
+    '</tr></thead><tbody>';
+  filtered.forEach(function(h) {
+    var hn = h.hostname;
+    html += '<tr>';
+    html += '<td><strong>' + escapeHtml(hn) + '</strong></td>';
+    html += '<td>' + escapeHtml(h.ip || "-") + '</td>';
+    html += '<td>' + escapeHtml(h.os || "-") + '</td>';
+    html += '<td>' + escapeHtml(h.environment || "-") + '</td>';
+    html += '<td>' + escapeHtml(h.asset_name || "-") + '</td>';
+    html += '<td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;" title="' + escapeHtml(h.note || "") + '">' + escapeHtml((h.note || "-").substring(0, 60)) + ((h.note || "").length > 60 ? "..." : "") + '</td>';
+    html += '<td style="white-space:nowrap;">';
+    html += '<a class="btn btn-sm" style="background:var(--g2);color:white;text-decoration:none;" href="/admin/host-edit/' + encodeURIComponent(hn) + '" target="_blank">📝 編輯</a> ';
+    html += '<button class="btn btn-sm" style="background:var(--g1);color:white;" onclick="pingHost(\'' + hn + '\')">Ping</button> ';
+    html += '<button class="btn btn-sm btn-danger" onclick="adminAction(\'/api/admin/hosts/' + hn + '\',\'DELETE\',\'確定要刪除 ' + hn + '？\')">刪除</button>';
+    html += '</td></tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById("admin-hosts-list").innerHTML = html;
+}
+
+function hostsClearFilters() {
+  _hostFilters = { env: null, os: null, usage: null };
+  document.getElementById("hosts-search").value = "";
+  buildFilterChips();
+  renderHosts();
+}
+
 
 function editHost(hostname) {
   fetch("/api/hosts/"+hostname).then(function(r){return r.json();}).then(function(res) {

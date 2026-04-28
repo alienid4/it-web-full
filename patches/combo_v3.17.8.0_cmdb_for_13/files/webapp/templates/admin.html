@@ -179,6 +179,30 @@
     <button class="btn" style="background:var(--orange);color:white;" onclick="adminAction('/api/admin/hosts/regenerate-inventory','POST','確定重建 Ansible Inventory？')">重建 Inventory</button>
     <input type="file" id="csv-upload" accept=".csv" style="display:none;" onchange="uploadCSV(this)">
   </div>
+  <!-- v3.17.8.0+ filter bar -->
+  <style>
+    .hosts-chip { display:inline-block; padding:4px 12px; margin:2px; border-radius:16px; background:#e5e7eb; color:#374151; border:1px solid #d1d5db; font-size:12px; cursor:pointer; transition:all .15s; }
+    .hosts-chip:hover { background:#d1d5db; }
+    .hosts-chip.active { background:#10b981; color:#fff; border-color:#059669; }
+    .hosts-th-sortable { cursor:pointer; user-select:none; }
+    .hosts-th-sortable:hover { background:#f0fdf4; }
+  </style>
+  <div class="card" style="padding:12px;margin-bottom:12px;">
+    <input id="hosts-search" placeholder="🔍 搜尋 主機名稱 / IP / 資產名稱 / 附加說明 / 系統別" style="width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:14px;" oninput="renderHosts()">
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <span style="font-weight:600;color:#374151;min-width:60px;">環境:</span>
+      <span id="hosts-filter-env"></span>
+    </div>
+    <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <span style="font-weight:600;color:#374151;min-width:60px;">OS:</span>
+      <span id="hosts-filter-os"></span>
+    </div>
+    <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <span style="font-weight:600;color:#374151;min-width:60px;">使用情境:</span>
+      <span id="hosts-filter-usage"></span>
+    </div>
+    <div id="hosts-result-count" style="margin-top:8px;color:#6b7280;font-size:13px;"></div>
+  </div>
   <div class="card"><div id="admin-hosts-list">載入中...</div></div>
   <div class="card" style="margin-top:16px;">
     <div class="card-title">各主機服務狀態</div>
