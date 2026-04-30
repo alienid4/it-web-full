@@ -1,7 +1,8 @@
 {
-  "version": "3.17.11.0",
-  "updated_at": "2026-04-30 10:30",
+  "version": "3.17.11.1",
+  "updated_at": "2026-04-30 11:00",
   "changelog": [
+    "3.17.11.1 - 2026-04-30: hot-fix v3.17.11.0 起不來. 13 service 卡 activating + ImportError: cannot import name 'get_hosts_col' from services.mongo_service. 兩個 bug 一起補: (1) 本機 mongo_service.py:22 寫成 def get_hosts_col(): return get_hosts_col() 無限遞迴, 改成 return get_collection('hosts'). (2) 13 上 mongo_service.py 從來沒升 v3.14.2.0 的 helper, 之前的 v3.17.10.x hot-fix 都只動拓撲檔, 沒帶 mongo_service.py. v3.17.11.1 patch 把 mongo_service.py 也納入 (3 檔), 一次解決. 補打 retry curl smoke (避開 sleep 3 太緊假象, memory feedback_install_sleep_too_short).",
     "3.17.11.0 - 2026-04-30: hosts CSV import 加『業務系統』欄, 自動同步 dependency_systems (拓撲拼圖最後一塊). 對映: 業務系統欄=資產表的『資產名稱』(自動避險/SPEEDY 等中文業務系統名), 直接當 system_id PK + display_name. APID/群組名稱/整體基礎架構 → 進 metadata 當輔助. 新增 dependency_service.py:sync_systems_from_hosts() (build/update/move 三條邏輯; 主機改系統時舊 system 自動移除 host_refs). 改 api_admin.py:import_csv/export_csv/template_csv/template_xlsx 加欄. 5 case mock test 通過. 修『dep_sys=0 → 拓撲畫不出』根因.",
     "3.17.7.0 - 2026-04-28: AI/ baseline 對齊到 221 deployed v3.17.7.0 (CMDB 整合 P1-P6 + 拓撲派生 + nav 重整). 詳見 patches/v3.15.5.0 ~ v3.17.7.0 + combo_v3.17.7.0_cmdb_for_13. Patches 各自 install.sh 含 DB migration + smoke + contract check. 22 路 main + 3 DB migration. 此 commit 為 rollup 標記, 實際每個版本 changelog 在各 patch_info.txt.",
     "3.14.2.0 - 2026-04-28: 重構 - mongo_service 加 get_hosts_col() helper, 把 hosts collection 名稱集中到一處 (51 處呼叫 → 1 處集中). 未來資產表 schema 改造若要改 collection 名 (hosts → assets), 只動 1 行 (mongo_service.py 的 helper 內 return get_collection 那行). 影響檔案 10 個 (mongo_service/api_admin/api_audit/api_hosts/api_nmon/cio_service/dependency_service/nmon_service/seed_dependency_demo/dependency_seed_collect), 全部 ast 語法檢查通過, 行為不變。",
