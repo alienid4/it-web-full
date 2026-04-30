@@ -3,45 +3,33 @@
 **為什麼**: 昨天 (2026-04-29) 裝完 v3.17.10.4 + 設 cron，今天回報拓撲頁畫面空白連 dep-meta 都沒。
 這比典型「0 邊」更上游，靠對話一條條問太慢。改用擴充版 debug 腳本一次掃齊，只印異常。
 
+**派送**: GitHub release `debug-topology-v2` (asset: debug_topology.sh, 16KB)，13/11 直接 `gh release download` 抓，不走 patches/ 也不 scp。
+
 **腳本變動**:
-- patches/debug_topology.sh v1 → v2 (commit 434ea00)
+- v1 (commit c3da6a8) → v2 (release debug-topology-v2)
 - v1 只能驗 8 點且 `_topology_from_hosts` 已不存在會 ImportError
 - v2 修掉，改驗 v3.17.10.x 的 `topology()` 三個 view，並新加 6 段 (採集紀錄 / host_refs 反查 / HTTP 三路由 / journalctl traceback / cron / ansible log)
 - 預設 quiet mode (OK 不印,異常才印)
 
 ---
 
-## 步驟 1. 在 secansible 拉新版
-
-```bash
-cd <repo path on secansible>
-git pull
-```
-
-確認 `patches/debug_topology.sh` 是 commit 434ea00 的版本：
-
-```bash
-git log -1 --oneline patches/debug_topology.sh
-```
-
-預期：`434ea00 feat(debug v2): 拓撲 debug 腳本重寫 — quiet mode + 6 新檢查段 ...`
-
----
-
-## 步驟 2. scp 到 13
-
-```bash
-scp patches/debug_topology.sh sysinfra@<13-ip>:/tmp/
-```
-
-(實 IP 從 ~/.ssh/config 或 ~/.xxx.local 帶,依 memory feedback_no_real_ip_in_notes 不寫對話)
-
----
-
-## 步驟 3. 在 13 跑
+## 步驟 1. 在 13 抓 release asset
 
 ```bash
 ssh sysinfra@<13-ip>
+gh release download debug-topology-v2 -p debug_topology.sh -O /tmp/debug_topology.sh
+ls -la /tmp/debug_topology.sh   # 確認 ~16KB,LF 換行
+```
+
+Release URL: https://github.com/alienid4/it-web-full/releases/tag/debug-topology-v2
+
+(IP 從 ~/.ssh/config 或 ~/.xxx.local 帶,依 memory feedback_no_real_ip_in_notes 不寫對話)
+
+---
+
+## 步驟 2. 跑 (quiet mode)
+
+```bash
 sudo bash /tmp/debug_topology.sh 2>&1 | tee /tmp/dep_debug_$(date +%H%M).log
 ```
 
@@ -87,6 +75,21 @@ sudo VERBOSE=1 bash /tmp/debug_topology.sh 2>&1 | tee /tmp/dep_debug_v_$(date +%
 ```
 
 VERBOSE=1 會印所有 [OK] 行和 mongosh 原始輸出。
+
+---
+
+## 未來修腳本
+
+source 仍在 `patches/debug_topology.sh`，改完後重 release：
+
+```bash
+# 本機改完
+gh release create debug-topology-v3 patches/debug_topology.sh \
+  --title "debug-topology-v3 — <describe change>" \
+  --notes "..."
+```
+
+不 `--clobber` 舊 tag (memory feedback_release_tag_immutable)。
 
 ---
 
