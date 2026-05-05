@@ -1,4 +1,0 @@
----
-# Role 入口 - 目前只支援 Linux,後續 Stage 3b 會加 windows.yml
-- include_tasks: linux.yml
-  when: ansible_system | lower == "linux"
