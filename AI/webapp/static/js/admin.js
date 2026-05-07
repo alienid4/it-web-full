@@ -704,7 +704,7 @@ function renderNmonHosts() {
   var showAll = document.getElementById("nmon-sched-show-all").checked;
   var container = document.getElementById("nmon-sched-hosts");
   var visible = _nmonHosts.filter(function(h){
-    if (!showAll && !h.nmon_supported) return false;
+    if (!showAll && !h.nmon_supported && !h.nmon_enabled) return false;
     if (!q) return true;
     return (h.hostname||"").toLowerCase().indexOf(q)>=0 ||
            (h.ip||"").toLowerCase().indexOf(q)>=0 ||
@@ -720,12 +720,14 @@ function renderNmonHosts() {
 
   var html = '';
   visible.forEach(function(h){
-    var disabled = !h.nmon_supported;
+    var disabled = !h.nmon_supported && !h.nmon_enabled;
     var hostInterval = h.nmon_interval_min || _nmonDefaultInterval;
     var tierBadge = h.tier ? '<span style="font-size:10px;margin-left:4px;color:var(--c4);">['+h.tier+']</span>' : '';
     var deployInfo = '';
     if (h.nmon_enabled && h.nmon_deployed_at) {
       deployInfo = '<div style="font-size:10px;color:var(--g1);margin-top:4px;">✓ '+h.nmon_deployed_at.substring(5,16)+'</div>';
+    } else if (h.nmon_enabled && !h.nmon_supported) {
+      deployInfo = '<div style="font-size:10px;color:var(--orange,#f59e0b);margin-top:4px;">⚠ 已啟用但 OS 未偵測 (可重新套用 cron)</div>';
     } else if (!h.nmon_supported) {
       deployInfo = '<div style="font-size:10px;color:var(--red);margin-top:4px;">不支援 ('+(h.os_group||'?')+')</div>';
     }
