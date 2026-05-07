@@ -114,29 +114,44 @@ cd patches/v3.17.14.0-nmon-offline-rpm-pusher && sudo bash install.sh
 # 6. 看 cron.log 沒新錯誤, smoke test 7 步全綠
 ```
 
-## 公司 198.13 部署 SOP
+## 公司部署 SOP (公司網段隔離, 不能 git pull)
+
+公司網段抓不到 GitHub, 必須走 **release tarball** 通道:
 
 ```bash
-# 1. 任何能進公司的機器先 git pull (拉 patch + RPM)
-cd /path/to/CL_webit && git pull
+# === 在家裡 / 能進公司的中介機器 ===
+# 1. 從 GitHub release 下載 tarball (建議), 或自打包
+#    Release URL: https://github.com/alienid4/it-web-full/releases/tag/v3.17.14.0
+#    下載: v3.17.14.0-nmon-offline-rpm-pusher.tar.gz (~85KB)
+#
+# 或從 git working copy 自打包:
+cd /path/to/CL_webit/patches
+tar czf /tmp/v3.17.14.0-nmon-offline-rpm-pusher.tar.gz v3.17.14.0-nmon-offline-rpm-pusher/
 
-# 2. 打包 patch (不打也可以, 但壓縮傳檔比較方便)
-tar czf v3.17.14.0.tar.gz patches/v3.17.14.0-nmon-offline-rpm-pusher/
+# 2. 帶 tarball 進公司 (USB / 公司允許的傳檔方式)
 
-# 3. 帶 tarball 進公司 (USB / SCP / 公司允許的方式)
+# === 在公司巡檢主機上 ===
+# 3. 解壓
+cd /tmp && tar xzf v3.17.14.0-nmon-offline-rpm-pusher.tar.gz
 
-# 4. 在公司巡檢主機上
-cd /path && tar xzf v3.17.14.0.tar.gz
-cd patches/v3.17.14.0-nmon-offline-rpm-pusher
+# 4. 部署
+cd v3.17.14.0-nmon-offline-rpm-pusher
 sudo bash install.sh
+# install.sh 會: 確認 v3.17.13.0 已部署 → 備份 → 部署檔案 → workaround EnvFile
+#                → restart webapp (retry 5x)
 
 # 5. 開 http://<COMPANY_INSPECTION_HOST>:5000 → 系統管理 → 監控平台管理 → 效能月報管理
 # 6. 點「🔍 立即檢查」 → <TARGET_HOST> 應為 🔴 (bin=✗)
-# 7. 點「📦 派送 RPM」 → confirm → 等 1-3 分鐘
-# 8. 再點「🔍 立即檢查」 → <TARGET_HOST> 應變 🟢 (bin=✓)
-# 9. 等 5 分鐘讓 nmon cron 採第一筆
+# 7. 點「📦 派送 RPM」 → modal 勾選主機 → 派送 → 等 1-3 分鐘
+# 8. 自動 re-verify → <TARGET_HOST> 應變 🟢 (bin=✓)
+# 9. 等 5-10 分鐘讓 nmon cron 採第一筆
 # 10. 看 web UI /perf → <TARGET_HOST> 應有資料
 ```
+
+## 配套 SKILL (放使用者 ~/.claude/skills/nmon-rpm-deploy/)
+
+下次使用者問「nmon 沒裝」「EPEL 不通」「派送 RPM」, Claude 會自動引導
+用本 patch 的 UI 流程 + 故障對照表. 詳見 `~/.claude/skills/nmon-rpm-deploy/SKILL.md`.
 
 ## 復原
 
