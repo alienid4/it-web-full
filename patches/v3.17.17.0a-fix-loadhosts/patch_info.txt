@@ -1,0 +1,5 @@
+patch_version=3.17.17.0a
+patch_name=fix-loadhosts
+baseline=3.17.17.0
+date=2026-05-08
+description=Hotfix: loadHosts() -> loadHostsTab() in startBatchOnboard. Fixes ReferenceError after batch onboard completes.
