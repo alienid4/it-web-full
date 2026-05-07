@@ -1,0 +1,5 @@
+patch_version=3.17.15.0a
+patch_name=nmon-ibm-schedule
+baseline=3.17.14.2
+date=2026-05-07
+description=NMON IBM dual cron schedule: remove configurable interval, fixed 60s*1440 (daily/weekly) + 900s*96 (monthly), dual cron status check, admin info card

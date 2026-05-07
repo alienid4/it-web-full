@@ -1,0 +1,5 @@
+patch_version=3.17.17.0
+patch_name=subnet-scan
+baseline=3.17.16.0
+date=2026-05-07
+description=Subnet scan: ping sweep CIDR (nmap/fping/parallel-ping fallback), select live hosts, add to system. nmap optional - fallback always works.

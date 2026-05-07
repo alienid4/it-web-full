@@ -1,0 +1,5 @@
+patch_version=3.17.16.0
+patch_name=batch-onboard
+baseline=3.17.15.0a
+date=2026-05-07
+description=Batch host onboard: paste list or CSV, auto rebuild inventory, probe OS per host with per-host failure log
