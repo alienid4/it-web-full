@@ -1182,3 +1182,48 @@ async function deleteDependencyRelation(relId) {
   } catch(e) { _dashToast && _dashToast("✗ "+e.message, "error"); }
 }
 // ===== END 系統聯通圖管理 =====
+
+// ===== v3.17.14.2: nmon 資料收集 + 匯入按鈕 =====
+function nmonCollectNow() {
+  var btn = document.getElementById('nmon-collect-btn');
+  var st = document.getElementById('nmon-collect-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 收集中 (ansible fetch, 約1-3分)...'; }
+  if (st) st.textContent = '';
+  fetch('/api/nmon/collect', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(function(r){return r.json();})
+    .then(function(j){
+      if (btn) { btn.disabled = false; btn.textContent = '📡 立即收集'; }
+      if (j.success) {
+        if (st) st.textContent = '✅ 背景執行中，完成後點「匯入 MongoDB」\n主機: ' + (j.limit||[]).join(', ');
+      } else {
+        if (st) st.textContent = '❌ ' + (j.error || 'unknown');
+      }
+    }).catch(function(e){
+      if (btn) { btn.disabled = false; btn.textContent = '📡 立即收集'; }
+      if (st) st.textContent = '❌ ' + e;
+    });
+}
+
+function nmonImportNow() {
+  var btn = document.getElementById('nmon-import-btn');
+  var st = document.getElementById('nmon-import-status');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 匯入中...'; }
+  if (st) st.textContent = '';
+  fetch('/api/nmon/import', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(function(r){return r.json();})
+    .then(function(j){
+      if (btn) { btn.disabled = false; btn.textContent = '📥 匯入 MongoDB'; }
+      if (j.success) {
+        var d = j.data || {};
+        if (st) st.textContent = '✅ scanned=' + (d.scanned||0) + ' imported=' + (d.imported||0) + ' skipped=' + (d.skipped||0)
+          + (d.failed&&d.failed.length ? '\n❌ failed: '+d.failed.slice(0,3).join(', ') : '')
+          + '\n→ 現在可到「效能月報」頁查看資料';
+      } else {
+        if (st) st.textContent = '❌ ' + (j.error || 'unknown');
+      }
+    }).catch(function(e){
+      if (btn) { btn.disabled = false; btn.textContent = '📥 匯入 MongoDB'; }
+      if (st) st.textContent = '❌ ' + e;
+    });
+}
+// ===== END nmon 資料收集 =====

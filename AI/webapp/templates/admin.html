@@ -239,6 +239,29 @@
     <div id="nmon-sched-hosts" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px;border:1px solid #eee;border-radius:6px;min-height:60px;background:#fafafa;">載入中...</div>
   </div>
   <!-- ===== nmon 排程結束 ===== -->
+
+  <!-- ===== nmon 資料收集 + 匯入 (v3.17.14.2) ===== -->
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title" style="display:flex;align-items:center;gap:12px;">
+      📡 資料收集與匯入
+      <span style="font-size:11px;color:var(--c3);font-weight:400;">deploy 後/套用後 手動觸發一次，後續由 run_inspection.sh 每日自動執行</span>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;">
+      <div style="flex:1;min-width:220px;">
+        <div style="font-size:13px;color:var(--c2);margin-bottom:6px;font-weight:600;">Step 1：收集 .nmon 檔</div>
+        <div style="font-size:11px;color:var(--c3);margin-bottom:10px;">ansible 從各主機 fetch 最近 2 天的 .nmon 到控制節點 data/nmon/</div>
+        <button class="btn btn-primary" onclick="nmonCollectNow()" id="nmon-collect-btn">📡 立即收集</button>
+        <div id="nmon-collect-status" style="font-size:11px;color:var(--c3);margin-top:8px;white-space:pre-wrap;"></div>
+      </div>
+      <div style="flex:1;min-width:220px;">
+        <div style="font-size:13px;color:var(--c2);margin-bottom:6px;font-weight:600;">Step 2：匯入 MongoDB</div>
+        <div style="font-size:11px;color:var(--c3);margin-bottom:10px;">解析 data/nmon/ 的 .nmon 檔，寫入 nmon_daily collection，/perf 就有資料</div>
+        <button class="btn" style="background:var(--g2);color:white;" onclick="nmonImportNow()" id="nmon-import-btn">📥 匯入 MongoDB</button>
+        <div id="nmon-import-status" style="font-size:11px;color:var(--c3);margin-top:8px;white-space:pre-wrap;"></div>
+      </div>
+    </div>
+  </div>
+  <!-- ===== nmon 資料收集結束 ===== -->
 </div>
 
 <div id="tab-reports" class="tab-panel" data-feature="twgcb">
