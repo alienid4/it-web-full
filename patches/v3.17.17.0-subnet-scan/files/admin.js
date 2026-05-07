@@ -1541,7 +1541,7 @@ function startBatchOnboard() {
     });
     document.getElementById('bo-probe-log').textContent = res.probe_log || '';
     document.getElementById('bo-result').style.display = '';
-    loadHosts();
+    loadHostsTab();
   }).catch(function(e) {
     btn.disabled = false; btn.textContent = '開始上線';
     alert('錯誤: ' + e);
