@@ -1,0 +1,82 @@
+---
+# v3.17.14.0 - install_nmon_rpm role
+# 用途: 對 EPEL 不通的隔離環境 (公司內網), 派送離線 nmon RPM 並安裝
+#
+# MVP 版本 (v3.17.14.0): 不驗 GPG, 不限 sudoers, 不寫 audit log
+# 合規版本 (v3.17.14.1+ TBD): 加 rpm --import / rpm -K / always cleanup / sudoers 限定
+# 詳見 patches/v3.17.14.0-nmon-offline-rpm-pusher/README.md 「合規 deferred 清單」
+
+- name: Skip if not RHEL family
+  meta: end_host
+  when: ansible_os_family != "RedHat"
+
+- name: Detect existing nmon binary (idempotent)
+  command: which nmon
+  register: nmon_existing
+  failed_when: false
+  changed_when: false
+
+- name: Show that nmon already exists (skip install)
+  debug:
+    msg: "{{ inventory_hostname }}: nmon already installed at {{ nmon_existing.stdout }}, skipping"
+  when: nmon_existing.rc == 0
+
+- name: Detect EL major version
+  set_fact:
+    el_major: "{{ ansible_distribution_major_version | default('9') }}"
+  when: nmon_existing.rc != 0
+
+- name: Build RPM filename for this host
+  set_fact:
+    rpm_filename: "nmon-16p-1.el{{ el_major }}.x86_64.rpm"
+  when: nmon_existing.rc != 0
+
+- name: Verify RPM exists in offline_bundle (control node side)
+  delegate_to: localhost
+  stat:
+    path: "{{ inspection_home }}/offline_bundle/nmon/{{ rpm_filename }}"
+  register: rpm_local_stat
+  when: nmon_existing.rc != 0
+
+- name: Fail clearly if RPM missing
+  fail:
+    msg: |
+      離線 RPM 不在 offline_bundle/nmon/{{ rpm_filename }}.
+      請執行 {{ inspection_home }}/scripts/download_nmon_rpm.sh 抓最新版,
+      或從別台外網主機拷貝 nmon-16p-1.el{{ el_major }}.x86_64.rpm 進來.
+  when: nmon_existing.rc != 0 and not rpm_local_stat.stat.exists
+
+- name: Copy RPM to target /tmp
+  copy:
+    src: "{{ inspection_home }}/offline_bundle/nmon/{{ rpm_filename }}"
+    dest: "/tmp/{{ rpm_filename }}"
+    mode: "0644"
+  when: nmon_existing.rc != 0
+
+- name: Install nmon RPM (use yum module for idempotency)
+  yum:
+    name: "/tmp/{{ rpm_filename }}"
+    state: present
+    disable_gpg_check: yes  # MVP: GPG 檢查暫關, 合規版要改 yes → no + 預先 import key
+  become: yes
+  when: nmon_existing.rc != 0
+  register: rpm_install_result
+
+- name: Verify nmon binary installed
+  command: which nmon
+  register: nmon_after
+  changed_when: false
+  failed_when: nmon_after.rc != 0
+  when: nmon_existing.rc != 0
+
+- name: Show install result
+  debug:
+    msg: "{{ inventory_hostname }}: nmon installed at {{ nmon_after.stdout }} (was missing before)"
+  when: nmon_existing.rc != 0
+
+- name: Cleanup /tmp RPM (best-effort, non-blocking)
+  file:
+    path: "/tmp/{{ rpm_filename }}"
+    state: absent
+  when: nmon_existing.rc != 0
+  failed_when: false

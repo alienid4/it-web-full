@@ -1,0 +1,74 @@
+
+
+# ============================================================================
+# v3.17.14.0+: NMON 離線 RPM 派送 endpoint
+# ============================================================================
+# 用途: 對 EPEL 不通的隔離環境 (公司內網), 一鍵派送離線 nmon RPM 並安裝
+# 對應 UI: 系統管理 → 監控平台管理 → 效能月報管理 → 「📊 NMON 部署狀態」 → 「📦 派送 RPM」
+import re as _re_v3_17_14
+import os as _os_v3_17_14
+import subprocess as _sp_v3_17_14
+
+@bp.route("/install-rpm", methods=["POST"])
+@login_required
+@admin_required
+def install_nmon_rpm():
+    """v3.17.14.0: 派送離線 nmon RPM 到指定主機.
+
+    Request body: {"hostnames": ["host1", "host2", ...]}
+    Response: {"success": bool, "stdout": str, "stderr": str, "returncode": int, "hostnames": [...]}
+    """
+    body = request.get_json(silent=True) or {}
+    hostnames = body.get("hostnames") or []
+    if not isinstance(hostnames, list) or not hostnames:
+        return jsonify({"success": False, "error": "hostnames (list) required"}), 400
+
+    # 主機名格式驗證 (避免 shell injection 走 --limit)
+    safe_re = _re_v3_17_14.compile(r"^[a-zA-Z0-9._-]+$")
+    invalid = [h for h in hostnames if not (isinstance(h, str) and safe_re.match(h))]
+    if invalid:
+        return jsonify({"success": False, "error": "invalid hostname format: " + str(invalid)}), 400
+
+    # 偵測 INSPECTION_HOME (跟 run_inspection.sh 同邏輯)
+    inspection_home = _os_v3_17_14.environ.get("INSPECTION_HOME")
+    if not inspection_home:
+        # routes/api_nmon.py → webapp/routes/ → webapp/ → INSPECTION_HOME
+        here = _os_v3_17_14.path.dirname(_os_v3_17_14.path.abspath(__file__))
+        inspection_home = _os_v3_17_14.path.dirname(_os_v3_17_14.path.dirname(here))
+
+    ansible_dir = _os_v3_17_14.path.join(inspection_home, "ansible")
+    playbook = _os_v3_17_14.path.join(ansible_dir, "playbooks", "install_nmon_rpm.yml")
+    inventory = _os_v3_17_14.path.join(ansible_dir, "inventory", "hosts.yml")
+    vault_pass = _os_v3_17_14.path.join(inspection_home, ".vault_pass")
+
+    # 檢查檔案存在
+    for path, label in [(playbook, "playbook"), (inventory, "inventory")]:
+        if not _os_v3_17_14.path.exists(path):
+            return jsonify({"success": False, "error": label + " not found: " + path}), 500
+
+    limit_arg = ":".join(hostnames)
+    cmd = [
+        "ansible-playbook", playbook,
+        "-i", inventory,
+        "--limit", limit_arg,
+        "--extra-vars", "inspection_home=" + inspection_home,
+    ]
+    if _os_v3_17_14.path.exists(vault_pass):
+        cmd[1:1] = ["--vault-password-file", vault_pass]
+
+    try:
+        proc = _sp_v3_17_14.run(
+            cmd, cwd=ansible_dir, capture_output=True, text=True, timeout=300
+        )
+        return jsonify({
+            "success": proc.returncode == 0,
+            "returncode": proc.returncode,
+            "stdout": (proc.stdout or "")[-8000:],   # 最後 8KB
+            "stderr": (proc.stderr or "")[-2000:],
+            "hostnames": hostnames,
+            "limit_arg": limit_arg,
+        })
+    except _sp_v3_17_14.TimeoutExpired:
+        return jsonify({"success": False, "error": "ansible-playbook timeout (300s)"}), 504
+    except Exception as e:
+        return jsonify({"success": False, "error": "subprocess error: " + str(e)}), 500

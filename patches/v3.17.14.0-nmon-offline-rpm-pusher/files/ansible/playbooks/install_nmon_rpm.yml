@@ -1,0 +1,14 @@
+---
+# v3.17.14.0 - install nmon offline RPM playbook
+# Trigger: webapp UI POST /api/nmon/install-rpm with hostnames=[...]
+#         → ansible-playbook install_nmon_rpm.yml --limit "host1:host2:..."
+#
+# 變數 inspection_home 由 webapp 傳入 (--extra-vars), 預設 /opt/inspection 或 /seclog/AI/inspection
+
+- name: Install nmon offline RPM (RHEL family only)
+  hosts: all
+  gather_facts: yes
+  vars:
+    inspection_home: "{{ inspection_home | default('/opt/inspection') }}"
+  roles:
+    - install_nmon_rpm

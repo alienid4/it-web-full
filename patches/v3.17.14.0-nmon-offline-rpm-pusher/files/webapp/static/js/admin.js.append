@@ -1,0 +1,124 @@
+
+// ===== v3.17.14.0+: NMON 離線 RPM 派送 (補 EPEL 不通環境) =====
+// 觸發: 「📊 NMON 部署狀態」card 標題列「📦 派送 RPM」按鈕
+// 流程: 重新拉 /api/nmon/verify 撈 binary_ok=false 主機 → modal 多選勾選 → POST /api/nmon/install-rpm
+function installNmonRpmFail() {
+  var btn = document.querySelector("button[onclick='installNmonRpmFail()']");
+  var orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '讀取狀態...'; }
+
+  fetch('/api/nmon/verify').then(function(r){return r.json();}).then(function(res){
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+    if (!res.success) {
+      alert('讀取狀態失敗: ' + (res.error||'unknown'));
+      return;
+    }
+    var failHosts = (res.data || []).filter(function(h){
+      return h && h.binary_ok === false && h.status !== 'UNREACHABLE';
+    });
+    if (failHosts.length === 0) {
+      alert('目前沒有缺 nmon binary 的主機 (或都 UNREACHABLE 連不上). 不需派送 RPM.');
+      return;
+    }
+    _showNmonRpmPushModal(failHosts);
+  }).catch(function(e){
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+    alert('❌ 讀取主機狀態失敗: ' + e);
+  });
+}
+
+// 多選 modal — 列出 binary 缺漏主機, 預設全勾, 可清/全選/逐項勾選
+function _showNmonRpmPushModal(hosts) {
+  // 防止重複開
+  var existing = document.getElementById('nmon-rpm-modal-backdrop');
+  if (existing) { existing.parentNode.removeChild(existing); }
+
+  var backdrop = document.createElement('div');
+  backdrop.id = 'nmon-rpm-modal-backdrop';
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+
+  var rows = hosts.map(function(h){
+    var detail = h.detail ? '<div style="font-size:11px;color:#dc2626;margin-left:24px;margin-top:2px;">' + h.detail + '</div>' : '';
+    return '<label style="display:block;padding:8px;border-bottom:1px solid #f0f0f0;cursor:pointer;">' +
+      '<input type="checkbox" class="nmon-rpm-chk" value="' + h.hostname + '" checked style="margin-right:8px;vertical-align:middle;"> ' +
+      '<b>' + h.hostname + '</b>' +
+      ' <span style="font-size:11px;color:#666;margin-left:6px;">(' + (h.ip||'-') + ' · ' + (h.os_group||'-') + ')</span>' +
+      detail +
+      '</label>';
+  }).join('');
+
+  var modal = document.createElement('div');
+  modal.style.cssText = 'background:white;padding:24px;border-radius:10px;max-width:560px;width:90%;max-height:82vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,0.3);';
+  modal.innerHTML =
+    '<h3 style="margin:0 0 6px;">📦 派送 NMON 離線 RPM</h3>' +
+    '<p style="color:#666;font-size:13px;margin:0 0 12px;">下列主機缺 nmon binary, 勾選要派送的 (預設全勾, 共 <b>' + hosts.length + '</b> 台):</p>' +
+    '<div style="display:flex;gap:8px;margin-bottom:8px;font-size:12px;">' +
+      '<button type="button" id="nmon-rpm-select-all" class="btn" style="font-size:12px;padding:3px 12px;">全選</button>' +
+      '<button type="button" id="nmon-rpm-clear-all" class="btn" style="font-size:12px;padding:3px 12px;">清除</button>' +
+      '<span id="nmon-rpm-count" style="margin-left:auto;color:#666;align-self:center;">已選 ' + hosts.length + ' 台</span>' +
+    '</div>' +
+    '<div id="nmon-rpm-host-list" style="border:1px solid #e5e7eb;border-radius:6px;flex:1;overflow-y:auto;background:#fafafa;">' +
+      rows +
+    '</div>' +
+    '<div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end;">' +
+      '<button type="button" id="nmon-rpm-cancel" class="btn">取消</button>' +
+      '<button type="button" id="nmon-rpm-confirm" class="btn btn-primary" style="background:var(--g2);color:white;">📦 派送選定主機</button>' +
+    '</div>';
+
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  function updateCount() {
+    var n = document.querySelectorAll('.nmon-rpm-chk:checked').length;
+    var c = document.getElementById('nmon-rpm-count');
+    if (c) c.textContent = '已選 ' + n + ' 台';
+  }
+
+  document.querySelectorAll('.nmon-rpm-chk').forEach(function(c){ c.addEventListener('change', updateCount); });
+  document.getElementById('nmon-rpm-select-all').onclick = function(){
+    document.querySelectorAll('.nmon-rpm-chk').forEach(function(c){ c.checked = true; }); updateCount();
+  };
+  document.getElementById('nmon-rpm-clear-all').onclick = function(){
+    document.querySelectorAll('.nmon-rpm-chk').forEach(function(c){ c.checked = false; }); updateCount();
+  };
+  document.getElementById('nmon-rpm-cancel').onclick = function(){
+    document.body.removeChild(backdrop);
+  };
+  // 點 backdrop 外側也關閉
+  backdrop.addEventListener('click', function(e){
+    if (e.target === backdrop) document.body.removeChild(backdrop);
+  });
+  document.getElementById('nmon-rpm-confirm').onclick = function(){
+    var checked = Array.prototype.slice.call(document.querySelectorAll('.nmon-rpm-chk:checked')).map(function(c){ return c.value; });
+    if (checked.length === 0) {
+      alert('請至少勾選一台主機');
+      return;
+    }
+    document.body.removeChild(backdrop);
+    _doPushNmonRpm(checked);
+  };
+}
+
+function _doPushNmonRpm(hostnames) {
+  var btn = document.querySelector("button[onclick='installNmonRpmFail()']");
+  var orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '派送中... (1-3 分)'; }
+
+  fetch('/api/nmon/install-rpm', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({hostnames: hostnames})
+  }).then(function(r){return r.json();}).then(function(j){
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+    if (j.success) {
+      var tail = (j.stdout || '').split('\n').slice(-15).join('\n');
+      alert('✅ RPM 派送完成 (' + hostnames.length + ' 台: ' + hostnames.join(', ') + ').\n\n5-10 分鐘後再點「🔍 立即檢查」確認 binary 已安裝.\n\nansible 輸出尾段:\n' + tail);
+      if (typeof verifyNmonDeployment === 'function') verifyNmonDeployment();
+    } else {
+      alert('❌ 派送失敗:\n' + (j.error || j.stderr || (j.stdout||'').slice(-2000) || 'unknown'));
+    }
+  }).catch(function(e){
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+    alert('❌ API 錯誤: ' + e);
+  });
+}

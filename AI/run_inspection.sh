@@ -1,8 +1,11 @@
 #!/bin/bash
 # 金融業 IT 每日巡檢 - 每日執行腳本
-# Cron: 30 6,13,17 * * * /opt/inspection/run_inspection.sh
+# Cron: 30 6,13,17 * * * <INSPECTION_HOME>/run_inspection.sh
+# INSPECTION_HOME 預設用腳本所在目錄, 可被環境變數 override.
+# 修自 v3.17.10.1 後的 hot-fix (2026-05-06): 原本寫死 /opt/inspection
+# 但實際安裝在 /seclog/AI/inspection 等不同位置時 cd 會失敗整個 cron 跑死.
 
-INSPECTION_HOME="/opt/inspection"
+INSPECTION_HOME="${INSPECTION_HOME:-$(cd "$(dirname "$0")" && pwd)}"
 ANSIBLE_DIR="${INSPECTION_HOME}/ansible"
 LOG_DIR="${INSPECTION_HOME}/logs"
 REPORT_DIR="${INSPECTION_HOME}/data/reports"
@@ -29,7 +32,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] ===== 巡檢開始 ${TS} =====" | tee "${LO
 
 cd "${ANSIBLE_DIR}" || { echo "ERROR: cd failed"; exit 1; }
 
-ansible-playbook playbooks/site.yml --vault-password-file /opt/inspection/.vault_pass \
+ansible-playbook playbooks/site.yml --vault-password-file "${INSPECTION_HOME}/.vault_pass" \
   -i inventory/hosts.yml \
   2>&1 | tee -a "${LOG_FILE}"
 
@@ -40,7 +43,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] ===== 巡檢完成 exit=${EXIT_CODE} ====="
 # === 套件盤點 (v3.8.0.0+) ===
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 開始收集套件盤點..." | tee -a "${LOG_FILE}"
 cd "${ANSIBLE_DIR}" && ansible-playbook playbooks/collect_packages.yml \
-  --vault-password-file /opt/inspection/.vault_pass \
+  --vault-password-file "${INSPECTION_HOME}/.vault_pass" \
   -i inventory/hosts.yml \
   2>&1 | tee -a "${LOG_FILE}"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] 套件盤點完成" | tee -a "${LOG_FILE}"
@@ -72,7 +75,7 @@ print(':'.join(h['hostname'] for h in nmon_service.list_enabled_hosts()))
 if [ -n "${NMON_HOSTS}" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] 開始收集 nmon 效能資料 (主機: ${NMON_HOSTS})..." | tee -a "${LOG_FILE}"
     cd "${ANSIBLE_DIR}" && ansible-playbook playbooks/collect_nmon.yml \
-      --vault-password-file /opt/inspection/.vault_pass \
+      --vault-password-file "${INSPECTION_HOME}/.vault_pass" \
       -i inventory/hosts.yml \
       --limit "${NMON_HOSTS}" \
       2>&1 | tee -a "${LOG_FILE}"

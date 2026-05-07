@@ -1,0 +1,41 @@
+patch_version: v3.17.14.0
+patch_name: nmon-offline-rpm-pusher
+released_at: 2026-05-07
+prereq: v3.17.13.0-nmon-verify-panel (must be deployed first)
+target_os: RHEL 9 / Rocky Linux 9 / CentOS Stream 9 (EL9)
+
+# 隨包 RPM
+rpm_file: nmon-16p-1.el9.x86_64.rpm
+rpm_size_bytes: 77576
+rpm_sha256: 129badf3ad9d0d21ead657af5e1d568c770bfd469cd6bea3aeaa986d4f68981c
+rpm_source: EPEL 9 (https://dl.fedoraproject.org/pub/epel/9/Everything/x86_64/Packages/n/)
+rpm_upstream: nmon (Nigel Griffiths, IBM, GPL)
+rpm_no_external_deps: yes (only glibc / libncurses, RHEL 9 內建)
+
+# 依賴的 patch
+requires:
+  - v3.17.13.0-nmon-verify-panel
+
+# 改動範圍
+changes:
+  - new: ansible/roles/install_nmon_rpm/
+  - new: ansible/playbooks/install_nmon_rpm.yml
+  - new: scripts/download_nmon_rpm.sh
+  - new: offline_bundle/nmon/*.rpm
+  - append: webapp/routes/api_nmon.py (POST /api/nmon/install-rpm)
+  - append: webapp/static/js/admin.js (installNmonRpmFail)
+  - inject: webapp/templates/admin.html (📦 派送 RPM 按鈕)
+
+# Compliance Status (MVP)
+compliance:
+  status: PARTIAL_COMPLIANT (MVP, 4 deferred items)
+  deferred:
+    - GPG signature verification (rpm --import + rpm -K)
+    - sudoers command-list lockdown
+    - change ticket field (audit log integration)
+    - always-cleanup /tmp on failure
+  reference: ~/.claude/plans/v3.17.14.0-nmon-offline-rpm-pusher.md (合規章節)
+  next_version_for_full_compliance: v3.17.14.1 or v3.17.15.0
+
+# 部署指令
+deploy: "cd patches/v3.17.14.0-nmon-offline-rpm-pusher && sudo bash install.sh"
