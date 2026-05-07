@@ -1,0 +1,5 @@
+patch_version=3.17.14.2
+patch_name=nmon-ui-fixes
+baseline=3.17.14.0
+date=2026-05-07
+description=NMON UI 雙修: (1) 選主機清單只顯示1台 (OS未偵測主機被filter擋) + (2) 新增資料收集/匯入按鈕解決/perf沒資料問題
