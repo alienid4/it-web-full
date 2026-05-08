@@ -1,0 +1,5 @@
+patch_version=3.17.19.6
+patch_name=healthcheck-parse-fix
+baseline=3.17.19.5
+date=2026-05-08
+description=修 health-check 截斷 body 才 parse JSON 的 bug (長 response 被誤判成 success=false)
