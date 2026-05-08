@@ -1,0 +1,5 @@
+patch_version=3.17.19.10
+patch_name=onboard-error-detail
+baseline=3.17.19.9
+date=2026-05-08
+description=批次上線 JS 加詳細錯誤訊息 (HTTP status / Content-Type / response 前 200 字), 取代「<!DOCTYPE 不是有效 JSON」這種無資訊錯誤
