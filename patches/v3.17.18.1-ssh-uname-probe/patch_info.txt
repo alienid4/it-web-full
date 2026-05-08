@@ -1,0 +1,5 @@
+patch_version=3.17.18.1
+patch_name=ssh-uname-probe
+baseline=3.17.18.0
+date=2026-05-08
+description=網段掃描加 SSH uname -s 真實 probe (sysinfra key)，AIX/Linux 識別率提升至 100%
