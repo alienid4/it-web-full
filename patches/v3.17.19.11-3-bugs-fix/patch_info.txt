@@ -1,0 +1,5 @@
+patch_version=3.17.19.11
+patch_name=3-bugs-fix
+baseline=3.17.19.10
+date=2026-05-08
+description=修 3 個 bug (probe_os backup 寫權限 / JS bo-start-count textContent null / CSP cdn.jsdelivr.net source map)
