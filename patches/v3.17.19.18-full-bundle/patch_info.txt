@@ -1,0 +1,5 @@
+patch_version=3.17.19.18
+patch_name=full-bundle
+baseline=3.17.18.0+
+date=2026-05-08
+description=從 v3.17.18.0+ 一次升到 v3.17.19.18 (含 18 個累積 patch + admin nav active group inline 顯示修正)
