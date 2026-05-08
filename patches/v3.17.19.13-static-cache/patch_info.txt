@@ -1,0 +1,5 @@
+patch_version=3.17.19.13
+patch_name=static-cache
+baseline=3.17.19.12
+date=2026-05-08
+description=static 檔案瀏覽器 cache 1 小時 (Cache-Control: public, max-age=3600), 第 2 次起頁面 4167ms->294ms (14x)
