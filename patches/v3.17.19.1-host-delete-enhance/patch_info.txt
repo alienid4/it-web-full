@@ -1,0 +1,5 @@
+patch_version=3.17.19.1
+patch_name=host-delete-enhance
+baseline=3.17.19.0
+date=2026-05-08
+description=主機刪除增強 (重建 inventory + 可選清巡檢歷史) + generate_inventory.py 讀 INSPECTION_HOME env var
