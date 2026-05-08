@@ -1,0 +1,5 @@
+patch_version=3.17.19.17
+patch_name=full-bundle
+baseline=3.17.18.0+
+date=2026-05-08
+description=從 v3.17.18.0 以上一次升級到 v3.17.19.17 (整合 17 個 patch 的所有改動，一個 install.sh 搞定)
