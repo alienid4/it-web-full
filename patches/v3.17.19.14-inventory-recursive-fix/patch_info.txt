@@ -1,0 +1,5 @@
+patch_version=3.17.19.14
+patch_name=inventory-recursive-fix
+baseline=3.17.19.13
+date=2026-05-08
+description=修 generate_inventory.py windows.children.windows 自我嵌套 (ansible "can't add group to itself" 錯誤)
