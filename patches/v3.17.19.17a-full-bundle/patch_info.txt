@@ -1,0 +1,5 @@
+patch_version=3.17.19.17a
+patch_name=full-bundle
+baseline=3.17.16.0+
+date=2026-05-08
+description=從 v3.17.16.0+ 一次升到 v3.17.19.17a (Bundle 含全部 17 個 patch + admin nav inline 顯示修正)
