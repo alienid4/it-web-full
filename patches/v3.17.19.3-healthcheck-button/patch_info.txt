@@ -1,0 +1,5 @@
+patch_version=3.17.19.3
+patch_name=healthcheck-button
+baseline=3.17.19.2
+date=2026-05-08
+description=系統管理 dashboard 加常駐「🩺 系統健康檢查」+「🔄 重新載入」按鈕，使用者隨時可一鍵驗證
