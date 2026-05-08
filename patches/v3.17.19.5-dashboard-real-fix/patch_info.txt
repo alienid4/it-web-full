@@ -1,0 +1,5 @@
+patch_version=3.17.19.5
+patch_name=dashboard-real-fix
+baseline=3.17.19.4
+date=2026-05-08
+description=Dashboard 真正加速 (system/info 488ms->10ms, 用 Python import ansible 代替 CLI subprocess) + 加 smoke_dashboard.py 自動端到端驗證腳本
