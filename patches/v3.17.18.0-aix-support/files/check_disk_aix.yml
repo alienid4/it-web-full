@@ -1,0 +1,38 @@
+---
+- name:  AIX  (df -g)
+  shell: "df -g 2>/dev/null | tail -n +2"
+  register: disk_raw
+  changed_when: false
+
+- name: 
+  set_fact:
+    disk_items: >-
+      {% set items = [] %}
+      {% for line in disk_raw.stdout_lines %}
+        {% set cols = line.split() %}
+        {% if cols | length >= 7 %}
+          {% set fs = cols[0] %}
+          {% set pct_str = cols[3] | regex_replace('%','') %}
+          {% set mount = cols[6] %}
+          {% if fs not in disk_exclude %}
+            {% set pct_int = pct_str | int %}
+            {% set st = 'error' if pct_int >= (disk_error_threshold | default(90) | int)
+                        else 'warn' if pct_int >= (disk_warn_threshold | default(80) | int)
+                        else 'ok' %}
+            {% set _ = items.append({'fs': fs, 'mount': mount, 'percent': pct_int, 'status': st}) %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+      {{ items }}
+
+- name:
+  set_fact:
+    disk_result:
+      status: >-
+        {{ 'error' if disk_items | selectattr('status', 'eq', 'error') | list | length > 0
+           else 'warn' if disk_items | selectattr('status', 'eq', 'warn') | list | length > 0
+           else 'ok' }}
+      partitions: "{{ disk_items }}"
+      error_fs: "{{ disk_items | selectattr('status', 'eq', 'error') | list }}"
+      warn_fs: "{{ disk_items | selectattr('status', 'eq', 'warn') | list }}"
+      os: "AIX"

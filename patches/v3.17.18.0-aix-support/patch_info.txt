@@ -1,0 +1,5 @@
+patch_version=3.17.18.0
+patch_name=aix-support
+baseline=3.17.17.0a
+date=2026-05-08
+description=AIX 今日巡檢報告支援 + 網段掃描 OS 偵測 (SSH banner + open port heuristics)
