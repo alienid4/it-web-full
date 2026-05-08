@@ -1,0 +1,5 @@
+patch_version=3.17.19.16
+patch_name=diagnostic-tab
+baseline=3.17.19.15
+date=2026-05-08
+description=系統管理新增「🩺 系統診斷」獨立 tab，支援快速/深度檢查 + 可下載 sanitized 報告 (IP/hostname/email/路徑全替換)
