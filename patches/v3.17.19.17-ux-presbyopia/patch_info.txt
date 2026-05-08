@@ -1,0 +1,5 @@
+patch_version=3.17.19.17
+patch_name=ux-presbyopia
+baseline=3.17.19.16
+date=2026-05-08
+description=UI 老花友善 (版本字加大加深 + admin tab nav 當前 group 自動展開, 不再藏在 hover 選單)
