@@ -1,0 +1,5 @@
+patch_version=3.17.19.8
+patch_name=prewarm-ping
+baseline=3.17.19.7
+date=2026-05-08
+description=ping-all (主管儀表板) 加 startup 背景預熱 + ping timeout -W 2->1，從 2022ms 變 2.6ms
