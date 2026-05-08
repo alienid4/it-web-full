@@ -1,0 +1,5 @@
+patch_version=3.17.19.12
+patch_name=version-inline
+baseline=3.17.19.11
+date=2026-05-08
+description=版本顯示改 server-side inline render (省一個 30KB fetch + ~300ms CF Tunnel 往返)
