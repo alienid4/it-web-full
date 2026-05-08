@@ -1,0 +1,5 @@
+patch_version=3.17.18.2
+patch_name=aix-port-heuristic
+baseline=3.17.18.1
+date=2026-05-08
+description=網段掃描加 AIX port heuristic (657 RMC + 199 SMUX)，無 key 也能猜出 AIX，解決雞生蛋問題
