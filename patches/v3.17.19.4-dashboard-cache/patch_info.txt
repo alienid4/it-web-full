@@ -1,0 +1,5 @@
+patch_version=3.17.19.4
+patch_name=dashboard-cache
+baseline=3.17.19.3
+date=2026-05-08
+description=Dashboard 加速 (system/info 從 511ms->1.8ms, system/status 從 112ms->2ms, 採 TTL 快取 + 平行 subprocess)
