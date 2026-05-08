@@ -1,0 +1,5 @@
+patch_version=3.17.19.2
+patch_name=online-users-healthcheck
+baseline=3.17.19.1
+date=2026-05-08
+description=補上缺失的 /api/admin/online-users 端點 + 加 /api/admin/health-check 智能檢查 + dashboard 防靜默失敗
