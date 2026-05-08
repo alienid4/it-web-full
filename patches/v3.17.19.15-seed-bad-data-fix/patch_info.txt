@@ -1,0 +1,5 @@
+patch_version=3.17.19.15
+patch_name=seed-bad-data-fix
+baseline=3.17.19.14
+date=2026-05-08
+description=修 seed_data.py 誤匯 twgcb_/network_*.json 到 inspections (run_date 變 'twgc-b_-se' 字串切片) + check_inspection.py 加 skip=true 識別
