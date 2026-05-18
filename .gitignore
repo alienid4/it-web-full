@@ -47,6 +47,9 @@ security_build/
 Thumbs.db
 desktop.ini
 
+# PPT binaries — only explicitly force-added files are tracked
+PPT/*.pptx
+
 # Personal / unrelated content (not part of it-web-full)
 AI LAB/
 .claude/
